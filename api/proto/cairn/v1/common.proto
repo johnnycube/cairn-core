@@ -1,0 +1,178 @@
+// Package cairn.v1 contains the public API surface of Cairn.
+//
+// All RPCs are exposed simultaneously as gRPC, gRPC-Web, and Connect-JSON
+// from a single Connect-Go handler. The same .proto files generate
+// OpenAPI v3 for REST/HTTP consumers and Connect-Web clients for the
+// SvelteKit frontend.
+//
+// Convention: IDs are UUID strings (UUIDv7 for time-ordered insertion).
+// Timestamps use google.protobuf.Timestamp (RFC 3339).
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ----------------------------------------------------------------------------
+// Pagination — cursor-based.
+//
+// Cursor encodes (last_id, last_sort_key) and is opaque to clients.
+// Servers decode and validate the cursor; tampering yields INVALID_ARGUMENT.
+// ----------------------------------------------------------------------------
+
+message PageRequest {
+  // Opaque cursor from a previous PageResponse.next_cursor.
+  // Empty for the first page.
+  string cursor = 1;
+
+  // Max items to return. Server caps at an endpoint-specific maximum
+  // (typically 100). Zero means "use server default".
+  int32 limit = 2;
+}
+
+message PageResponse {
+  // Cursor for the next page. Empty when no more pages remain.
+  string next_cursor = 1;
+
+  // Total count if cheap to compute, otherwise -1.
+  // Clients should not rely on this being populated for every endpoint.
+  int64 total = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Time ranges — used for filtering activities, metrics, segments, etc.
+// ----------------------------------------------------------------------------
+
+message TimeRange {
+  // Inclusive lower bound. If unset, treated as -infinity.
+  google.protobuf.Timestamp from = 1;
+
+  // Exclusive upper bound. If unset, treated as +infinity.
+  google.protobuf.Timestamp to = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Error classification.
+//
+// Connect's transport-level error codes are used for protocol errors
+// (Unauthenticated, PermissionDenied, etc). This enum classifies
+// domain-level errors that clients may want to react to programmatically.
+// It is conveyed via Connect error details (google.rpc.ErrorInfo-style).
+// ----------------------------------------------------------------------------
+
+enum ErrorClass {
+  ERROR_CLASS_UNSPECIFIED = 0;
+
+  // The requested resource does not exist.
+  ERROR_CLASS_NOT_FOUND = 1;
+
+  // The caller is authenticated but lacks permission for the resource.
+  ERROR_CLASS_PERMISSION_DENIED = 2;
+
+  // Input failed business-rule validation.
+  // Details carry per-field error messages.
+  ERROR_CLASS_VALIDATION = 3;
+
+  // The operation would conflict with current state (e.g. unique constraint).
+  ERROR_CLASS_CONFLICT = 4;
+
+  // The caller has hit a rate limit. retry_after_ms carries the suggested wait.
+  ERROR_CLASS_RATE_LIMITED = 5;
+
+  // An upstream dependency (provider API, worker, queue) is unavailable.
+  ERROR_CLASS_DEPENDENCY_UNAVAILABLE = 6;
+
+  // Internal server error — no useful information for the client.
+  ERROR_CLASS_INTERNAL = 7;
+}
+
+// Returned in error details for richer client-side handling.
+message ErrorDetail {
+  ErrorClass class = 1;
+
+  // Machine-readable error code, e.g. "activity.duplicate",
+  // "external_account.auth_expired". Stable across versions.
+  string code = 2;
+
+  // i18n key for client-side localization, e.g.
+  // "errors.external_account.auth_expired".
+  // The frontend resolves this with Paraglide; metadata supplies template vars.
+  string i18n_key = 3;
+  map<string, string> i18n_params = 4;
+
+  // Suggested retry-after in milliseconds. Zero means no suggestion.
+  // Populated for RATE_LIMITED and some DEPENDENCY_UNAVAILABLE errors.
+  int64 retry_after_ms = 5;
+
+  // Optional per-field validation messages (path -> message).
+  // Populated for ERROR_CLASS_VALIDATION.
+  map<string, string> field_errors = 6;
+}
+
+// ----------------------------------------------------------------------------
+// Provider identifies an external data source.
+//
+// Modeled as a string (not enum) because the set is dynamically extensible —
+// workers register new providers at runtime via WorkerManifest. The Core does
+// not need to be recompiled to support a new provider.
+//
+// Conventions:
+//   - lowercase, no whitespace, ASCII only
+//   - examples: "strava", "garmin", "trainingpeaks", "withings", "polar"
+//
+// Reserved provider IDs:
+//   "manual"      User-entered data with no external source.
+//   "cairn"       Computed by the Core itself (TSS, CTL, ATL, TSB).
+//   "fit-upload"  Generic file-upload pipeline (parsed by fit-parser-worker).
+//
+// Use a typed wrapper at the application layer; the wire type is string.
+// ----------------------------------------------------------------------------
+
+// Convention marker; do not embed in messages — fields use plain `string`
+// with this name to aid static search.
+message ProviderIdConventionMarker {
+  option deprecated = false;
+}
+
+// ----------------------------------------------------------------------------
+// Common value types
+// ----------------------------------------------------------------------------
+
+// Units of measurement that the API returns. The API always returns SI units;
+// clients convert for display per user preference.
+//
+// distance              meters
+// elevation             meters
+// duration              seconds (int64 or google.protobuf.Duration)
+// speed                 meters per second
+// power                 watts
+// heart rate            beats per minute
+// cadence (cycling)     revolutions per minute
+// cadence (running)     steps per minute (single-leg)
+// temperature           degrees Celsius
+// weight                kilograms
+// pace                  derived on the client from speed
+
+// A geographic point. Latitude/Longitude in WGS84.
+message GeoPoint {
+  double latitude = 1;
+  double longitude = 2;
+  // Elevation in meters. Optional.
+  optional double elevation_m = 3;
+}
+
+// A polyline encoded as Google's encoded polyline algorithm (precision 5 or 6).
+// PostGIS GEOGRAPHY values are converted to/from this on the API boundary.
+message EncodedPolyline {
+  string encoded = 1;
+  // 5 for Strava-style, 6 for higher precision.
+  int32 precision = 2;
+}
+
+// A bounding box for spatial queries.
+message BoundingBox {
+  double min_latitude = 1;
+  double min_longitude = 2;
+  double max_latitude = 3;
+  double max_longitude = 4;
+}

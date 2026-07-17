@@ -1,0 +1,938 @@
+// Package cairn.worker.v1 defines the contract that every Worker implements.
+//
+// Workers run as independent processes in any language (Go, Python, Node, ...)
+// and connect to the Cairn Core. The Core never invokes worker-specific RPCs
+// — all interaction is generic Jobs with provider-specific payloads carried
+// in google.protobuf.Any.
+//
+// Transport (revised): NATS + JetStream is the production transport.
+// The message types in this file (Job, JobResult, WorkerManifest, etc.)
+// are still the wire format — they're proto-encoded as NATS payloads.
+// The Connect/gRPC service definitions below remain available as a
+// fallback path for HTTP-only environments and for smoketest debugging
+// via curl, but are NOT the primary path. See
+// CLAUDE.md§"Multi-Source-Modell" and README.md§"What still needs to be
+// written" for the rationale.
+//
+// NATS subject layout:
+//
+//   cairn.jobs.<provider>.<job_type>      Core → worker, queue-group balanced
+//   cairn.results.<job_id>                worker → Core (or use request-reply)
+//   cairn.workers.<name>.<inst>.hb        worker → Core heartbeats
+//   cairn.workers.register                request-reply registration
+//   cairn.events.<topic>                  internal fan-out
+//
+// Lifecycle of a worker (NATS-native):
+//
+//   1. Worker starts, sends a Register request on `cairn.workers.register`
+//      (NATS request-reply) carrying its WorkerManifest. The Core replies
+//      with the worker_id assigned and the JetStream consumer config the
+//      worker should subscribe to.
+//
+//   2. Worker subscribes to its assigned `cairn.jobs.<provider>.>` subjects
+//      with the queue group `cairn-workers-<provider>` (so multiple worker
+//      instances of the same provider load-balance).
+//
+//   3. Worker processes each Job message. Result is published to
+//      `cairn.results.<job_id>` OR returned via NATS request-reply
+//      depending on whether the caller wanted a synchronous answer.
+//      JetStream's ack window (5min default) re-delivers if the worker
+//      crashes.
+//
+//   4. Worker publishes Heartbeat to `cairn.workers.<name>.<inst>.hb`
+//      every 15s. A subscriber on the Core consumes these and updates the
+//      `workers` table; missing heartbeats for > grace cause OFFLINE
+//      marking and JetStream re-delivers any in-flight jobs.
+//
+//   5. On shutdown, the worker drains JetStream consumers (so jobs in
+//      flight finish) and publishes a Deregister event. The Core marks
+//      the row deleted; queue-group rebalancing routes pending jobs to
+//      other workers for the same provider if available.
+syntax = "proto3";
+
+package cairn.worker.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// The worker contract references the canonical Cairn entity payloads
+// directly — imported activities, segments, efforts, and records are
+// first-class cairn.v1 entities, just carried over the worker boundary.
+import "cairn/v1/activity.proto";
+import "cairn/v1/segment.proto";
+
+// ----------------------------------------------------------------------------
+// NOTE: there is no gRPC WorkerService. The messages below are the typed
+// NATS wire format (JobResult/WorkerEvent/Imported*/Job/Report*/Presign*),
+// exchanged over JetStream subjects — see docs/architecture.md.
+// ----------------------------------------------------------------------------
+
+
+// ----------------------------------------------------------------------------
+// Worker registration & manifest
+//
+// The manifest is the single source of truth for what the UI shows, what
+// fields the user must fill in, and what OAuth flow to use. The Core does
+// not have provider-specific code — everything is driven by the manifest.
+// ----------------------------------------------------------------------------
+
+message RegisterRequest {
+  // Shared authentication token. The Core operator configures this in env
+  // as CAIRN_WORKER_TOKEN; workers present it here. mTLS is optional and
+  // configured at the transport layer; this token is always required.
+  string auth_token = 1;
+
+  WorkerManifest manifest = 2;
+
+  // Network address the Core can reach this worker on for follow-up RPCs
+  // (e.g. callbacks). Optional — most communication flows worker→core.
+  string callback_address = 3;
+}
+
+message RegisterResponse {
+  // Stable identifier for this worker session. Workers include this in
+  // subsequent RPCs.
+  string worker_id = 1;
+
+  // Server-recommended heartbeat interval.
+  int32 heartbeat_interval_seconds = 2;
+
+  // Server-recommended initial credit (max concurrent jobs).
+  int32 recommended_capacity = 3;
+}
+
+message WorkerManifest {
+  // Stable name across versions (e.g. "strava-worker"). Used for routing
+  // and for migration tracking when this worker upgrades.
+  string worker_name = 1;
+
+  // Semantic version of the worker (e.g. "1.4.2"). Drives auto-reimport
+  // policies — activities imported by older versions can be flagged
+  // for update when this worker registers.
+  string version = 2;
+
+  // Hash of the manifest contents (excluding this field). Computed by the
+  // Core on registration; even within the same semver version, changes to
+  // capabilities or config schemas mark activities as stale.
+  string manifest_hash = 3;
+
+  // The providers this worker can serve. A single worker MAY serve
+  // multiple providers (e.g. a generic-fit-parser handles fit-upload).
+  repeated ProviderManifest providers = 4;
+
+  // SDK information for diagnostics.
+  string sdk_name = 5;     // "cairn-sdk-go" | "cairn-sdk-python" | ...
+  string sdk_version = 6;
+}
+
+message ProviderManifest {
+  // Stable provider identifier (e.g. "strava"). See cairn.v1.common for
+  // reserved IDs. Two manifests with the same provider_id from different
+  // workers raise a conflict in the admin UI.
+  string provider_id = 1;
+
+  // Human-readable display name (e.g. "Strava").
+  // i18n-key form is preferred for production manifests.
+  string display_name = 2;
+
+  // Short description shown in the "Add Account" UI.
+  string description = 3;
+
+  // URL to a logo asset (PNG/SVG). May be data: URL for offline manifests.
+  string icon_url = 4;
+
+  // Link to the operator-facing setup tutorial (e.g. "how to register a
+  // Strava API app and obtain client_id/client_secret").
+  string setup_docs_url = 5;
+
+  // Config fields the user must fill in via the dynamic form.
+  // The order in this list is the rendering order in the UI.
+  repeated ConfigField config_fields = 6;
+
+  // How users authenticate to this provider.
+  AuthMethod auth_method = 7;
+
+  // OAuth configuration. Populated iff auth_method == AUTH_METHOD_OAUTH2.
+  OAuthConfig oauth = 8;
+
+  // Job types this worker supports for this provider.
+  repeated JobType supported_jobs = 9;
+
+  // Default cron expression for polling jobs when webhooks are unavailable
+  // or as a safety net for missed webhooks. Empty string means "no polling".
+  string default_poll_schedule = 10;
+
+  // True if the provider supports webhooks for real-time updates.
+  // The worker is responsible for subscription lifecycle.
+  bool supports_webhooks = 11;
+
+  // True if the worker can backfill historical data on initial connection.
+  // Some APIs (Withings) limit historical depth; the worker enforces this.
+  bool supports_backfill = 12;
+
+  // True if the worker can re-parse a previously stored raw blob without
+  // calling the provider API. Saves rate-limit budget on reimports.
+  bool supports_local_reparse = 13;
+
+  // Which entity kinds this worker emits during data jobs. Declared at
+  // registration so the Core knows, up front, that an import of one
+  // activity may also yield segments, segment efforts, and records.
+  // e.g. Strava: [ACTIVITY, SEGMENT, SEGMENT_EFFORT, RECORD].
+  //
+  // DEPRECATED: superseded by `capabilities` (per-data-type axes). Kept for one
+  // release so workers that haven't upgraded keep registering. Derive a legacy
+  // capability view from this list when `capabilities` is empty.
+  repeated WorkerEventType producible_events = 14;
+
+  // Per-data-type capability declaration: for each provider-neutral data type
+  // (see cairn.domain.capability taxonomy — "Activity", "Lap", "SegmentEffort",
+  // "PersonalBest", "HRV", "Sleep", "Weight", ...) the axes read/write/push/
+  // backfill. This is the rich replacement for the coarse supports_webhooks /
+  // supports_backfill booleans above and the producible_events list: the Core
+  // queries it generically ("which connected provider can supply HRV?") instead
+  // of special-casing providers. Keys are canonical DataType identifiers.
+  map<string, DataTypeCapability> capabilities = 15;
+}
+
+// DataTypeCapability declares what a worker can do with one canonical data type.
+// Axes per the merge-layer brief (docs/merge-layer-rewrite-plan.md §4).
+message DataTypeCapability {
+  // The worker can fetch this data type from the provider.
+  bool read = 1;
+  // The worker can push this data type back to the provider.
+  bool write = 2;
+  // The provider delivers this type via webhook (real-time), vs pull-only.
+  bool push = 3;
+  // The worker can import historical data for this type.
+  bool backfill = 4;
+  // Optional resolution metadata, e.g. "1s", "daily", "per-activity".
+  string granularity = 5;
+}
+
+// WorkerEventType enumerates the first-class entity kinds a worker can
+// produce. A single data job (e.g. import activity #123) may yield a mix:
+// the activity, the segments its efforts reference, the efforts, and any
+// provider-reported records — each emitted as a typed WorkerEvent.
+enum WorkerEventType {
+  WORKER_EVENT_TYPE_UNSPECIFIED = 0;
+  WORKER_EVENT_TYPE_ACTIVITY = 1;
+  WORKER_EVENT_TYPE_SEGMENT = 2;
+  WORKER_EVENT_TYPE_SEGMENT_EFFORT = 3;
+  WORKER_EVENT_TYPE_RECORD = 4;
+  WORKER_EVENT_TYPE_METRIC = 5;
+}
+
+enum AuthMethod {
+  AUTH_METHOD_UNSPECIFIED = 0;
+  // No authentication needed (e.g. public ICS calendar feeds).
+  AUTH_METHOD_NONE = 1;
+  // OAuth 2.0 authorization code flow.
+  AUTH_METHOD_OAUTH2 = 2;
+  // Simple API key in a header or query parameter.
+  AUTH_METHOD_API_KEY = 3;
+  // Username + password (e.g. legacy Garmin Connect via unofficial API).
+  AUTH_METHOD_BASIC = 4;
+  // Custom flow handled by the worker via additional RPCs.
+  AUTH_METHOD_CUSTOM = 5;
+}
+
+message OAuthConfig {
+  // Provider's authorization endpoint, e.g.
+  // "https://www.strava.com/oauth/authorize".
+  string authorize_url = 1;
+
+  // Provider's token endpoint, e.g. "https://www.strava.com/oauth/token".
+  string token_url = 2;
+
+  // OAuth scopes to request. Provider-specific.
+  repeated string scopes = 3;
+
+  // Path on the Cairn host that receives the OAuth callback. The Core
+  // routes "/oauth/callback/{provider_id}" to this provider.
+  // Typically "/oauth/callback/strava" — derived but overridable.
+  string redirect_path = 4;
+
+  // Use PKCE (S256). Recommended for public clients.
+  bool pkce = 5;
+
+  // Use refresh tokens (most providers do; Strava in particular requires it).
+  bool uses_refresh_tokens = 6;
+}
+
+message ConfigField {
+  // Field key — what's stored. e.g. "client_id".
+  string key = 1;
+
+  // Label shown to the user. Use plain text for v1; i18n key support TBD.
+  string label = 2;
+
+  // Help text rendered below the field.
+  string help_text = 3;
+
+  // Field type — drives the input element rendered in the UI.
+  FieldType type = 4;
+
+  // Whether the user must provide a value.
+  bool required = 5;
+
+  // Optional client-side regex for validation (RE2 syntax).
+  string validation_regex = 6;
+
+  // For type == FIELD_TYPE_SELECT: list of allowed option values.
+  repeated string options = 7;
+
+  // True if the Core itself populates this value (e.g. an auto-generated
+  // webhook callback URL the user just copies into the provider portal).
+  // Such fields are read-only in the UI.
+  bool computed_by_core = 8;
+
+  // Optional placeholder text.
+  string placeholder = 9;
+
+  // Optional default value (only applied if user provides nothing).
+  string default_value = 10;
+}
+
+enum FieldType {
+  FIELD_TYPE_UNSPECIFIED = 0;
+  FIELD_TYPE_TEXT = 1;
+  FIELD_TYPE_SECRET = 2;     // password-masked, encrypted at rest
+  FIELD_TYPE_URL = 3;
+  FIELD_TYPE_NUMBER = 4;
+  FIELD_TYPE_BOOL = 5;
+  FIELD_TYPE_SELECT = 6;
+  FIELD_TYPE_MULTI_SELECT = 7;
+  FIELD_TYPE_DATE = 8;
+}
+
+// Categories of work a worker can perform for a provider. The set is
+// fixed in the proto because the Core dispatches based on it.
+enum JobType {
+  JOB_TYPE_UNSPECIFIED = 0;
+
+  // Discover the user's activities since a watermark and import each one.
+  // Payload: ImportActivitiesPayload.
+  JOB_TYPE_IMPORT_ACTIVITIES = 1;
+
+  // Re-import a single activity by external_id. Used after a webhook
+  // (Strava signals "activity updated") or for dry-run previews.
+  // Payload: ReimportActivityPayload.
+  JOB_TYPE_REIMPORT_ACTIVITY = 2;
+
+  // Re-parse a stored raw blob locally — no provider API call.
+  // Payload: LocalReparsePayload.
+  JOB_TYPE_LOCAL_REPARSE = 3;
+
+  // Import or sync the user's segments (e.g. starred Strava segments).
+  // Payload: ImportSegmentsPayload.
+  JOB_TYPE_IMPORT_SEGMENTS = 4;
+
+  // Fetch detailed segment info (leaderboard, etc.) for a single segment.
+  JOB_TYPE_FETCH_SEGMENT_DETAIL = 5;
+
+  // Import non-activity metrics: weight, steps, HRV, sleep.
+  // Payload: ImportMetricsPayload.
+  JOB_TYPE_IMPORT_METRICS = 6;
+
+  // Register a webhook subscription on the provider side.
+  // Payload: RegisterWebhookPayload.
+  JOB_TYPE_REGISTER_WEBHOOK = 7;
+
+  // Unregister a webhook subscription (account removal, token rotation).
+  JOB_TYPE_UNREGISTER_WEBHOOK = 8;
+
+  // Validate stored credentials by making a minimal authenticated call.
+  // Used to detect AUTH_EXPIRED before queueing heavier jobs.
+  JOB_TYPE_VALIDATE_CREDENTIALS = 9;
+
+  // Refresh OAuth tokens via the provider's token endpoint. Initiated by
+  // the Core when current tokens are near expiry.
+  JOB_TYPE_REFRESH_OAUTH_TOKEN = 10;
+}
+
+// ----------------------------------------------------------------------------
+// Worker lifecycle RPCs
+// ----------------------------------------------------------------------------
+
+message DeregisterRequest {
+  string worker_id = 1;
+}
+message DeregisterResponse {}
+
+message HeartbeatRequest {
+  string worker_id = 1;
+  WorkerHealth health = 2;
+}
+
+message HeartbeatResponse {
+  // The Core can ask the worker to deregister, e.g. when an admin removes
+  // it from the UI. Workers should exit cleanly when this is set.
+  bool should_shutdown = 1;
+}
+
+message WorkerHealth {
+  // Currently in-flight jobs.
+  int32 active_jobs = 1;
+
+  // Free capacity (recommended_capacity - active_jobs).
+  int32 available_capacity = 2;
+
+  // Free-form metrics the SDK collects (CPU, memory, queue depths).
+  // Surfaced in the admin panel.
+  map<string, double> metrics = 3;
+}
+
+// ----------------------------------------------------------------------------
+// Job dispatch
+// ----------------------------------------------------------------------------
+
+message Job {
+  // Unique job id. Workers MUST echo this in Report.
+  string id = 1;
+
+  // What kind of job. Drives payload interpretation.
+  JobType type = 2;
+
+  // Provider this job belongs to (matches a ProviderManifest.provider_id
+  // from this worker's manifest).
+  string provider = 3;
+
+  // The user this job runs on behalf of.
+  string user_id = 4;
+
+  // The external account context (the user's Strava account, etc.).
+  // Empty for provider-wide jobs (e.g. parsing an uploaded FIT file
+  // where provider == "fit-upload").
+  string external_account_id = 5;
+
+  // Resolved per-user config + credentials. In-memory only — workers
+  // MUST NOT persist these. The Core re-supplies fresh credentials with
+  // each job, including any refreshed OAuth tokens.
+  EphemeralCredentials credentials = 6;
+
+  // The typed job-specific payload. Empty for payload-less jobs
+  // (validate_credentials, refresh_oauth_token).
+  oneof payload {
+    ImportActivitiesPayload import_activities = 7;
+    ReimportActivityPayload reimport_activity = 12;
+    LocalReparsePayload local_reparse = 13;
+    ImportSegmentsPayload import_segments = 14;
+    ImportMetricsPayload import_metrics = 15;
+    RegisterWebhookPayload register_webhook = 16;
+    UnregisterWebhookPayload unregister_webhook = 17;
+  }
+
+  // When the job was scheduled (for latency tracking).
+  google.protobuf.Timestamp scheduled_at = 8;
+
+  // Soft deadline. Workers SHOULD abort if they cannot complete by this time.
+  google.protobuf.Timestamp deadline = 9;
+
+  // How many times this job has been attempted before. Zero on first attempt.
+  int32 attempt = 10;
+
+  // For dry-run previews (JOB_TYPE_REIMPORT_ACTIVITY with dry_run=true):
+  // the worker must NOT mutate any external state (e.g. acknowledge webhooks).
+  bool dry_run = 11;
+}
+
+message JobAck {
+  // Sent as the FIRST message on the Jobs stream — must include initial
+  // capacity. After that, repeat with received_job_ids to signal which
+  // jobs have been pulled off the queue successfully.
+  int32 initial_capacity = 1;
+
+  // Jobs the worker has accepted into its local queue. The Core relies
+  // on these acks to compute in-flight counts.
+  repeated string received_job_ids = 2;
+
+  // Jobs the worker is refusing (e.g. shutting down). The Core requeues.
+  repeated string rejected_job_ids = 3;
+
+  // Updated capacity hint, e.g. "I can take 3 more jobs right now".
+  int32 capacity_increment = 4;
+}
+
+message EphemeralCredentials {
+  AuthMethod method = 1;
+
+  // OAuth2: access_token, refresh_token, expires_at
+  string access_token = 2;
+  string refresh_token = 3;
+  google.protobuf.Timestamp access_token_expires_at = 4;
+
+  // OAuth2 client identity. With per-user Strava apps each external_account
+  // has its own client_id/client_secret.
+  string client_id = 5;
+  string client_secret = 6;
+
+  // API_KEY method: the configured key.
+  string api_key = 7;
+
+  // BASIC method.
+  string username = 8;
+  string password = 9;
+
+  // Provider-specific custom credentials (e.g. session cookies for legacy APIs).
+  map<string, string> custom = 10;
+
+  // Resolved user config from the manifest's config_fields, decrypted.
+  // Excludes secret fields already mapped above; carries provider-specific
+  // settings like API endpoint overrides, regional URLs, etc.
+  map<string, string> config = 11;
+}
+
+// ----------------------------------------------------------------------------
+// Job reporting
+// ----------------------------------------------------------------------------
+
+message ReportRequest {
+  string worker_id = 1;
+  string job_id = 2;
+  JobStatus status = 3;
+
+  // For STATUS_OK: the typed result. Data jobs return JobResult (the
+  // multi-event bundle); control jobs return their specific result.
+  oneof result {
+    JobResult job_result = 4;
+    ValidateCredentialsResult validate_credentials = 7;
+    RefreshOAuthTokenResult refresh_oauth_token = 8;
+    RegisterWebhookResult register_webhook = 9;
+  }
+
+  // For non-OK statuses: structured error.
+  WorkerError error = 5;
+
+  // Provider rate-limit snapshot, opportunistically collected from response
+  // headers. The Core uses this to throttle subsequent jobs for the same
+  // external_account, sparing the worker from being stateful.
+  RateLimitSnapshot rate_limit = 6;
+}
+
+message ReportResponse {
+  // The Core may instruct the worker on follow-up action.
+  ReportInstruction instruction = 1;
+}
+
+enum ReportInstruction {
+  REPORT_INSTRUCTION_UNSPECIFIED = 0;
+  // Nothing further required.
+  REPORT_INSTRUCTION_NONE = 1;
+  // The Core has accepted; worker may free job resources.
+  REPORT_INSTRUCTION_ACK = 2;
+  // The Core wants the worker to halt new work for this provider
+  // temporarily (e.g. provider-wide outage detected).
+  REPORT_INSTRUCTION_PAUSE_PROVIDER = 3;
+}
+
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_OK = 1;
+  JOB_STATUS_FAILED = 2;
+  JOB_STATUS_RATE_LIMITED = 3;       // retry_after carries the wait
+  JOB_STATUS_AUTH_EXPIRED = 4;       // refresh-token job will be enqueued
+  JOB_STATUS_RETRYABLE = 5;          // generic transient (network, 5xx)
+  JOB_STATUS_PROVIDER_DOWN = 6;      // suspected provider-wide outage
+}
+
+message WorkerError {
+  ErrorClass class = 1;
+
+  // Short machine-readable code, e.g. "strava.activity_not_found".
+  string code = 2;
+
+  // Human-readable detail for logging/admin UI. Do NOT include sensitive
+  // data (tokens, PII).
+  string message = 3;
+
+  // For STATUS_RATE_LIMITED / STATUS_RETRYABLE: when to retry.
+  // Server clamps to a reasonable maximum.
+  google.protobuf.Timestamp retry_after = 4;
+
+  // Optional structured details (provider error codes, HTTP status, etc.)
+  map<string, string> metadata = 5;
+}
+
+enum ErrorClass {
+  ERROR_CLASS_UNSPECIFIED = 0;
+  ERROR_CLASS_TRANSIENT = 1;             // network glitch, 5xx
+  ERROR_CLASS_RATE_LIMITED = 2;
+  ERROR_CLASS_AUTH_EXPIRED = 3;          // refreshable
+  ERROR_CLASS_AUTH_INVALID = 4;          // needs user action
+  ERROR_CLASS_NOT_FOUND = 5;
+  ERROR_CLASS_INVALID_INPUT = 6;         // permanent failure
+  ERROR_CLASS_PROVIDER_DOWN = 7;
+  ERROR_CLASS_WORKER_BUG = 8;            // dead-letter queue + admin alert
+}
+
+message RateLimitSnapshot {
+  // Remaining requests in the current short window (e.g. 15-min for Strava).
+  int32 short_remaining = 1;
+  // Total allowed in the short window.
+  int32 short_limit = 2;
+  // When the short window resets.
+  google.protobuf.Timestamp short_reset_at = 3;
+
+  // Same for the long window (e.g. daily).
+  int32 long_remaining = 4;
+  int32 long_limit = 5;
+  google.protobuf.Timestamp long_reset_at = 6;
+}
+
+// ----------------------------------------------------------------------------
+// Credential refresh
+// ----------------------------------------------------------------------------
+
+message RefreshCredentialsRequest {
+  string worker_id = 1;
+  string external_account_id = 2;
+  // Hint for the Core: the worker observed AUTH_EXPIRED while processing
+  // this job. Optional.
+  string failing_job_id = 3;
+}
+
+message RefreshCredentialsResponse {
+  EphemeralCredentials credentials = 1;
+}
+
+// ----------------------------------------------------------------------------
+// Blob storage helpers
+// ----------------------------------------------------------------------------
+
+message PresignBlobUploadRequest {
+  string worker_id = 1;
+  string user_id = 2;
+  string external_account_id = 3;
+  // Kind of blob, drives the S3 key prefix:
+  //   "activity_raw" "segment_raw" "metric_raw" "uploaded_file" ...
+  string kind = 4;
+  // Suggested file extension for the S3 key (e.g. "fit", "gpx", "tcx").
+  string extension = 5;
+  // Content-Type the worker will upload with.
+  string content_type = 6;
+  // Approximate size in bytes (for limits enforcement). Optional.
+  int64 size_hint_bytes = 7;
+}
+
+message PresignBlobUploadResponse {
+  // Opaque blob id to reference in Report payloads (e.g.
+  // ImportActivitiesResult.activities[].raw_blob_id).
+  string blob_id = 1;
+  // The pre-signed S3 PUT URL. Expires per Core configuration (default 15min).
+  string upload_url = 2;
+  // Required headers the worker must send (Content-Type, x-amz-*, ...).
+  map<string, string> required_headers = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message PresignBlobDownloadRequest {
+  string worker_id = 1;
+  string blob_id = 2;
+}
+
+message PresignBlobDownloadResponse {
+  string download_url = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  string content_type = 3;
+  int64 size_bytes = 4;
+}
+
+// ----------------------------------------------------------------------------
+// Job payload messages — these are packed into Job.payload (Any).
+//
+// Each JobType has corresponding *Payload and *Result messages. Workers
+// type-switch on the Any's type_url to decode.
+// ----------------------------------------------------------------------------
+
+// JOB_TYPE_IMPORT_ACTIVITIES
+message ImportActivitiesPayload {
+  // Only fetch activities after this timestamp. For initial backfill,
+  // workers may treat this as "everything" if the provider supports it
+  // and supports_backfill is true.
+  google.protobuf.Timestamp since = 1;
+
+  // Optional upper bound (used by manual "import last week" actions).
+  google.protobuf.Timestamp until = 2;
+
+  // Hard cap on number of activities to fetch in this job. Workers
+  // should split into multiple jobs when fetching more.
+  int32 max_count = 3;
+}
+
+// JOB_TYPE_REIMPORT_ACTIVITY
+message ReimportActivityPayload {
+  // Provider's id for the activity (e.g. Strava activity id).
+  string external_id = 1;
+  // The Cairn activity_source.id this reimport corresponds to.
+  string activity_source_id = 2;
+}
+
+// JOB_TYPE_LOCAL_REPARSE
+message LocalReparsePayload {
+  // The activity_source_id whose raw blob should be re-parsed.
+  string activity_source_id = 1;
+  // The blob_id to fetch via PresignBlobDownload.
+  string raw_blob_id = 2;
+}
+
+// JOB_TYPE_IMPORT_SEGMENTS
+message ImportSegmentsPayload {
+  google.protobuf.Timestamp since = 1;
+}
+
+// JOB_TYPE_IMPORT_METRICS
+message ImportMetricsPayload {
+  google.protobuf.Timestamp since = 1;
+  // Which metric keys to import. Empty = all the worker supports.
+  // Keys correspond to cairn.v1.MetricKey strings ("weight_kg", "steps", ...).
+  repeated string metric_keys = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Job results — the typed, multi-event data path.
+//
+// A data job produces a JobResult: an ordered list of typed WorkerEvents.
+// A single "import activity #123" job can yield the activity, the segments
+// its efforts reference, the efforts themselves, and any provider-reported
+// records — each a first-class Cairn entity carrying an optional external
+// relation. ORDER MATTERS: segments precede the efforts that reference them;
+// the activity precedes its efforts and records.
+// ----------------------------------------------------------------------------
+
+// ExternalRef ties an imported entity to its provider origin. The Core
+// dedups on (provider, external_id) scoped to external_account_id.
+message ExternalRef {
+  // The Cairn user this import is attributed to.
+  string user_id = 1;
+  string provider = 2;
+  // The user's external account (empty for provider-less imports like a
+  // manual file upload).
+  string external_account_id = 3;
+  // The provider's identifier for this entity — the strong dedup key.
+  string external_id = 4;
+}
+
+// JobResult is the unified result of every data job (import / reimport /
+// reparse). Replaces the former per-type ImportXResult messages.
+message JobResult {
+  // Events in dependency order (segments → activity → efforts → records).
+  repeated WorkerEvent events = 1;
+
+  // Import pagination: watermark to use as `since` next time, and whether
+  // more data is available beyond this batch.
+  google.protobuf.Timestamp new_watermark = 2;
+  bool more_available = 3;
+
+  // Worker identity, stamped onto every activity_source produced from this
+  // result (source_worker_name/version/package). The update-available +
+  // re-parse-eligibility key is (provider, package, version): a newer worker
+  // from the SAME package for the SAME provider marks older sources
+  // out-of-date / re-parseable. The routing name/alias is deliberately NOT
+  // part of that key, and the former manifest_hash (field 6) is retired —
+  // those three attributes ARE the maintainer-upheld compatibility contract.
+  string worker_name = 4;
+  string worker_version = 5;
+  reserved 6; // was manifest_hash
+
+  // worker_package is the stable build/package identity (e.g.
+  // "cairns.internal.strava-importer"). Together with provider + version it
+  // forms the update-available + re-parse-eligibility key.
+  string worker_package = 7;
+
+  // Claim-check: when set, this message is only the envelope — the full
+  // protojson JobResult (including all events) lives in the blob store at
+  // payload_ref.blob_id and `events` above is empty. Workers spill every
+  // event-carrying result this way so the NATS message stays small; the
+  // Core fetches, ingests, then deletes the object (a bucket lifecycle
+  // rule reaps orphans).
+  PayloadRef payload_ref = 8;
+
+  // Terminal worker-side failure, set INSTEAD of events (with failed_ref
+  // for correlation). Lets the Core fail the import-queue item immediately
+  // with the true reason — without it a Term'd job leaves the item
+  // in_progress until the stale reaper masks the cause as "no result
+  // after N dispatch attempts".
+  WorkerError error = 9;
+  ExternalRef failed_ref = 10;
+}
+
+// PayloadRef is the claim-check handle to a JobResult body in the blob
+// store. blob_id is the full S3 key as returned by the presign-upload
+// reply (kind "result" keys live under transfer/ and carry a short TTL).
+message PayloadRef {
+  string blob_id = 1;
+  int64 size_bytes = 2;
+  string content_type = 3;
+  string content_sha256 = 4;
+}
+
+// WorkerEvent is one typed entity emitted by a data job.
+message WorkerEvent {
+  WorkerEventType type = 1;
+  oneof entity {
+    ImportedActivity activity = 2;
+    ImportedSegment segment = 3;
+    ImportedSegmentEffort segment_effort = 4;
+    ImportedRecord record = 5;
+    ImportedMetric metric = 6;
+  }
+}
+
+// An imported activity: the canonical per-source payload, its raw-blob
+// reference, and the (column-oriented) stream — the time-series that is the
+// reason Cairn uses TimescaleDB.
+message ImportedActivity {
+  ExternalRef ref = 1;
+  string raw_blob_id = 2;
+  cairn.v1.ActivitySourcePayload payload = 3;
+  // Time-series samples for this source (same column-oriented shape the
+  // read API serves). Absent when the activity has no stream data.
+  cairn.v1.ActivityStream stream = 4;
+  // Photos/media for this activity. The worker has already mirrored the bytes
+  // into blob storage (blob_id); external_url is kept for provenance.
+  repeated Attachment attachments = 5;
+  // Content type + byte size of the archived raw blob (raw_blob_id), so the UI
+  // shows "1.2 MB (application/json)" instead of "0 B (?)". Set by the worker
+  // when it archives; 0/"" when nothing was archived.
+  string raw_content_type = 6;
+  int64 raw_size_bytes = 7;
+}
+
+// Attachment is a photo/media item the worker mirrored into blob storage at
+// import time. Persisted as a first-class entity on the activity.
+message Attachment {
+  string blob_id = 1;       // S3 key of the mirrored bytes
+  string external_url = 2;  // original provider URL (provenance / fallback)
+  string content_type = 3;
+  string caption = 4;
+  int32 width = 5;
+  int32 height = 6;
+}
+
+// An imported segment definition (a shared route). Provider-supplied subset;
+// the Core derives PostGIS geometry, bounding box, stats and ranks.
+message ImportedSegment {
+  ExternalRef ref = 1;
+  SegmentImport payload = 2;
+}
+
+message SegmentImport {
+  string name = 1;
+  string description = 2;
+  cairn.v1.ActivityType activity_type = 3;
+  // Encoded polyline (Google polyline algorithm). The Core derives the
+  // PostGIS GEOGRAPHY and bounding box from this.
+  string encoded_polyline = 4;
+  double distance_m = 5;
+  optional double elevation_gain_m = 6;
+  optional double elevation_loss_m = 7;
+  optional double avg_grade = 8;
+  optional double max_grade = 9;
+  optional cairn.v1.ClimbCategory climb_category = 10;
+  bool bidirectional = 11;
+  bool starred = 12;
+}
+
+// An imported segment effort: a user's attempt on a segment during an
+// activity. Links resolve against entities imported earlier in the same
+// JobResult bundle (or already-known ones), by external_id.
+message ImportedSegmentEffort {
+  ExternalRef ref = 1;
+  string activity_external_id = 2;
+  string segment_external_id = 3;
+  SegmentEffortImport payload = 4;
+}
+
+message SegmentEffortImport {
+  google.protobuf.Timestamp start_time = 1;
+  google.protobuf.Duration elapsed = 2;
+  google.protobuf.Duration moving = 3;
+  // Sample offsets within the activity stream.
+  int32 start_offset = 4;
+  int32 end_offset = 5;
+  optional int32 avg_heart_rate_bpm = 6;
+  optional int32 max_heart_rate_bpm = 7;
+  optional int32 avg_power_w = 8;
+  optional int32 avg_cadence = 9;
+  optional double avg_speed_mps = 10;
+}
+
+// An imported record: a provider-reported personal record / best effort.
+// Cairn computes its own canonical records too; provider-reported ones
+// coexist as distinct rows (external relation) for audit and as a fast path
+// when no stream is available.
+message ImportedRecord {
+  ExternalRef ref = 1;
+  string activity_external_id = 2;
+  RecordImport payload = 3;
+}
+
+message RecordImport {
+  cairn.v1.BestEffortMetric metric = 1;
+  // The record window: a time duration (e.g. 5-minute power) OR a distance
+  // (e.g. fastest 1 mile).
+  oneof window {
+    google.protobuf.Duration duration = 2;
+    double distance_m = 3;
+  }
+  // Achieved value (units depend on metric: watts, bpm, m/s, seconds).
+  double value = 4;
+  // Offset within the activity stream where the record occurred, if known.
+  optional int32 start_offset = 5;
+}
+
+// An imported non-activity metric (weight, steps, HRV, sleep, ...).
+message ImportedMetric {
+  ExternalRef ref = 1;
+  string key = 2;
+  google.protobuf.Timestamp ts = 3;
+  // One of value_numeric / value_json must be set.
+  optional double value_numeric = 4;
+  string value_json = 5;
+}
+
+// Provider webhook event kinds a worker subscribes to / forwards.
+enum WebhookEventType {
+  WEBHOOK_EVENT_TYPE_UNSPECIFIED = 0;
+  WEBHOOK_EVENT_TYPE_ACTIVITY_CREATED = 1;
+  WEBHOOK_EVENT_TYPE_ACTIVITY_UPDATED = 2;
+  WEBHOOK_EVENT_TYPE_ACTIVITY_DELETED = 3;
+  WEBHOOK_EVENT_TYPE_ACCOUNT_DEAUTHORIZED = 4;
+}
+
+// JOB_TYPE_REGISTER_WEBHOOK
+message RegisterWebhookPayload {
+  // The webhook callback URL the worker should configure on the provider side.
+  // Generated by the Core with the signing token embedded:
+  //   "https://cairn.example.org/webhooks/strava/{external_account_id}/{token}"
+  string callback_url = 1;
+  // Events to subscribe to.
+  repeated WebhookEventType event_types = 2;
+}
+
+message RegisterWebhookResult {
+  // Provider's subscription id (stored on the external_account for later
+  // unregistration).
+  string subscription_id = 1;
+}
+
+// JOB_TYPE_UNREGISTER_WEBHOOK
+message UnregisterWebhookPayload {
+  string subscription_id = 1;
+}
+
+// JOB_TYPE_VALIDATE_CREDENTIALS — no payload, returns ValidateCredentialsResult.
+message ValidateCredentialsResult {
+  bool valid = 1;
+  // For OAuth: when the access token expires (informational).
+  google.protobuf.Timestamp access_token_expires_at = 2;
+}
+
+// JOB_TYPE_REFRESH_OAUTH_TOKEN — no payload, returns RefreshOAuthTokenResult.
+// Workers exchange refresh_token for a new access_token + refresh_token using
+// the provider's token endpoint, and return the new pair to the Core.
+message RefreshOAuthTokenResult {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_token_expires_at = 3;
+}

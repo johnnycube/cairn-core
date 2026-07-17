@@ -1,0 +1,103 @@
+# Changelog
+
+All notable changes to Cairn are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
+[Semantic Versioning](https://semver.org/). Dates are ISO-8601.
+
+## [0.2.0] — 2026-07-16
+
+**First public release.** A working, self-hosted multi-source activity
+tracker: import → merge → analysis → web UI, plus a social layer and optional
+federation. Single Go binary (API + embedded SPA) with separate provider
+workers ([cairn-provider-strava], [cairn-provider-garmin]).
+
+### Import & sources
+- NATS/JetStream worker control plane + async job/result bus; provider workers
+  fetch and push typed results that run through one ingest path.
+- **Strava** worker (Go reference implementation) and **Garmin** worker
+  (Python) — proving the model is provider- and language-agnostic. The
+  normative provider contract is documented on the docs site
+  (https://docs.opencairn.org/architecture/provider-contract), and
+  `cmd/worker-conformance` verifies a running worker implements it (presence
+  heartbeat, durable consumers, discover reply shape, reconcile round-trip).
+- Worker results are **claim-checked through the blob store**: event-carrying
+  results upload via presigned PUT and travel as a small envelope, so large
+  activities (long rides, dense streams, many segment efforts) aren't capped
+  by the NATS payload ceiling. Terminal worker failures and deterministic
+  ingest errors fail the import-queue item immediately with the true reason.
+- File upload (GPX/TCX/FIT) and **manual activity entry**, both fed through the
+  same ingest → merge pipeline as worker imports.
+- Resumable full-sync (diff-only-vs-redownload), reconciliation scheduler,
+  per-account auto-import suspend, webhook ingress (generic forwarder).
+- Raw-response archival to S3/MinIO + quota-free re-parse from the archive;
+  archived-blob content-type + size recorded for the manage view.
+- Stream ingest tolerates provider quirks such as duplicate sample timestamps
+  (last sample wins, order preserved).
+
+### Merge & editing
+- Per-field-group multi-source merge with a user-configurable policy; identity
+  dedup + fuzzy re-clustering (match + union-find) of same-workout sources.
+- `preserveUserEdits` (title/description/tags/privacy/gear), per-field source
+  pins, and a post-merge user **overlay** for classification (sport/discipline/
+  flags/custom subtype) **and** summary metrics (distance/elevation/moving
+  time) that survives re-import.
+- **Source data from another activity** — derived source carrying selected
+  field-groups + the donor's geo stream rebased in time, pinned via overrides.
+- Full sport-type set; activity **attachments** (photos) as a first-class
+  entity, Strava photos mirrored to S3, visibility-gated.
+
+### Analysis
+- Best-effort curves (power/HR/speed/pace/VAM, duration- and distance-windowed)
+  with personal records.
+- Segment matching (PostGIS bbox + corridor-walking) with per-user/per-instance
+  leaderboard ranks.
+- Training load (Banister CTL/ATL/TSB, per-user FTP/LTHR as-of each activity),
+  time-in-zone (HR + power), per-activity TSS, laps.
+- Activity export (GPX/TCX/FIT) generated from the merged stream.
+
+### Web app (SvelteKit, embedded)
+- Grouped sidebar navigation (main / Social / Account / Admin) with a mobile
+  off-canvas drawer.
+- Activities feed (facets/sort/pagination) with dynamic filters — date presets
+  + custom range, tri-state classification flags (virtual/e-bike/commute/race),
+  and numeric ranges (distance, duration, elevation gain, avg speed/HR/power)
+  in the user's display units; rich activity detail (map ↔ stream cross-hair,
+  elevation profile, zones, segment efforts, laps, photo gallery), full-screen
+  map/stream pages, create/edit activity, per-activity manage page (provenance,
+  re-fetch, re-parse-from-archive, detach, split, export).
+- Segments landing, similar-routes + best-effort progression, analysis/stats,
+  athlete physiology profile, connections, admin.
+
+### Accounts, auth & social
+- Password + WebAuthn/passkeys + OIDC; invites; personal access tokens; per-user
+  provider OAuth configs (bring-your-own Strava app).
+- Social layer: follow graph + following feed, public profiles, share links,
+  kudos + comments, clubs, blocking, content reports + moderation queue,
+  per-field visibility policy (audience × category) + privacy zones, per-user
+  activity quotas, delegated-admin (moderator) role.
+- Optional **ActivityPub federation** (off by default; per-user opt-in): remote
+  follow, publishing public activities, federated kudos/comments, signed
+  delivery queue, instance defederation, per-domain inbox rate-limiting.
+
+### Notifications & ops
+- In-app feed + email + signed outbound webhooks; per-type preferences,
+  tz-aware quiet hours, per-event delivery audit.
+- Prometheus `/metrics`, deep `/readyz`, HTTP rate limiting, master-key +
+  NATS-account-key rotation, dead-letter capture/replay.
+
+### Build & CI
+- Single distroless prod image (`docker/Dockerfile.core`, embedded SPA) +
+  worker images.
+- Shared **build-base** toolchain image (Go + Node + buf + protoc + local
+  plugins) so `buf generate` runs offline; the core/Strava images build
+  `FROM build-base`.
+- CI: per-image build + test workflows; images publish only from `main` and
+  `v*` tags, MRs build/test as a gate without pushing.
+
+## [0.1.0] — 2026-06-21
+
+Initial development (internal pre-release iterations v0.1.0–v0.1.12).
+
+[0.2.0]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.0
+[cairn-provider-strava]: https://github.com/johnnycube/cairn-provider-strava
+[cairn-provider-garmin]: https://github.com/johnnycube/cairn-provider-garmin

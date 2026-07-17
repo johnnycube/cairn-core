@@ -1,0 +1,15 @@
+node_modules
+.svelte-kit
+build
+.env
+.env.*
+!.env.example
+
+# Paraglide compile output — regenerated on every `npm run dev` /
+# `npm run build` from messages/*.json via the vite plugin.
+src/lib/paraglide
+
+# Buf-generated TS protobuf stubs — NOT committed; regenerated from api/proto/
+# via `make proto` (the web-check CI job runs it before npm; local dev runs it
+# before building the web image).
+src/lib/proto

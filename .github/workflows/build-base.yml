@@ -1,0 +1,93 @@
+name: Build & push build-base toolchain image
+
+# Builds docker/Dockerfile.build-base — the ONE shared toolchain image (Go +
+# Node + buf + LOCAL proto plugins + protoc) that every other build uses:
+#   * docker/Dockerfile.core references it as its `FROM ${BUILD_BASE}` build
+#     stage (and runs `make proto` in-image, fully offline — no buf.build / BSR
+#     rate limits).
+#   * The core test job and web-check run their steps INSIDE this image
+#     (jobs.<id>.container), so they need no setup-go/-node/buf.
+#   * cairn-provider-strava (a separate repo) pulls this published image for its
+#     CI + Docker build (pinned Go 1.26; its proto stubs are committed, so it
+#     runs no `make proto`). cairn-provider-garmin does NOT use it — it pins
+#     Python 3.14 while this image ships Debian's 3.11.
+#
+# Because it's slow to build and rarely changes, this runs only when the
+# Dockerfile (or this workflow) changes, on a v* tag, or on manual dispatch —
+# NOT on every push. Downstream pins the image by the `:1` tag; bump BASE_TAG
+# here AND the `:1` refs in the Dockerfiles/workflows when a tool version moves.
+#
+# Registry: ghcr.io/johnnycube/cairn-build-base
+# Auth: the built-in GITHUB_TOKEN (packages: write) — no extra secret needed.
+# NOTE: the published package must be made PUBLIC once (Package settings →
+# Change visibility) so the core/strava builds — and fork PRs — can pull it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/Dockerfile.build-base
+      - .github/workflows/build-base.yml
+    tags: ['v*']
+  # PRs that touch the toolchain build it as a gate (no push — see below).
+  pull_request:
+    paths:
+      - docker/Dockerfile.build-base
+      - .github/workflows/build-base.yml
+  workflow_dispatch:
+
+concurrency:
+  group: build-base-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/johnnycube/cairn-build-base
+  # The pinned major tag downstream Dockerfiles/workflows reference (:1).
+  BASE_TAG: "1"
+
+jobs:
+  build-push:
+    name: Build & push cairn-build-base
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Pinned major tag (:1) + short SHA always, + latest on the default branch.
+      - name: Compute tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ env.BASE_TAG }}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Publish only from main or a v* release tag — never from PRs/feature
+      # branches (which build as a gate but must not touch the registry). Login
+      # only matters for the push, so it's gated the same way.
+      - name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push (BuildKit)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.build-base
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

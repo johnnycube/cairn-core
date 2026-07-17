@@ -1,0 +1,82 @@
+# Two-instance ActivityPub interop harness. Stands up two independent Cairn
+# instances (A + B), each with its own Postgres, on a shared Docker network so
+# they can reach each other by hostname (cairn-a / cairn-b). Federation is on,
+# and the SSRF dial guard is loosened (ALLOW_PRIVATE_HOSTS) because the peers
+# live on private Docker IPs.
+#
+#   docker compose -f docker-compose.interop.yml up -d --build
+#   ./scripts/federation-interop.sh
+#   docker compose -f docker-compose.interop.yml down -v
+#
+# Host-published ports: instance A → :18090, instance B → :18091.
+# Each instance's PUBLIC_BASE_URL is its Docker-network name, so the actor /
+# inbox / outbox URLs the instances exchange resolve container-to-container.
+
+x-cairn-env: &cairn-env
+  CAIRN_DATABASE_AUTO_MIGRATE: "true"
+  CAIRN_HTTP_ADDR: "0.0.0.0:8080"
+  # Single-process mode: no NATS (the URL defaults to nats://localhost:4222, so
+  # it must be explicitly emptied or the server dies bootstrapping JetStream).
+  CAIRN_NATS_URL: ""
+  CAIRN_FEDERATION_ENABLED: "true"
+  CAIRN_FEDERATION_ALLOW_PRIVATE_HOSTS: "true"
+  CAIRN_INSTANCE_BOOTSTRAP_ADMIN_PASSWORD: "interop-pw-123456"
+
+services:
+  postgres-a:
+    image: timescale/timescaledb-ha:pg17-ts2.27
+    environment:
+      POSTGRES_USER: cairn
+      POSTGRES_PASSWORD: cairn
+      POSTGRES_DB: cairn
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cairn -d cairn"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  postgres-b:
+    image: timescale/timescaledb-ha:pg17-ts2.27
+    environment:
+      POSTGRES_USER: cairn
+      POSTGRES_PASSWORD: cairn
+      POSTGRES_DB: cairn
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cairn -d cairn"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  cairn-a:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.core
+    depends_on:
+      postgres-a:
+        condition: service_healthy
+    environment:
+      <<: *cairn-env
+      CAIRN_DATABASE_URL: "postgres://cairn:cairn@postgres-a:5432/cairn?sslmode=disable"
+      CAIRN_HTTP_PUBLIC_BASE_URL: "http://cairn-a:8080"
+      CAIRN_AUTH_SESSION_SECRET: "interop-session-secret-instance-a-0123456789"
+      CAIRN_AUTH_MASTER_ENCRYPTION_KEY: "interop-master-passphrase-instance-a"
+      CAIRN_INSTANCE_BOOTSTRAP_ADMIN_EMAIL: "alice@cairn-a"
+    ports:
+      - "18090:8080"
+
+  cairn-b:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.core
+    depends_on:
+      postgres-b:
+        condition: service_healthy
+    environment:
+      <<: *cairn-env
+      CAIRN_DATABASE_URL: "postgres://cairn:cairn@postgres-b:5432/cairn?sslmode=disable"
+      CAIRN_HTTP_PUBLIC_BASE_URL: "http://cairn-b:8080"
+      CAIRN_AUTH_SESSION_SECRET: "interop-session-secret-instance-b-0123456789"
+      CAIRN_AUTH_MASTER_ENCRYPTION_KEY: "interop-master-passphrase-instance-b"
+      CAIRN_INSTANCE_BOOTSTRAP_ADMIN_EMAIL: "bob@cairn-b"
+    ports:
+      - "18091:8080"

@@ -1,0 +1,19 @@
+version: v2
+modules:
+  - path: .
+    name: buf.build/cairn/api
+lint:
+  use:
+    - STANDARD
+  except:
+    # Allow same response wrappers across RPCs (e.g. Empty acks)
+    - RPC_RESPONSE_STANDARD_NAME
+    # Bidirectional-stream RPCs have semantic message names (JobAck for the
+    # worker→core direction) rather than RpcName{Request,Response}.
+    - RPC_REQUEST_STANDARD_NAME
+breaking:
+  use:
+    - FILE
+deps:
+  # No external proto dependencies currently. google.protobuf well-known
+  # types are bundled with protoc/buf.

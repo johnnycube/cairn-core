@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cairn
+
+# secrets.yaml is intentionally NOT listed — copy secrets.example.yaml to
+# secrets.yaml, fill it in, and either apply it separately or add it here.
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - nats.yaml
+  - minio.yaml
+  - migrate-job.yaml
+  - core.yaml
+  - worker-strava.yaml
+  - worker-garmin.yaml
+  - ingress.yaml
+
+# Pin every Cairn image tag in one place. Override the registry/tag here
+# (or with `kustomize edit set image ...`) instead of editing each manifest.
+images:
+  - name: ghcr.io/johnnycube/cairn-core
+    newTag: v0.2.0
+  - name: ghcr.io/johnnycube/cairn-provider-strava
+    newTag: v0.2.0
+  - name: ghcr.io/johnnycube/cairn-provider-garmin
+    newTag: v0.2.0

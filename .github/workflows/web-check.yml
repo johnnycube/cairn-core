@@ -1,0 +1,53 @@
+name: Web check
+
+# Typechecks + builds the SvelteKit web app. Runs on every PR (so Renovate's
+# web/ npm updates are gated before automerge) and on pushes to the default
+# branch. The Go core suite is gated by build-core.yml; this fills the web gap.
+#
+# Runs inside the shared build-base toolchain image: Node + buf + local proto
+# plugins are already on PATH, so the TS proto stubs ($proto) are generated
+# offline (no buf.build / BSR) and there's no setup-node / buf-setup step.
+# Depends on the PUBLIC ghcr.io/johnnycube/cairn-build-base:1 package.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: web-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  web:
+    name: svelte-check + build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/johnnycube/cairn-build-base:1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # The TS proto stubs (web/src/lib/proto) are NOT committed — regenerate
+      # them offline before the typecheck/build, which import them via $proto.
+      - name: Generate protos
+        run: make proto
+      # Cache npm's download cache (setup-node isn't used inside the container).
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: /root/.npm
+          key: npm-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: npm-
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Typecheck
+        working-directory: web
+        run: npm run check
+      - name: Build
+        working-directory: web
+        run: npm run build

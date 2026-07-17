@@ -1,0 +1,133 @@
+# Cairn build-base — ONE toolchain image shared by the core (Dockerfile.core)
+# build, the proto-generation step, and the standalone Go worker repo
+# (cairn-provider-strava pulls this published image for its build).
+#
+# Why this exists:
+#   * Today every build stage starts from `golang:1.26-alpine` and the pipeline
+#     runs `make proto` separately — which calls buf.build REMOTE plugins and
+#     hits BSR rate limits (resource_exhausted). This image bakes the proto
+#     plugins LOCALLY so `buf generate` runs fully offline: no buf.build calls,
+#     no rate limit, deterministic output.
+#   * It also carries Go + Node so the SPA build and both Go binaries compile in
+#     the same pinned environment.
+#
+# Built + pushed by .gitea/workflows/build-base.yml (or manually, below). Bump
+# the tag when a pinned tool version changes — AND the matching `:1` refs in
+# docker/Dockerfile.core, the cairn-provider-strava repo's Dockerfile/CI, and
+# the CI `container:` blocks:
+#   docker build -f docker/Dockerfile.build-base \
+#     -t ghcr.io/johnnycube/cairn-build-base:1 .
+#
+# Consumers:
+#   * docker/Dockerfile.core — `FROM ${BUILD_BASE}` build stage, runs `make
+#     proto` in-image.
+#   * .gitea/workflows/{build-core,web-check}.yml — the test/check jobs run
+#     their steps inside this image (jobs.<id>.container).
+#   * cairn-provider-strava (separate repo) — `FROM ${BUILD_BASE}` build stage
+#     + CI container. Its proto stubs are committed, so it runs no `make proto`.
+#
+# buf.gen.yaml uses `local:` plugins (the binaries installed below are on PATH),
+# so `buf generate` runs fully offline here: no buf.build calls, no BSR rate
+# limit. Generation outside this toolchain requires the same plugins on PATH.
+
+# Base on debian-slim and install Go from the tarball, rather than golang:1.26-
+# bookworm — the official Go image bundles ~500 MB of buildpack-deps build
+# tooling (gcc/build-essential, svn, mercurial, …) we never use: the plugins are
+# pure Go, downstream `go build` is CGO_ENABLED=0, and the web `npm ci` deps ship
+# prebuilt (the old web stage ran on bare node:alpine). We stay on glibc so the
+# official protoc binary (glibc-only) still runs.
+FROM debian:bookworm-slim
+
+# --- pinned tool versions ---------------------------------------------------
+# Matched to the repo (go.mod, web/package.json) so locally-generated code is
+# byte-identical to the committed output. Dockerfile instructions don't allow
+# inline comments, so the per-ARG notes live here:
+#   GO_VERSION                full version; matches go.mod's `go 1.26` (GOTOOLCHAIN=local pins it)
+#   PROTOC_GEN_GO             = google.golang.org/protobuf in go.mod
+#   PROTOC_GEN_CONNECT_GO     = connectrpc.com/connect in go.mod
+#   PROTOC_GEN_OPENAPIV2      = grpc-ecosystem/grpc-gateway (verify/pin)
+#   PROTOC_GEN_ES             ~ @bufbuild/protobuf in web/package.json
+#   PROTOC_VERSION            protoc → "Protobuf Python Version: 7.35.1" (matches committed pb2 stubs)
+#   PROTOC_GEN_CONNECT_PYTHON pip protoc-gen-connect-python (the codegen plugin, NOT the connect-python runtime)
+ARG GO_VERSION=1.26.4
+ARG BUF_VERSION=1.70.0
+ARG NODE_MAJOR=24
+ARG PROTOC_GEN_GO=v1.36.11
+ARG PROTOC_GEN_CONNECT_GO=v1.20.0
+ARG PROTOC_GEN_OPENAPIV2=v2.27.2
+ARG PROTOC_GEN_ES=2.12.0
+ARG PROTOC_VERSION=35.1
+ARG PROTOC_GEN_CONNECT_PYTHON=0.8.0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    GOPATH=/go \
+    GOTOOLCHAIN=local \
+    PATH=/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+
+# --- OS deps + Python (python pb2 = protoc builtin; connect stubs = pip). No
+#     build-essential: nothing here compiles C. gnupg is for the NodeSource repo.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git make bash unzip gnupg \
+        python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Go toolchain (official tarball) ----------------------------------------
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz \
+    && mkdir -p /go/bin
+
+# --- Node (SvelteKit SPA build + protoc-gen-es) -----------------------------
+RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- buf CLI ----------------------------------------------------------------
+RUN curl -fsSL \
+      "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(uname -s)-$(uname -m)" \
+      -o /usr/local/bin/buf \
+    && chmod +x /usr/local/bin/buf
+
+# --- protoc (only for the python builtin --python_out, matched to the
+#     committed stubs' "Protobuf Python Version") ----------------------------
+RUN curl -fsSL \
+      "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" \
+      -o /tmp/protoc.zip \
+    && unzip -q /tmp/protoc.zip -d /usr/local \
+    && rm /tmp/protoc.zip \
+    && chmod +x /usr/local/bin/protoc
+
+# --- local proto plugins (these replace the `remote:` entries in
+#     api/proto/buf.gen.yaml — buf finds them on PATH) -----------------------
+# Go: message types, Connect-Go handlers/clients, OpenAPI v3
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO} \
+ && go install connectrpc.com/connect/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO} \
+ && go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@${PROTOC_GEN_OPENAPIV2} \
+ && go clean -cache -modcache
+# The plugin binaries land in /go/bin (kept); the module + build caches that
+# `go install` leaves behind (~300 MB) are dead weight here — downstream
+# `FROM build-base` builds download their own modules. Cleaning must happen in
+# THIS layer, else the data persists in it regardless of a later delete.
+
+# TypeScript: types + Connect-Web clients (provides protoc-gen-es on PATH)
+RUN npm install -g @bufbuild/protoc-gen-es@${PROTOC_GEN_ES} \
+ && npm cache clean --force
+
+# Python: Connect stubs. The codegen plugin is the SEPARATE pip package
+# `protoc-gen-connect-python` (binary protoc-gen-connect-python, dash) — NOT the
+# `connect-python` runtime, which ships no plugin. The protobuf python *types*
+# come from `protoc --python_out` (the builtin above).
+RUN pip3 install --no-cache-dir --break-system-packages \
+      "protoc-gen-connect-python==${PROTOC_GEN_CONNECT_PYTHON}"
+
+# Sanity: fail the image build if any generator is missing from PATH.
+RUN buf --version \
+ && protoc --version \
+ && node --version \
+ && protoc-gen-go --version \
+ && protoc-gen-connect-go --version \
+ && protoc-gen-openapiv2 --version \
+ && command -v protoc-gen-es \
+ && command -v protoc-gen-connect-python
+
+WORKDIR /src

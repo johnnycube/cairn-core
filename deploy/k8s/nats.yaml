@@ -1,0 +1,99 @@
+# NATS 2.14 + JetStream — worker control plane + async job/result bus.
+# In-cluster only (ClusterIP); not exposed. Workers and the server connect
+# anonymously over the private network (matches the dev "no enrollment token"
+# path). For internet-exposed NATS, switch to enrollment-token auth-callout —
+# see deploy/k8s/README.md "Hardening".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: cairn
+data:
+  nats.conf: |
+    http_port: 8222
+
+    jetstream {
+      store_dir: "/data"
+    }
+
+    # Long activity streams (multi-hour rides at ~1 Hz, ~10 channels) exceed the
+    # 1 MiB default JobResult size. 8 MiB covers them; the worker Terms anything
+    # still larger so it DLQs rather than looping.
+    max_payload: 8MB
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: cairn
+spec:
+  clusterIP: None
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: cairn
+spec:
+  serviceName: nats
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.14.2-alpine
+          args: ["-c", "/etc/nats/nats.conf", "--cluster_name", "cairn"]
+          ports:
+            - containerPort: 4222
+            - containerPort: 8222
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+              readOnly: true
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              memory: "1Gi"
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

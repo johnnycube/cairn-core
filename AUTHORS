@@ -1,0 +1,25 @@
+# Cairn AUTHORS
+#
+# This file lists individuals and organisations that have contributed to
+# Cairn. The list is maintained chronologically by first contribution.
+# Lines beginning with `#` are comments.
+#
+# To add yourself, append a line of the form:
+#
+#     Your Name <your-email@example.com>
+#
+# When making the change, include the line in the same pull request that
+# carries your first contribution. CI verifies this file is sorted only
+# by section (within each section, order is chronological).
+#
+# ---------------------------------------------------------------------------
+# Individual contributors
+# ---------------------------------------------------------------------------
+
+# (no contributors yet)
+
+# ---------------------------------------------------------------------------
+# Organisations
+# ---------------------------------------------------------------------------
+
+# (no organisations yet)

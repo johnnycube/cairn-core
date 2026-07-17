@@ -1,0 +1,22 @@
+Cairn
+Copyright 2025-2026 The Cairn Authors
+
+This product includes software developed by The Cairn Authors and
+contributors. See the AUTHORS file for the full list of individual
+contributors.
+
+This product depends on third-party libraries; their attributions and
+license texts are preserved in their respective module directories
+inside the Go module cache when this project is built. Notable
+production dependencies, all available under permissive licenses:
+
+  * github.com/jackc/pgx/v5            — MIT
+  * github.com/pressly/goose/v3        — MIT
+  * github.com/google/uuid             — BSD-3-Clause
+  * github.com/spf13/cobra             — Apache-2.0
+  * github.com/kelseyhightower/envconfig — MIT
+  * github.com/vgarvardt/pgx-google-uuid/v5 — MIT
+  * golang.org/x/crypto                — BSD-3-Clause (Argon2id)
+
+Refer to `go.sum` and the `go list -m all` output for the exact set
+and versions in any given release.

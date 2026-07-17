@@ -1,0 +1,82 @@
+# Postgres 17 + TimescaleDB + PostGIS — the source of truth (activities,
+# streams hypertable + continuous aggregates, segments, users, encrypted
+# secrets). Single instance; for HA use a Postgres operator instead.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: cairn
+spec:
+  clusterIP: None # headless — stable DNS for the StatefulSet pod
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: cairn
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        fsGroup: 1000 # the postgres user in timescaledb-ha
+      containers:
+        - name: postgres
+          image: timescale/timescaledb-ha:pg17-ts2.27
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: cairn
+            - name: POSTGRES_DB
+              value: cairn
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cairn-infra-secrets
+                  key: POSTGRES_PASSWORD
+            # C collation matches the dev stack (index stability); set only at init.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+            - name: PGDATA
+              value: /home/postgres/pgdata/data
+          volumeMounts:
+            - name: data
+              mountPath: /home/postgres/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "cairn", "-d", "cairn"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "cairn", "-d", "cairn"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              memory: "2Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

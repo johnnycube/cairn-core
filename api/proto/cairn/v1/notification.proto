@@ -1,0 +1,483 @@
+// Notifications.
+//
+// A NotificationEvent is something the system wants to tell the user about:
+// a new PR, an expired Strava credential, a worker upgrade available, a
+// rate-limit-sustained warning, etc. Each event has a stable type, a
+// severity, and an i18n key for client-side localization.
+//
+// Channels are pluggable adapters:
+//
+//   * IN_APP — always on, persisted in the DB, delivered via server-stream
+//     to live UIs. Read state tracked per-user.
+//
+//   * EMAIL — optional. Templates per event_type. Adapter selected by the
+//     instance operator (SMTP / SES / Resend / Mailgun) via env config.
+//
+//   * WEBHOOK — user-defined endpoints. The Core POSTs a signed payload
+//     to each registered URL. Useful for piping into Home Assistant,
+//     IFTTT, Discord webhooks, etc.
+//
+//   * PUSH — Web Push (v2, may roll out later).
+//
+// Preferences are a per-user matrix: for each event_type × channel, the
+// user enables/disables delivery. A severity threshold also applies per
+// channel ("only WARN and ERROR via email").
+//
+// Coalescing: events sharing a dedup_key within a short window are merged.
+// Example: 50 activities re-imported triggers a single bulk_import_completed
+// event with count=50, not 50 separate notifications.
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/timestamp.proto";
+
+import "cairn/v1/common.proto";
+
+// ----------------------------------------------------------------------------
+// NotificationEvent
+// ----------------------------------------------------------------------------
+
+message NotificationEvent {
+  string id = 1;
+  string user_id = 2;
+
+  // Stable event type string. The full enumerated set is defined in
+  // NotificationEventType below; this field is the proto enum name in
+  // string form ("NOTIFICATION_EVENT_TYPE_NEW_PERSONAL_RECORD") so that
+  // unknown event types from older clients are at least loggable.
+  NotificationEventType type = 3;
+
+  NotificationSeverity severity = 4;
+
+  // i18n key for the title and body. The frontend resolves these via
+  // Paraglide; the i18n_params map carries the template substitutions.
+  string title_i18n_key = 5;
+  string body_i18n_key = 6;
+  map<string, string> i18n_params = 7;
+
+  // Optional context references for the UI to deep-link.
+  optional string activity_id = 8;
+  optional string segment_id = 9;
+  optional string external_account_id = 10;
+  optional string worker_name = 11;
+
+  // Deduplication key. Events with the same (user_id, type, dedup_key)
+  // within the coalescing window are merged into one. The Core increments
+  // a coalesce_count and updates the body params (e.g. "12 activities
+  // re-imported" instead of "1 activity re-imported").
+  string dedup_key = 12;
+  int32 coalesce_count = 13;
+
+  // Read state — set when the user opens or dismisses the notification.
+  bool read = 14;
+  optional google.protobuf.Timestamp read_at = 15;
+
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+}
+
+enum NotificationSeverity {
+  NOTIFICATION_SEVERITY_UNSPECIFIED = 0;
+  NOTIFICATION_SEVERITY_INFO = 1;
+  NOTIFICATION_SEVERITY_WARN = 2;
+  NOTIFICATION_SEVERITY_ERROR = 3;
+}
+
+// All recognized event types. Adding a new event type is non-breaking; old
+// clients render it via i18n keys (or fall back to the type name).
+//
+// Conventions:
+//   * SECURITY_*  — events about the user's account credentials
+//   * ACCOUNT_*   — events about external accounts and worker linkage
+//   * SYNC_*      — events about import/reimport/sync state
+//   * ACHIEVEMENT_* — events celebrating user accomplishments
+//   * SYSTEM_*    — events about the instance / workers / versions
+//   * REPORT_*    — periodic summary events
+enum NotificationEventType {
+  NOTIFICATION_EVENT_TYPE_UNSPECIFIED = 0;
+
+  // Security
+  NOTIFICATION_EVENT_TYPE_SECURITY_LOGIN_NEW_DEVICE = 100;
+  NOTIFICATION_EVENT_TYPE_SECURITY_PASSWORD_CHANGED = 101;
+  NOTIFICATION_EVENT_TYPE_SECURITY_PASSKEY_ADDED = 102;
+  NOTIFICATION_EVENT_TYPE_SECURITY_PASSKEY_REMOVED = 103;
+  NOTIFICATION_EVENT_TYPE_SECURITY_OIDC_IDENTITY_LINKED = 104;
+  NOTIFICATION_EVENT_TYPE_SECURITY_OIDC_IDENTITY_UNLINKED = 105;
+  NOTIFICATION_EVENT_TYPE_SECURITY_PAT_CREATED = 106;
+  NOTIFICATION_EVENT_TYPE_SECURITY_PAT_REVOKED = 107;
+
+  // Account / external accounts
+  NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_AUTH_EXPIRED = 200;
+  NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_AUTH_INVALID = 201;
+  NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_DISABLED = 202;
+  NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_NEEDS_MIGRATION = 203;
+  NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_ADDED = 204;
+  NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_REMOVED = 205;
+
+  // Sync
+  NOTIFICATION_EVENT_TYPE_SYNC_RATE_LIMITED_SUSTAINED = 300;
+  NOTIFICATION_EVENT_TYPE_SYNC_WORKER_OFFLINE_FOR_ACCOUNT = 301;
+  NOTIFICATION_EVENT_TYPE_SYNC_BULK_IMPORT_COMPLETED = 302;
+  NOTIFICATION_EVENT_TYPE_SYNC_REIMPORT_FAILED = 303;
+  NOTIFICATION_EVENT_TYPE_SYNC_AUTO_REIMPORT_COMPLETED = 304;
+  NOTIFICATION_EVENT_TYPE_SYNC_UPLOAD_PROCESSED = 305;
+  NOTIFICATION_EVENT_TYPE_SYNC_UPLOAD_FAILED = 306;
+
+  // Achievements
+  NOTIFICATION_EVENT_TYPE_ACHIEVEMENT_NEW_PERSONAL_RECORD = 400;
+  NOTIFICATION_EVENT_TYPE_ACHIEVEMENT_SEGMENT_PR = 401;
+  NOTIFICATION_EVENT_TYPE_ACHIEVEMENT_SEGMENT_KOM = 402;
+  NOTIFICATION_EVENT_TYPE_ACHIEVEMENT_MILESTONE_REACHED = 403; // 1000km, 100h, etc.
+
+  // System (admin-relevant; users may opt in)
+  NOTIFICATION_EVENT_TYPE_SYSTEM_WORKER_VERSION_AVAILABLE = 500;
+  NOTIFICATION_EVENT_TYPE_SYSTEM_BREAKING_CHANGE_MIGRATION_NEEDED = 501;
+  NOTIFICATION_EVENT_TYPE_SYSTEM_INSTANCE_UPDATE_AVAILABLE = 502;
+  NOTIFICATION_EVENT_TYPE_SYSTEM_WORKER_CONFLICT_DETECTED = 503;
+
+  // Periodic reports
+  NOTIFICATION_EVENT_TYPE_REPORT_WEEKLY_SUMMARY = 600;
+  NOTIFICATION_EVENT_TYPE_REPORT_MONTHLY_SUMMARY = 601;
+  NOTIFICATION_EVENT_TYPE_REPORT_YEAR_IN_REVIEW = 602;
+}
+
+// ----------------------------------------------------------------------------
+// Channels
+// ----------------------------------------------------------------------------
+
+enum NotificationChannel {
+  NOTIFICATION_CHANNEL_UNSPECIFIED = 0;
+  // In-app: always available, persisted, server-stream delivery.
+  NOTIFICATION_CHANNEL_IN_APP = 1;
+  // Email via the configured outbound adapter.
+  NOTIFICATION_CHANNEL_EMAIL = 2;
+  // User-defined webhook endpoints (one user may have many).
+  NOTIFICATION_CHANNEL_WEBHOOK = 3;
+  // Web Push (Service Worker). v2.
+  NOTIFICATION_CHANNEL_PUSH = 4;
+}
+
+// ----------------------------------------------------------------------------
+// Preferences
+//
+// A user's preferences are a sparse matrix: for each (event_type, channel)
+// tuple, a NotificationPreference row says whether delivery is enabled and
+// what the minimum severity threshold is.
+//
+// Defaults (applied when no row exists):
+//   IN_APP   : enabled, severity threshold = INFO
+//   EMAIL    : enabled for ERROR and weekly reports; disabled otherwise
+//   WEBHOOK  : disabled for everything (must be explicitly enabled per-endpoint)
+//   PUSH     : disabled
+// ----------------------------------------------------------------------------
+
+message NotificationPreference {
+  string user_id = 1;
+  NotificationEventType event_type = 2;
+  NotificationChannel channel = 3;
+  bool enabled = 4;
+  // Minimum severity that triggers delivery on this channel.
+  NotificationSeverity min_severity = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// Quiet hours: in-app and push are still delivered; email and webhook are
+// queued and dispatched at the end of quiet hours unless the event severity
+// is ERROR. Stored as local-time bounds in the user's timezone.
+message QuietHours {
+  bool enabled = 1;
+  // 0..1439 minutes after midnight, user's timezone.
+  int32 start_minute = 2;
+  int32 end_minute = 3;
+  // Days of week when quiet hours apply (0=Sunday, 6=Saturday).
+  // Empty = every day.
+  repeated int32 days_of_week = 4;
+}
+
+// ----------------------------------------------------------------------------
+// Webhook endpoints
+// ----------------------------------------------------------------------------
+
+message WebhookEndpoint {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;                       // user-friendly label
+  string url = 4;                        // POST target
+
+  // HMAC-SHA256 signing secret. Returned ONCE at creation; not retrievable.
+  // Used by the receiver to verify the X-Cairn-Signature header.
+  // The receiver computes:
+  //   hex(hmac_sha256(secret, timestamp + "." + body))
+  // and compares against the header value.
+
+  // Subscription filter — which event types fire this webhook. Empty = all.
+  repeated NotificationEventType event_types = 5;
+
+  // Minimum severity (overrides global per-channel threshold for this URL).
+  NotificationSeverity min_severity = 6;
+
+  bool enabled = 7;
+
+  // Delivery state (denormalized for the management UI).
+  optional google.protobuf.Timestamp last_delivery_at = 8;
+  optional int32 last_delivery_status_code = 9;
+  optional string last_delivery_error = 10;
+  int32 consecutive_failures = 11;
+  // Auto-disabled after sustained failure (default: 50 consecutive).
+  bool auto_disabled = 12;
+  optional google.protobuf.Timestamp auto_disabled_at = 13;
+
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}
+
+// ----------------------------------------------------------------------------
+// Delivery audit
+// ----------------------------------------------------------------------------
+
+message NotificationDelivery {
+  string id = 1;
+  string event_id = 2;
+  string user_id = 3;
+  NotificationChannel channel = 4;
+  // For webhooks: the endpoint id.
+  optional string webhook_endpoint_id = 5;
+  // For emails: the recipient address (snapshot at send time).
+  optional string email_address = 6;
+
+  DeliveryStatus status = 7;
+  optional int32 http_status_code = 8;
+  optional string error_message = 9;
+  int32 attempt = 10;
+  google.protobuf.Timestamp attempted_at = 11;
+  optional google.protobuf.Timestamp next_retry_at = 12;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  DELIVERY_STATUS_QUEUED = 1;
+  DELIVERY_STATUS_SENT = 2;
+  DELIVERY_STATUS_FAILED_RETRYABLE = 3;
+  DELIVERY_STATUS_FAILED_PERMANENT = 4;
+  DELIVERY_STATUS_SUPPRESSED_QUIET_HOURS = 5;
+  DELIVERY_STATUS_SUPPRESSED_PREFERENCE = 6;
+}
+
+// ----------------------------------------------------------------------------
+// NotificationService
+// ----------------------------------------------------------------------------
+
+service NotificationService {
+  // Live server-stream of new notifications for the current user.
+  // The UI subscribes once on login and renders a toast / badge for each
+  // event. Resumes from the last seen id on reconnect via since_event_id.
+  rpc StreamNotifications(StreamNotificationsRequest) returns (stream NotificationEvent);
+
+  // Historical list with filtering and paging.
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+
+  // Number of unread notifications. Cheap, used by the nav badge.
+  rpc CountUnreadNotifications(CountUnreadNotificationsRequest) returns (CountUnreadNotificationsResponse);
+
+  rpc MarkNotificationRead(MarkNotificationReadRequest) returns (MarkNotificationReadResponse);
+  rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (MarkAllNotificationsReadResponse);
+  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+
+  // ---- Preferences ----
+
+  // List the user's full preferences matrix. Missing rows are returned as
+  // resolved defaults so the UI can render every cell.
+  rpc ListNotificationPreferences(ListNotificationPreferencesRequest) returns (ListNotificationPreferencesResponse);
+
+  // Upsert one or more preference rows. Setting enabled=false and
+  // min_severity=INFO is the canonical "default" — the row is removed.
+  rpc UpdateNotificationPreferences(UpdateNotificationPreferencesRequest) returns (UpdateNotificationPreferencesResponse);
+
+  rpc GetQuietHours(GetQuietHoursRequest) returns (GetQuietHoursResponse);
+  rpc UpdateQuietHours(UpdateQuietHoursRequest) returns (UpdateQuietHoursResponse);
+
+  // Send a test notification through a specific channel to verify config.
+  // For EMAIL, sends via the configured adapter to the user's address.
+  // For WEBHOOK, requires a webhook_endpoint_id and POSTs a synthetic event.
+  rpc TestNotificationChannel(TestNotificationChannelRequest) returns (TestNotificationChannelResponse);
+
+  // ---- Webhook endpoints ----
+
+  rpc ListWebhookEndpoints(ListWebhookEndpointsRequest) returns (ListWebhookEndpointsResponse);
+  rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse);
+  rpc UpdateWebhookEndpoint(UpdateWebhookEndpointRequest) returns (UpdateWebhookEndpointResponse);
+  rpc DeleteWebhookEndpoint(DeleteWebhookEndpointRequest) returns (DeleteWebhookEndpointResponse);
+  // Rotate the HMAC signing secret. Returns the new secret ONCE.
+  rpc RotateWebhookEndpointSecret(RotateWebhookEndpointSecretRequest) returns (RotateWebhookEndpointSecretResponse);
+  // Re-enable an auto-disabled endpoint after fixing the receiver.
+  rpc ReenableWebhookEndpoint(ReenableWebhookEndpointRequest) returns (ReenableWebhookEndpointResponse);
+
+  // Recent delivery attempts for one endpoint, for debugging.
+  rpc ListWebhookDeliveries(ListWebhookDeliveriesRequest) returns (ListWebhookDeliveriesResponse);
+}
+
+// ---- Stream ----
+
+message StreamNotificationsRequest {
+  // Resume from after this event id. The server first replays any
+  // notifications created after this id (catch-up) then streams live.
+  // Empty = stream live only.
+  string since_event_id = 1;
+  // Filter to specific types; empty = all.
+  repeated NotificationEventType types = 2;
+  // Filter to minimum severity (e.g. only WARN+).
+  NotificationSeverity min_severity = 3;
+}
+
+// ---- List / mark-read / delete ----
+
+message ListNotificationsRequest {
+  repeated NotificationEventType types = 1;
+  NotificationSeverity min_severity = 2;
+  // Filter to unread only.
+  bool only_unread = 3;
+  TimeRange time_range = 4;
+  PageRequest page = 5;
+}
+message ListNotificationsResponse {
+  repeated NotificationEvent notifications = 1;
+  PageResponse page = 2;
+}
+
+message CountUnreadNotificationsRequest {}
+message CountUnreadNotificationsResponse {
+  int32 count = 1;
+  // Breakdown by severity for badge styling.
+  int32 count_info = 2;
+  int32 count_warn = 3;
+  int32 count_error = 4;
+}
+
+message MarkNotificationReadRequest {
+  string id = 1;
+}
+message MarkNotificationReadResponse {
+  NotificationEvent notification = 1;
+}
+
+message MarkAllNotificationsReadRequest {
+  // Optional filter — only mark these types as read.
+  repeated NotificationEventType types = 1;
+}
+message MarkAllNotificationsReadResponse {
+  int32 marked_count = 1;
+}
+
+message DeleteNotificationRequest {
+  string id = 1;
+}
+message DeleteNotificationResponse {}
+
+// ---- Preferences ----
+
+message ListNotificationPreferencesRequest {
+  // If true, missing rows are filled in with resolved defaults (so the
+  // response contains every (event_type, channel) tuple). Default true.
+  bool include_defaults = 1;
+}
+message ListNotificationPreferencesResponse {
+  repeated NotificationPreference preferences = 1;
+}
+
+message UpdateNotificationPreferencesRequest {
+  repeated NotificationPreference preferences = 1;
+}
+message UpdateNotificationPreferencesResponse {
+  repeated NotificationPreference preferences = 1;
+}
+
+message GetQuietHoursRequest {}
+message GetQuietHoursResponse {
+  QuietHours quiet_hours = 1;
+}
+
+message UpdateQuietHoursRequest {
+  QuietHours quiet_hours = 1;
+}
+message UpdateQuietHoursResponse {
+  QuietHours quiet_hours = 1;
+}
+
+// ---- Test ----
+
+message TestNotificationChannelRequest {
+  NotificationChannel channel = 1;
+  // Required when channel == WEBHOOK.
+  optional string webhook_endpoint_id = 2;
+}
+message TestNotificationChannelResponse {
+  DeliveryStatus status = 1;
+  optional int32 http_status_code = 2;
+  optional string error_message = 3;
+}
+
+// ---- Webhook endpoints ----
+
+message ListWebhookEndpointsRequest {}
+message ListWebhookEndpointsResponse {
+  repeated WebhookEndpoint endpoints = 1;
+}
+
+message CreateWebhookEndpointRequest {
+  string name = 1;
+  string url = 2;
+  repeated NotificationEventType event_types = 3;
+  NotificationSeverity min_severity = 4;
+}
+message CreateWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+  // The HMAC signing secret. Returned ONCE at creation; cannot be retrieved
+  // later. Lost-key recovery requires RotateWebhookEndpointSecret.
+  string signing_secret = 2;
+}
+
+message UpdateWebhookEndpointRequest {
+  string id = 1;
+  repeated string field_mask = 2;
+  optional string name = 3;
+  optional string url = 4;
+  repeated NotificationEventType event_types = 5;        // replace when present
+  optional NotificationSeverity min_severity = 6;
+  optional bool enabled = 7;
+}
+message UpdateWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+}
+
+message DeleteWebhookEndpointRequest {
+  string id = 1;
+}
+message DeleteWebhookEndpointResponse {}
+
+message RotateWebhookEndpointSecretRequest {
+  string id = 1;
+}
+message RotateWebhookEndpointSecretResponse {
+  WebhookEndpoint endpoint = 1;
+  string signing_secret = 2;
+}
+
+message ReenableWebhookEndpointRequest {
+  string id = 1;
+}
+message ReenableWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+}
+
+message ListWebhookDeliveriesRequest {
+  string webhook_endpoint_id = 1;
+  TimeRange time_range = 2;
+  // Filter to specific delivery statuses.
+  repeated DeliveryStatus statuses = 3;
+  PageRequest page = 4;
+}
+message ListWebhookDeliveriesResponse {
+  repeated NotificationDelivery deliveries = 1;
+  PageResponse page = 2;
+}

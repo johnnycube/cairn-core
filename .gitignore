@@ -1,0 +1,76 @@
+# --- Compiled Go binaries ---
+# Makefile builds to bin/.
+/bin/
+/server
+# Stray binaries from `go build ./cmd/...` (named after their package dir)
+/cmd/server/server
+/worker-strava
+/worker-conformance
+
+# Go build/test artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+/coverage.out
+/coverage.html
+go.work
+go.work.sum
+
+# --- Generated code (regenerated via `buf generate` / openapi codegen) ---
+# The generated GO code (gen/proto) IS committed: `go mod tidy` must work on a
+# clean checkout (renovate runs it via postUpdateOptions=gomodTidy, and it
+# resolves gen/ imports over the network if the files are absent). CI still
+# runs `make proto`, so committed code can never drift silently past a build.
+# OpenAPI output stays untracked.
+/gen/openapi/
+
+# Embedded web build output — only the placeholder index.html is tracked;
+# real SPA assets are produced inside docker/Dockerfile.core.
+/internal/adapter/primary/web/dist/*
+!/internal/adapter/primary/web/dist/index.html
+
+# --- Secrets & local config ---
+.env
+.env.*
+
+# --- Editor / OS noise ---
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# web/ and workers/sdk-python/ carry their own .gitignore files.
+# Local dev env + air live-reload build dir
+/dev.env
+/tmp/
+
+# Local matcher-calibration corpus (operator data; never commit)
+*match-corpus*.json
+cairn_*corpus*.json
+
+# Python
+__pycache__/
+*.pyc
+buf.gen.local.yaml
+
+# --- AI assistant local files (never commit) ---
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.cursor/
+.cursorrules
+.windsurf/
+.windsurfrules
+.aider*
+.codex/
+.gemini/
+GEMINI.md
+.github/copilot-instructions.md

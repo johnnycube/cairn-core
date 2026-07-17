@@ -1,0 +1,27 @@
+# Build context trimming for the Go server/worker images (context = repo root).
+# gen/ is intentionally NOT ignored — it holds the generated proto code the
+# build needs. It is NOT committed; the build pipeline runs `make proto` to
+# regenerate it into the workspace before `docker build` (see the CI workflows;
+# locally run it before `docker compose build`).
+
+.git
+.claude
+bin/
+worker-strava          # stray prebuilt binary at repo root
+*.test
+*.out
+coverage.*
+
+# Keep web/ source in context (docker/Dockerfile.core's node stage builds
+# it), but drop the heavy/generated dirs. The dev Go images don't COPY web/
+# at all (they COPY cmd/internal/gen/api selectively).
+web/node_modules
+web/build
+web/.svelte-kit
+web/.env
+web/.env.*
+
+# Docs / transcripts / specs aren't needed to build.
+transcripts/
+docs/
+*.md

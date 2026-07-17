@@ -1,0 +1,796 @@
+// Admin surface.
+//
+// All RPCs in this file require USER_ROLE_ADMIN (or higher) on the caller's
+// session. Authorization is enforced at the handler layer; per-RPC docs
+// note any extra constraints.
+//
+// Scope:
+//   * Worker registry — view registered workers, resolve provider
+//     conflicts, force-deregister stuck workers.
+//
+//   * OIDC providers — read-only view of the OIDC providers users can log
+//     in with. The list is configured entirely via CAIRN_OIDC_* env vars;
+//     it cannot be mutated through the API.
+//
+//   * Instance settings — registration policy, default locale/units,
+//     branding, email/SMTP test.
+//
+//   * User management — invite, create, suspend, delete, change role.
+//
+//   * Invites — generate single-use invite codes, optionally email-bound.
+//
+//   * Audit log — query the immutable per-action audit trail.
+//
+//   * Job queue — list jobs (in-flight, failed, dead-letter), retry, cancel.
+//
+//   * Health & maintenance — orphaned-source view, system health,
+//     long-running maintenance operations.
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+import "cairn/v1/auth.proto";
+import "cairn/v1/common.proto";
+
+// ============================================================================
+// AdminService
+// ============================================================================
+
+service AdminService {
+  // ---- Workers ----
+  // Worker presence + manifests live in NATS KV (cairn_worker_presence /
+  // cairn_worker_manifests) and are surfaced over REST (/api/admin/workers);
+  // there is no DB worker registry, so no worker RPCs here.
+
+  // ---- OIDC providers (read-only) ----
+  // OIDC providers are configured entirely via CAIRN_OIDC_* env vars; there
+  // is no client database and no create/update/delete. This RPC lets the
+  // admin UI display the active configuration.
+  rpc ListOIDCClients(ListOIDCClientsRequest) returns (ListOIDCClientsResponse);
+
+  // ---- Instance settings ----
+  rpc GetInstanceSettings(GetInstanceSettingsRequest) returns (GetInstanceSettingsResponse);
+  rpc UpdateInstanceSettings(UpdateInstanceSettingsRequest) returns (UpdateInstanceSettingsResponse);
+  // Send a synthetic email through the configured SMTP/SES/Resend/Mailgun
+  // adapter to verify outbound delivery.
+  rpc SendTestEmail(SendTestEmailRequest) returns (SendTestEmailResponse);
+
+  // ---- Users ----
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc ChangeUserRole(ChangeUserRoleRequest) returns (ChangeUserRoleResponse);
+  rpc SetUserStatus(SetUserStatusRequest) returns (SetUserStatusResponse);
+  // Hard-delete with cascade. Two-step: caller must pass confirm_username
+  // matching the user's username to proceed. Audit-logged at HIGH severity.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  // Force-reset a user's password to a temporary value, returned once.
+  // The user is required to change it on next login.
+  rpc ResetUserPassword(ResetUserPasswordRequest) returns (ResetUserPasswordResponse);
+  // Revoke all sessions and PATs for a user.
+  rpc RevokeUserCredentials(RevokeUserCredentialsRequest) returns (RevokeUserCredentialsResponse);
+
+  // ---- Invites ----
+  rpc ListInvites(ListInvitesRequest) returns (ListInvitesResponse);
+  rpc CreateInvite(CreateInviteRequest) returns (CreateInviteResponse);
+  rpc RevokeInvite(RevokeInviteRequest) returns (RevokeInviteResponse);
+  rpc ResendInvite(ResendInviteRequest) returns (ResendInviteResponse);
+
+  // ---- Audit log ----
+  rpc ListAuditEntries(ListAuditEntriesRequest) returns (ListAuditEntriesResponse);
+
+  // ---- Job queue introspection ----
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse);
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+  // List jobs that exhausted retries and went to the dead-letter queue.
+  rpc ListDeadLetterJobs(ListDeadLetterJobsRequest) returns (ListDeadLetterJobsResponse);
+  // Re-enqueue a DLQ job at the head of its provider queue.
+  rpc RequeueDeadLetterJob(RequeueDeadLetterJobRequest) returns (RequeueDeadLetterJobResponse);
+
+  // ---- Sources / orphans ----
+  // List activity sources whose worker is currently offline or deregistered.
+  rpc ListOrphanedSources(ListOrphanedSourcesRequest) returns (ListOrphanedSourcesResponse);
+
+  // ---- Webhook signing tokens (per external account) ----
+  // Webhook tokens are stored on each ExternalAccount; this endpoint lists
+  // and bulk-rotates them across the instance (useful when a token leaks).
+  rpc ListWebhookSigningTokens(ListWebhookSigningTokensRequest) returns (ListWebhookSigningTokensResponse);
+  rpc BulkRotateWebhookSigningTokens(BulkRotateWebhookSigningTokensRequest) returns (BulkRotateWebhookSigningTokensResponse);
+
+  // ---- System health ----
+  rpc GetSystemHealth(GetSystemHealthRequest) returns (GetSystemHealthResponse);
+
+  // Stream of admin-relevant events (worker register/deregister, conflicts,
+  // health degradations). Used by the admin dashboard's live activity view.
+  rpc StreamAdminEvents(StreamAdminEventsRequest) returns (stream AdminEvent);
+
+  // ---- Maintenance ----
+  // Trigger expensive recomputations. Queued as background jobs; returns
+  // the job_id for progress observation.
+  rpc TriggerMaintenance(TriggerMaintenanceRequest) returns (TriggerMaintenanceResponse);
+}
+
+// ============================================================================
+// OIDC clients
+// ============================================================================
+
+// OIDCClient is the read-only, env-configured (CAIRN_OIDC_*) view of one
+// provider. The client_secret is never exposed; only whether one is set.
+message OIDCClient {
+  // Stable provider id from CAIRN_OIDC_PROVIDERS, e.g. "google".
+  string id = 1;
+  string display_name = 2;
+
+  // Issuer URL (per OIDC discovery, /.well-known/openid-configuration is
+  // appended). e.g. "https://accounts.google.com".
+  string issuer_url = 4;
+  string client_id = 5;
+
+  // Whether a client_secret is configured (confidential client).
+  bool has_client_secret = 6;
+
+  repeated string scopes = 7;          // "openid profile email" etc.
+  bool use_pkce = 8;
+
+  // Expected ID-token audience. Empty means "same as client_id".
+  string audience = 9;
+  // When true, the audience (aud) claim is not enforced.
+  bool skip_audience_check = 10;
+
+  // Auto-provision a Cairn user on first successful login. If false, only
+  // users whose verified email matches an existing Cairn account can sign in.
+  bool auto_provision = 11;
+  // If auto_provision and this is set, new users receive this role.
+  UserRole auto_provision_role = 12;
+}
+
+message ListOIDCClientsRequest {}
+message ListOIDCClientsResponse {
+  repeated OIDCClient clients = 1;
+}
+
+// ============================================================================
+// Instance settings
+// ============================================================================
+
+message InstanceSettings {
+  // Identity / branding
+  string instance_name = 1;
+  string instance_description = 2;
+  string support_email = 3;
+  string instance_url = 4;             // public base URL for emails, webhooks
+  string logo_url = 5;
+  string primary_color = 6;            // hex, e.g. "#3b82f6"
+
+  // Defaults applied to new users.
+  string default_locale = 7;
+  string default_timezone = 8;
+  UnitSystem default_units = 9;
+
+  // Registration policy.
+  bool registration_open = 10;
+  bool require_invite = 11;
+  // Domains allowed to register. Empty = any domain.
+  repeated string allowed_email_domains = 12;
+
+  // Outbound email status (read-only mirror of operator env config).
+  EmailAdapterKind email_adapter = 13;
+  bool email_configured = 14;
+  // The from-address emails are sent from.
+  string email_from_address = 15;
+
+  // Storage status (read-only mirror).
+  StorageAdapterKind storage_adapter = 16;
+  bool storage_configured = 17;
+
+  // Soft limits (per-user) that the admin can tune.
+  optional int64 per_user_storage_quota_bytes = 18;
+  optional int32 per_user_max_external_accounts = 19;
+
+  google.protobuf.Timestamp updated_at = 20;
+}
+
+enum EmailAdapterKind {
+  EMAIL_ADAPTER_KIND_UNSPECIFIED = 0;
+  EMAIL_ADAPTER_KIND_NONE = 1;            // emails disabled
+  EMAIL_ADAPTER_KIND_SMTP = 2;
+  EMAIL_ADAPTER_KIND_SES = 3;
+  EMAIL_ADAPTER_KIND_RESEND = 4;
+  EMAIL_ADAPTER_KIND_MAILGUN = 5;
+}
+
+enum StorageAdapterKind {
+  STORAGE_ADAPTER_KIND_UNSPECIFIED = 0;
+  STORAGE_ADAPTER_KIND_MINIO = 1;          // S3-compatible self-hosted
+  STORAGE_ADAPTER_KIND_AWS_S3 = 2;
+  STORAGE_ADAPTER_KIND_GCS = 3;            // via S3-compat shim
+  STORAGE_ADAPTER_KIND_R2 = 4;             // Cloudflare R2
+  STORAGE_ADAPTER_KIND_LOCAL_FS = 5;       // dev only
+}
+
+message GetInstanceSettingsRequest {}
+message GetInstanceSettingsResponse {
+  InstanceSettings settings = 1;
+}
+
+message UpdateInstanceSettingsRequest {
+  repeated string field_mask = 1;
+  InstanceSettings settings = 2;
+}
+message UpdateInstanceSettingsResponse {
+  InstanceSettings settings = 1;
+}
+
+message SendTestEmailRequest {
+  string to_address = 1;
+}
+message SendTestEmailResponse {
+  bool delivered = 1;
+  optional string error_message = 2;
+  // Duration the outbound dispatch took.
+  google.protobuf.Duration duration = 3;
+}
+
+// ============================================================================
+// Users
+// ============================================================================
+
+message ListUsersRequest {
+  // Free-text search over username, email, display_name.
+  string query = 1;
+  repeated UserRole roles = 2;
+  repeated UserStatus statuses = 3;
+  PageRequest page = 4;
+  UserSort sort = 5;
+}
+
+enum UserSort {
+  USER_SORT_UNSPECIFIED = 0;
+  USER_SORT_USERNAME_ASC = 1;
+  USER_SORT_CREATED_AT_DESC = 2;
+  USER_SORT_LAST_LOGIN_DESC = 3;
+}
+
+message ListUsersResponse {
+  repeated AdminUserSummary users = 1;
+  PageResponse page = 2;
+}
+
+// Summary view returned in list contexts — includes stats useful for the
+// admin overview without loading the full detail.
+message AdminUserSummary {
+  User user = 1;
+  int32 activity_count = 2;
+  int32 external_account_count = 3;
+  int64 storage_bytes_used = 4;
+  optional google.protobuf.Timestamp last_activity_at = 5;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+message GetUserResponse {
+  User user = 1;
+  // Linked OIDC identities for this user.
+  repeated LinkedIdentity identities = 2;
+  // Active sessions count (count only; full list via AuthService as that user).
+  int32 active_session_count = 3;
+  // Storage used in bytes.
+  int64 storage_bytes_used = 4;
+  // Aggregate counts for the admin user page.
+  int32 activity_count = 5;
+  int32 external_account_count = 6;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string email = 2;
+  string display_name = 3;
+  UserRole role = 4;
+  // If set, the user is created with this password (must change on first login).
+  // If empty, an invite is generated instead.
+  optional string initial_password = 5;
+  bool send_welcome_email = 6;
+  string locale = 7;
+  string timezone = 8;
+  UnitSystem units = 9;
+}
+message CreateUserResponse {
+  User user = 1;
+  // Set when initial_password was empty: an invite was created instead.
+  optional Invite invite = 2;
+}
+
+message UpdateUserRequest {
+  string id = 1;
+  repeated string field_mask = 2;
+  optional string email = 3;
+  optional string display_name = 4;
+  optional string locale = 5;
+  optional string timezone = 6;
+  optional UnitSystem units = 7;
+}
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message ChangeUserRoleRequest {
+  string id = 1;
+  UserRole role = 2;
+}
+message ChangeUserRoleResponse {
+  User user = 1;
+}
+
+message SetUserStatusRequest {
+  string id = 1;
+  UserStatus status = 2;
+  // Optional reason recorded in the audit log and shown to the user on next
+  // login attempt (for SUSPENDED).
+  string reason = 3;
+}
+message SetUserStatusResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+  // Must match the user's username — guards against accidental deletion.
+  string confirm_username = 2;
+  // True: hard-delete (cascade activities, metrics, sources). Audit log
+  // entries are anonymized but retained.
+  // False: soft-delete (set status=DELETED, hide from listings, retain data).
+  bool hard_delete = 3;
+}
+message DeleteUserResponse {
+  // For hard_delete: counts of cascade-deleted records.
+  int32 activities_deleted = 1;
+  int32 metrics_deleted = 2;
+  int32 external_accounts_deleted = 3;
+  int64 storage_bytes_freed = 4;
+}
+
+message ResetUserPasswordRequest {
+  string id = 1;
+}
+message ResetUserPasswordResponse {
+  // Temporary password, returned ONCE. User must change on next login.
+  string temporary_password = 1;
+}
+
+message RevokeUserCredentialsRequest {
+  string id = 1;
+  // Selectively revoke. If all three are false, defaults to revoking all.
+  bool revoke_sessions = 2;
+  bool revoke_personal_access_tokens = 3;
+  bool revoke_passkeys = 4;
+}
+message RevokeUserCredentialsResponse {
+  int32 sessions_revoked = 1;
+  int32 pats_revoked = 2;
+  int32 passkeys_revoked = 3;
+}
+
+// ============================================================================
+// Invites
+// ============================================================================
+
+message Invite {
+  string id = 1;
+  // Short, URL-friendly code the user types in. Returned only at creation.
+  string code = 2;
+  optional string email = 3;            // if bound to an email address
+  UserRole assigned_role = 4;
+  google.protobuf.Timestamp created_at = 5;
+  optional google.protobuf.Timestamp expires_at = 6;
+  bool used = 7;
+  optional google.protobuf.Timestamp used_at = 8;
+  optional string used_by_user_id = 9;
+  string created_by_user_id = 10;
+}
+
+message ListInvitesRequest {
+  bool include_used = 1;
+  bool include_expired = 2;
+  PageRequest page = 3;
+}
+message ListInvitesResponse {
+  repeated Invite invites = 1;
+  PageResponse page = 2;
+}
+
+message CreateInviteRequest {
+  // Optional — when set, the invite is bound to this email address and
+  // an invite email is dispatched (if email is configured).
+  optional string email = 1;
+  UserRole assigned_role = 2;
+  optional google.protobuf.Timestamp expires_at = 3;
+  // Send the invite email automatically (requires email configured and
+  // an email address on the invite).
+  bool send_email = 4;
+}
+message CreateInviteResponse {
+  Invite invite = 1;
+}
+
+message RevokeInviteRequest {
+  string id = 1;
+}
+message RevokeInviteResponse {}
+
+message ResendInviteRequest {
+  string id = 1;
+}
+message ResendInviteResponse {
+  bool delivered = 1;
+  optional string error_message = 2;
+}
+
+// ============================================================================
+// Audit log
+// ============================================================================
+
+message AuditEntry {
+  string id = 1;
+  google.protobuf.Timestamp ts = 2;
+
+  // Who performed the action. Empty for system-initiated actions.
+  optional string actor_user_id = 3;
+  optional string actor_username = 4;   // snapshot at action time
+  // For SDK / PAT-initiated actions, the PAT id.
+  optional string actor_pat_id = 5;
+  // IP address of the actor.
+  optional string ip_address = 6;
+
+  // What happened. Stable string identifier:
+  //   "user.created", "user.suspended", "user.role_changed",
+  //   "oidc_client.updated", "external_account.deleted",
+  //   "worker.deregistered", "instance_settings.updated",
+  //   "activity.deleted", "auth.login_succeeded",
+  //   "auth.login_failed", "auth.session_revoked", ...
+  string action = 7;
+  AuditSeverity severity = 8;
+
+  // The object the action was performed on. resource_type:
+  //   "user", "external_account", "activity", "oidc_client",
+  //   "worker", "instance_settings", "invite", "job"
+  optional string resource_type = 9;
+  optional string resource_id = 10;
+
+  // Optional structured diff: keys are field paths, values are
+  // { before: ..., after: ... } objects.
+  google.protobuf.Struct diff = 11;
+  // Free-form metadata (user agent, geo, reason, etc.).
+  map<string, string> metadata = 12;
+}
+
+enum AuditSeverity {
+  AUDIT_SEVERITY_UNSPECIFIED = 0;
+  AUDIT_SEVERITY_INFO = 1;          // routine actions
+  AUDIT_SEVERITY_WARN = 2;          // login failures, permission denials
+  AUDIT_SEVERITY_HIGH = 3;          // role changes, user deletions, secret rotations
+}
+
+message ListAuditEntriesRequest {
+  TimeRange time_range = 1;
+  // Filter by actor.
+  optional string actor_user_id = 2;
+  // Filter by resource.
+  optional string resource_type = 3;
+  optional string resource_id = 4;
+  // Filter by action (exact match).
+  repeated string actions = 5;
+  // Filter by minimum severity.
+  AuditSeverity min_severity = 6;
+  // Free-text search over action and metadata.
+  string query = 7;
+  PageRequest page = 8;
+}
+message ListAuditEntriesResponse {
+  repeated AuditEntry entries = 1;
+  PageResponse page = 2;
+}
+
+// ============================================================================
+// Jobs
+// ============================================================================
+
+message AdminJob {
+  string id = 1;
+  string job_type = 2;                  // mirrors worker.v1.JobType name
+  string provider = 3;
+  string user_id = 4;
+  optional string external_account_id = 5;
+  AdminJobStatus status = 6;
+  // The worker (worker_id, session-scoped) currently or last processing this job.
+  optional string worker_id = 7;
+  optional string worker_name = 8;
+  // Queue priority — "high", "normal", "low".
+  string priority = 9;
+  int32 attempt = 10;
+  int32 max_attempts = 11;
+  google.protobuf.Timestamp enqueued_at = 12;
+  optional google.protobuf.Timestamp started_at = 13;
+  optional google.protobuf.Timestamp finished_at = 14;
+  optional google.protobuf.Timestamp next_retry_at = 15;
+  // Last error if any.
+  optional string error_class = 16;
+  optional string error_message = 17;
+  // Type URL of the payload Any (informational; full payload available via GetJob).
+  string payload_type_url = 18;
+}
+
+enum AdminJobStatus {
+  ADMIN_JOB_STATUS_UNSPECIFIED = 0;
+  ADMIN_JOB_STATUS_QUEUED = 1;
+  ADMIN_JOB_STATUS_RUNNING = 2;
+  ADMIN_JOB_STATUS_COMPLETED = 3;
+  ADMIN_JOB_STATUS_FAILED_RETRYING = 4;
+  ADMIN_JOB_STATUS_FAILED_DEAD_LETTER = 5;
+  ADMIN_JOB_STATUS_CANCELLED = 6;
+}
+
+message ListJobsRequest {
+  repeated AdminJobStatus statuses = 1;
+  repeated string job_types = 2;
+  repeated string providers = 3;
+  optional string user_id = 4;
+  optional string worker_name = 5;
+  TimeRange enqueued_range = 6;
+  PageRequest page = 7;
+}
+message ListJobsResponse {
+  repeated AdminJob jobs = 1;
+  PageResponse page = 2;
+  // Aggregate counts (within filter, not paged).
+  map<string, int32> count_by_status = 3;
+}
+
+message GetJobRequest {
+  string id = 1;
+}
+message GetJobResponse {
+  AdminJob job = 1;
+  // The full payload as a Struct rendered from the underlying Any, for
+  // human-readable inspection in the admin UI.
+  google.protobuf.Struct payload_view = 2;
+  // The full result (for COMPLETED jobs), similarly rendered.
+  optional google.protobuf.Struct result_view = 3;
+  // Per-attempt history.
+  repeated JobAttempt attempts = 4;
+}
+
+message JobAttempt {
+  int32 attempt = 1;
+  optional string worker_id = 2;
+  optional string worker_name = 3;
+  google.protobuf.Timestamp started_at = 4;
+  optional google.protobuf.Timestamp finished_at = 5;
+  AdminJobStatus status = 6;
+  optional string error_class = 7;
+  optional string error_message = 8;
+}
+
+message RetryJobRequest {
+  string id = 1;
+  // Reset attempt counter to zero. Default false — counts toward max_attempts.
+  bool reset_attempts = 2;
+}
+message RetryJobResponse {
+  AdminJob job = 1;
+}
+
+message CancelJobRequest {
+  string id = 1;
+}
+message CancelJobResponse {
+  AdminJob job = 1;
+}
+
+message ListDeadLetterJobsRequest {
+  repeated string providers = 1;
+  optional string user_id = 2;
+  TimeRange failed_range = 3;
+  PageRequest page = 4;
+}
+message ListDeadLetterJobsResponse {
+  repeated AdminJob jobs = 1;
+  PageResponse page = 2;
+}
+
+message RequeueDeadLetterJobRequest {
+  string id = 1;
+  bool reset_attempts = 2;
+}
+message RequeueDeadLetterJobResponse {
+  AdminJob job = 1;
+}
+
+// ============================================================================
+// Orphaned sources
+// ============================================================================
+
+message OrphanedSourceGroup {
+  // The worker name expected by the orphaned sources (currently absent).
+  string worker_name = 1;
+  // Number of activity sources expecting this worker.
+  int32 source_count = 2;
+  // Distinct external accounts affected.
+  int32 external_account_count = 3;
+  // Distinct users affected.
+  int32 user_count = 4;
+  // The earliest imported_at among affected sources.
+  optional google.protobuf.Timestamp oldest_imported_at = 5;
+}
+
+message ListOrphanedSourcesRequest {
+  // Optionally filter to a specific worker_name.
+  optional string worker_name = 1;
+}
+message ListOrphanedSourcesResponse {
+  repeated OrphanedSourceGroup groups = 1;
+}
+
+// ============================================================================
+// Webhook signing tokens (per external account)
+// ============================================================================
+
+message WebhookSigningTokenInfo {
+  string external_account_id = 1;
+  string user_id = 2;
+  string provider = 3;
+  google.protobuf.Timestamp last_rotated_at = 4;
+  optional google.protobuf.Timestamp last_used_at = 5;
+}
+
+message ListWebhookSigningTokensRequest {
+  optional string provider = 1;
+  PageRequest page = 2;
+}
+message ListWebhookSigningTokensResponse {
+  repeated WebhookSigningTokenInfo tokens = 1;
+  PageResponse page = 2;
+}
+
+message BulkRotateWebhookSigningTokensRequest {
+  // Selectors — at least one must be set. Selectors compose with AND.
+  optional string provider = 1;
+  // If true, rotate tokens that haven't been rotated in this period.
+  optional google.protobuf.Duration older_than = 2;
+  // Explicit list of external_account_ids to rotate.
+  repeated string external_account_ids = 3;
+}
+message BulkRotateWebhookSigningTokensResponse {
+  int32 rotated_count = 1;
+  // Per-account job ids for the resulting unregister+register cycles.
+  repeated WebhookRotationJobs rotation_jobs = 2;
+}
+message WebhookRotationJobs {
+  string external_account_id = 1;
+  string unregister_job_id = 2;
+  string register_job_id = 3;
+}
+
+// ============================================================================
+// System health
+// ============================================================================
+
+message GetSystemHealthRequest {}
+message GetSystemHealthResponse {
+  // Overall summary.
+  HealthState overall = 1;
+
+  // Per-subsystem.
+  ComponentHealth database = 2;
+  ComponentHealth queue = 3;
+  ComponentHealth storage = 4;
+  ComponentHealth email = 5;
+
+  // Worker fleet at a glance.
+  int32 workers_healthy = 6;
+  int32 workers_degraded = 7;
+  int32 workers_offline = 8;
+
+  // Queue depth.
+  int32 jobs_queued = 9;
+  int32 jobs_running = 10;
+  int32 jobs_dead_letter = 11;
+
+  // Error rate over the last 15 minutes (fraction 0..1).
+  double error_rate_15m = 12;
+
+  google.protobuf.Timestamp checked_at = 13;
+}
+
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_HEALTHY = 1;
+  HEALTH_STATE_DEGRADED = 2;
+  HEALTH_STATE_UNHEALTHY = 3;
+}
+
+message ComponentHealth {
+  HealthState state = 1;
+  string detail = 2;                 // human-readable, e.g. "78 ms p50, 3 errors/min"
+  // Optional structured measurements.
+  map<string, double> measurements = 3;
+}
+
+// ============================================================================
+// Admin event stream
+// ============================================================================
+
+message StreamAdminEventsRequest {
+  repeated AdminEventType types = 1;
+}
+
+enum AdminEventType {
+  ADMIN_EVENT_TYPE_UNSPECIFIED = 0;
+  ADMIN_EVENT_TYPE_WORKER_REGISTERED = 1;
+  ADMIN_EVENT_TYPE_WORKER_DEREGISTERED = 2;
+  ADMIN_EVENT_TYPE_WORKER_OFFLINE = 3;
+  ADMIN_EVENT_TYPE_WORKER_DEGRADED = 4;
+  ADMIN_EVENT_TYPE_PROVIDER_CONFLICT_DETECTED = 5;
+  ADMIN_EVENT_TYPE_JOB_DEAD_LETTERED = 6;
+  ADMIN_EVENT_TYPE_USER_CREATED = 7;
+  ADMIN_EVENT_TYPE_USER_SUSPENDED = 8;
+  ADMIN_EVENT_TYPE_AUTH_FLOOD_DETECTED = 9;   // repeated login failures
+  ADMIN_EVENT_TYPE_SYSTEM_HEALTH_DEGRADED = 10;
+}
+
+message AdminEvent {
+  string id = 1;
+  AdminEventType type = 2;
+  AuditSeverity severity = 3;
+  google.protobuf.Timestamp ts = 4;
+  // i18n key + params for client-side localization.
+  string i18n_key = 5;
+  map<string, string> i18n_params = 6;
+  // Optional context references.
+  optional string user_id = 7;
+  optional string worker_name = 8;
+  optional string job_id = 9;
+}
+
+// ============================================================================
+// Maintenance
+// ============================================================================
+
+enum MaintenanceOperation {
+  MAINTENANCE_OPERATION_UNSPECIFIED = 0;
+  // Re-run segment matching across all users' activities. Long-running.
+  MAINTENANCE_OPERATION_REMATCH_ALL_SEGMENTS = 1;
+  // Recompute best efforts and user records for all activities. Triggered
+  // when the best-effort algorithm changes.
+  MAINTENANCE_OPERATION_RECOMPUTE_BEST_EFFORTS = 2;
+  // Recompute the merged Activity rows from sources. Triggered after a
+  // merge-engine update.
+  MAINTENANCE_OPERATION_RECOMPUTE_ACTIVITY_MERGES = 3;
+  // Recompute daily CTL/ATL/TSB metrics for all users.
+  MAINTENANCE_OPERATION_RECOMPUTE_TRAINING_LOAD = 4;
+  // Purge expired soft-deleted records past retention.
+  MAINTENANCE_OPERATION_PURGE_SOFT_DELETED = 5;
+  // Reclaim S3 blobs orphaned by deleted sources (lifecycle-policy fallback).
+  MAINTENANCE_OPERATION_GARBAGE_COLLECT_BLOBS = 6;
+}
+
+message TriggerMaintenanceRequest {
+  MaintenanceOperation operation = 1;
+  // Scope: empty = all users. Else only these users.
+  repeated string user_ids = 2;
+  // Confirmation phrase the admin must type ("RECOMPUTE" etc.). Server
+  // validates against an operation-specific expected phrase.
+  string confirm_phrase = 3;
+}
+message TriggerMaintenanceResponse {
+  string job_id = 1;
+  // Estimated number of records the operation will touch.
+  int64 estimated_record_count = 2;
+}

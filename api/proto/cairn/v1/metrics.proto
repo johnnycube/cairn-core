@@ -1,0 +1,490 @@
+// Metrics and user settings.
+//
+// Cairn separates two concepts that platforms often conflate:
+//
+//   * Settings — fixed user state. Height, birthdate, gender, units, locale.
+//     Per-activity-type training thresholds (FTP, LTHR, threshold pace).
+//     Per-activity-type source priorities. Per-provider auto-update rules.
+//
+//   * Metrics — time-series of measurements or computed values. Weight,
+//     resting HR, HRV, steps, sleep. Training load: TSS per activity (also
+//     stored on Activity.summary), and daily CTL/ATL/TSB rollups computed
+//     by the Core.
+//
+// "Current weight" is the latest metric value for key="weight_kg" — not a
+// settings field. Domain code uses GetCurrentUserContext to assemble a
+// composite (settings + latest metrics) when computing things like TSS.
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+import "cairn/v1/activity.proto";
+import "cairn/v1/common.proto";
+
+// ----------------------------------------------------------------------------
+// Metric
+//
+// Each metric row is an observation at a point in time, attributed to a
+// source. Metrics with the same (user_id, key, source, external_id) are
+// idempotent — re-importing replaces. Metrics without external_id are
+// dedup'd by (user_id, key, source, ts) when imported, or by id for
+// manual entries.
+// ----------------------------------------------------------------------------
+
+message Metric {
+  string id = 1;
+  string user_id = 2;
+
+  // The metric key. See "Reserved metric keys" below.
+  string key = 3;
+
+  // When the measurement was taken (or for aggregate metrics, the start
+  // of the period they cover; period_seconds carries the span).
+  google.protobuf.Timestamp ts = 4;
+
+  // For aggregate metrics (daily steps, sleep totals), the period the
+  // value covers in seconds. Zero means point-in-time.
+  int32 period_seconds = 5;
+
+  // Numeric value — populated for the vast majority of metrics. Units
+  // are implied by the key (see Reserved metric keys).
+  optional double value_numeric = 6;
+
+  // Structured value for non-scalar metrics (sleep stages, blood pressure
+  // pair, etc.). Mutually exclusive with value_numeric in practice; the
+  // domain enforces per-key shape.
+  optional google.protobuf.Struct value_struct = 7;
+
+  // Provenance. provider mirrors cairn.v1 provider conventions ("manual",
+  // "garmin", "withings", "cairn", ...).
+  string provider = 8;
+  // Set when imported by a worker.
+  optional string external_account_id = 9;
+  // Provider's id for dedup.
+  optional string external_id = 10;
+  // Worker provenance, for re-derive on worker upgrade (similar to
+  // ActivitySource).
+  optional string source_worker_name = 11;
+  optional string source_worker_version = 12;
+
+  // Optional reference to an activity (TSS metrics, e.g., link to the
+  // activity that produced them).
+  optional string activity_id = 13;
+
+  // User tags ("morning weigh-in", "post-workout").
+  repeated string tags = 14;
+
+  // Optional free-form notes (manual entries).
+  string notes = 15;
+
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+}
+
+// ----------------------------------------------------------------------------
+// Reserved metric keys
+//
+// The domain validates the shape (numeric vs struct) and units of these
+// keys. Workers MAY introduce additional keys, namespaced by provider:
+// "garmin.body_battery", "withings.pulse_wave_velocity". Custom keys are
+// surfaced in the UI under "Other metrics".
+//
+// Body composition (numeric, point-in-time)
+//   weight_kg                       kilograms
+//   body_fat_pct                    percent (0..100)
+//   lean_mass_kg                    kilograms
+//   bone_mass_kg                    kilograms
+//   hydration_pct                   percent
+//   muscle_mass_kg                  kilograms
+//
+// Cardiovascular (numeric, point-in-time)
+//   resting_hr_bpm                  beats per minute
+//   max_hr_bpm                      beats per minute
+//   hrv_rmssd_ms                    milliseconds (root mean square of successive differences)
+//   hrv_sdnn_ms                     milliseconds
+//   blood_pressure_systolic_mmhg    millimeters of mercury
+//   blood_pressure_diastolic_mmhg   millimeters of mercury
+//   spo2_pct                        percent
+//
+// Activity rollups (numeric, period_seconds usually 86400 = 1 day)
+//   steps                           count
+//   floors_climbed                  count
+//   active_minutes                  minutes
+//   calories_burned_kcal            kilocalories
+//
+// Sleep (struct or numeric, period_seconds = sleep duration)
+//   sleep_total_min                 minutes
+//   sleep_deep_min                  minutes
+//   sleep_rem_min                   minutes
+//   sleep_light_min                 minutes
+//   sleep_awake_min                 minutes
+//   sleep_score                     0..100
+//   sleep_stages                    struct { stages: [{start, end, stage}] }
+//
+// Performance / threshold (numeric, point-in-time)
+//   vo2max_ml_kg_min                ml/kg/min
+//   ftp_cycling_w                   watts
+//   lthr_running_bpm                bpm
+//   lthr_cycling_bpm                bpm
+//   threshold_pace_running_s_per_km seconds per kilometer
+//   css_swimming_s_per_100m         seconds per 100m
+//   critical_power_w                watts        (computed by Core)
+//   w_prime_kj                      kilojoules   (computed by Core)
+//
+// Training load (numeric, computed by Core, provider = "cairn")
+//   tss                             dimensionless, per-activity (also on Activity.summary.tss)
+//   ctl                             chronic training load, daily
+//   atl                             acute training load, daily
+//   tsb                             training stress balance, daily
+//
+// Subjective wellness (numeric, point-in-time)
+//   mood                            1..10
+//   energy                          1..10
+//   soreness                        1..10
+//   stress                          1..10
+//   motivation                      1..10
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// MetricsService
+// ----------------------------------------------------------------------------
+
+service MetricsService {
+  // List metrics with filtering. Default sort newest first.
+  rpc ListMetrics(ListMetricsRequest) returns (ListMetricsResponse);
+
+  // Get the latest value for each requested key. Optimized for the
+  // dashboard ("current weight: 78.3 kg, last measured 2 days ago").
+  rpc GetLatestMetrics(GetLatestMetricsRequest) returns (GetLatestMetricsResponse);
+
+  // Time-series query for charting. Server applies downsampling for long
+  // ranges; clients indicate desired bucket size.
+  rpc QueryMetricSeries(QueryMetricSeriesRequest) returns (QueryMetricSeriesResponse);
+
+  // Manual entry / edit.
+  rpc UpsertMetric(UpsertMetricRequest) returns (UpsertMetricResponse);
+  rpc DeleteMetric(DeleteMetricRequest) returns (DeleteMetricResponse);
+
+  // Bulk manual entry (CSV import etc).
+  rpc BulkUpsertMetrics(BulkUpsertMetricsRequest) returns (BulkUpsertMetricsResponse);
+
+  // Get the current training-context the domain assembles for the user:
+  // settings + latest metric values needed for TSS/CTL/ATL/TSB computation.
+  rpc GetUserContext(GetUserContextRequest) returns (GetUserContextResponse);
+}
+
+message ListMetricsRequest {
+  // Filter by metric keys; empty = all keys.
+  repeated string keys = 1;
+  TimeRange time_range = 2;
+  // Filter by provider ("manual", "garmin", "cairn", ...).
+  repeated string providers = 3;
+  // Filter to a specific external account.
+  optional string external_account_id = 4;
+  // Filter to metrics linked to a specific activity.
+  optional string activity_id = 5;
+  PageRequest page = 6;
+  MetricSort sort = 7;
+}
+
+enum MetricSort {
+  METRIC_SORT_UNSPECIFIED = 0;
+  METRIC_SORT_TS_DESC = 1;
+  METRIC_SORT_TS_ASC = 2;
+}
+
+message ListMetricsResponse {
+  repeated Metric metrics = 1;
+  PageResponse page = 2;
+}
+
+message GetLatestMetricsRequest {
+  repeated string keys = 1;
+  // Optional upper bound on metric ts (default: now). Useful for "as of"
+  // queries.
+  optional google.protobuf.Timestamp as_of = 2;
+}
+
+message GetLatestMetricsResponse {
+  // One entry per requested key. Missing keys (no data ever) are omitted.
+  map<string, Metric> metrics = 1;
+}
+
+message QueryMetricSeriesRequest {
+  string key = 1;
+  TimeRange time_range = 2;
+  // Aggregation bucket. Empty = raw points.
+  MetricBucket bucket = 3;
+  MetricAggregation aggregation = 4;
+  // Hard cap on returned points. Server downsamples further if needed.
+  int32 max_points = 5;
+  // Optional filter by provider.
+  repeated string providers = 6;
+}
+
+enum MetricBucket {
+  METRIC_BUCKET_UNSPECIFIED = 0;
+  METRIC_BUCKET_HOUR = 1;
+  METRIC_BUCKET_DAY = 2;
+  METRIC_BUCKET_WEEK = 3;
+  METRIC_BUCKET_MONTH = 4;
+}
+
+enum MetricAggregation {
+  METRIC_AGGREGATION_UNSPECIFIED = 0;
+  METRIC_AGGREGATION_AVG = 1;
+  METRIC_AGGREGATION_MIN = 2;
+  METRIC_AGGREGATION_MAX = 3;
+  METRIC_AGGREGATION_SUM = 4;
+  METRIC_AGGREGATION_LAST = 5;        // last value in bucket
+  METRIC_AGGREGATION_FIRST = 6;
+  METRIC_AGGREGATION_COUNT = 7;
+}
+
+message MetricSeriesPoint {
+  google.protobuf.Timestamp ts = 1;
+  double value = 2;
+  // For aggregated buckets: how many raw samples are in this point.
+  int32 sample_count = 3;
+}
+
+message QueryMetricSeriesResponse {
+  string key = 1;
+  MetricBucket bucket = 2;
+  MetricAggregation aggregation = 3;
+  repeated MetricSeriesPoint points = 4;
+}
+
+message UpsertMetricRequest {
+  // If id is empty, a new metric is created. If set, the existing metric
+  // with that id is updated. For idempotent manual upsert by natural key,
+  // pass dedup_by_natural_key=true.
+  string id = 1;
+  string key = 2;
+  google.protobuf.Timestamp ts = 3;
+  int32 period_seconds = 4;
+  optional double value_numeric = 5;
+  optional google.protobuf.Struct value_struct = 6;
+  // Provider defaults to "manual" when this RPC is called by a user session.
+  // CLI scripts may pass an explicit provider; webhooks/workers go through
+  // their own ingestion path.
+  string provider = 7;
+  repeated string tags = 8;
+  string notes = 9;
+  // For idempotent natural-key upsert: (user_id, key, ts, provider).
+  bool dedup_by_natural_key = 10;
+}
+
+message UpsertMetricResponse {
+  Metric metric = 1;
+}
+
+message DeleteMetricRequest {
+  string id = 1;
+}
+message DeleteMetricResponse {}
+
+message BulkUpsertMetricsRequest {
+  repeated UpsertMetricRequest metrics = 1;
+  // Continue past per-row validation errors. Failed rows reported in response.
+  bool continue_on_error = 2;
+}
+message BulkUpsertMetricsResponse {
+  int32 created = 1;
+  int32 updated = 2;
+  int32 skipped = 3;
+  repeated BulkUpsertError errors = 4;
+}
+message BulkUpsertError {
+  int32 row_index = 1;
+  string code = 2;
+  string message = 3;
+}
+
+// ----------------------------------------------------------------------------
+// User context — composite read for computation
+// ----------------------------------------------------------------------------
+
+message GetUserContextRequest {
+  // For "what would my TSS-context have been at this point in time?" queries
+  // — defaults to now.
+  optional google.protobuf.Timestamp as_of = 1;
+}
+
+message GetUserContextResponse {
+  UserSettings settings = 1;
+  // Latest values for keys the Core needs to compute training-load metrics.
+  // Always includes weight_kg, resting_hr_bpm, max_hr_bpm, hrv_rmssd_ms,
+  // vo2max_ml_kg_min, and the threshold metrics relevant to each discipline.
+  map<string, Metric> latest_metrics = 2;
+}
+
+// ============================================================================
+// UserSettings
+// ============================================================================
+
+message UserSettings {
+  string user_id = 1;
+
+  // Profile basics that are stable.
+  optional double height_cm = 2;
+  optional google.protobuf.Timestamp birthdate = 3;
+  optional BiologicalSex biological_sex = 4;     // used for HR/calorie heuristics
+  optional int32 max_hr_estimate_bpm = 5;        // override of age-derived estimate
+
+  // Training thresholds — these are overrides. When unset, the Core falls
+  // back to the latest computed estimate from the metrics with the same key
+  // (e.g. metrics.ftp_cycling_w computed from power data).
+  optional int32 ftp_cycling_override_w = 6;
+  optional int32 lthr_cycling_override_bpm = 7;
+  optional int32 lthr_running_override_bpm = 8;
+  optional int32 threshold_pace_running_override_s_per_km = 9;
+  optional int32 css_swimming_override_s_per_100m = 10;
+
+  // Source-priority per activity type.
+  // Each entry's providers list is in descending priority — first provider
+  // present for a field wins the merge for that field group.
+  map<string, ActivityTypeMergePolicy> merge_policy_by_activity_type = 11;
+
+  // Source-priority per metric key (e.g. weight may prefer Withings over Garmin).
+  // Keys are metric keys; value lists are providers in descending priority.
+  map<string, ProviderPriorityList> metric_priority_by_key = 12;
+
+  // Auto-reimport policy per provider.
+  map<string, AutoReimportPolicy> auto_reimport_by_provider = 13;
+
+  // Polling-schedule overrides per provider (overrides manifest defaults).
+  map<string, string> poll_schedule_override_by_provider = 14;  // value = cron expr
+
+  // Default privacy for newly imported activities.
+  Privacy default_activity_privacy = 15;
+
+  // TSS variant preferences per activity type. Default uses the best
+  // available signal (power if present, else pace, else HR).
+  map<string, TSSPreference> tss_preference_by_activity_type = 16;
+
+  // Best-effort window lists per activity type. Empty list means the
+  // built-in defaults are used. Lists here REPLACE the defaults entirely
+  // when non-empty.
+  map<string, BestEffortWindowSet> best_effort_windows_by_activity_type = 17;
+
+  google.protobuf.Timestamp updated_at = 18;
+}
+
+enum BiologicalSex {
+  BIOLOGICAL_SEX_UNSPECIFIED = 0;
+  BIOLOGICAL_SEX_FEMALE = 1;
+  BIOLOGICAL_SEX_MALE = 2;
+  BIOLOGICAL_SEX_OTHER = 3;
+}
+
+// Per activity-type, per field-group source priority. Empty providers list
+// for a field group means "use the global default" (which itself is the
+// type-level providers list).
+message ActivityTypeMergePolicy {
+  // Activity type as enum string for map-key serialization, e.g.
+  // "ACTIVITY_TYPE_RIDE". Set via the wrapping map key in UserSettings.
+
+  // Default priority for any field-group not explicitly listed below.
+  repeated string default_providers = 1;
+
+  // Field-group overrides. Field-group keys are the same as those used in
+  // Activity.merge_provenance: distance, duration, elevation, heart_rate,
+  // power, cadence, temperature, speed, gps_track, calories.
+  map<string, ProviderPriorityList> by_field_group = 2;
+}
+
+message ProviderPriorityList {
+  // Providers in descending priority order. Earlier providers win ties.
+  repeated string providers = 1;
+}
+
+message AutoReimportPolicy {
+  // Re-import activities when a worker patch version comes online
+  // (1.4.2 → 1.4.3). Defaults to true.
+  bool on_patch = 1;
+  // Re-import on minor version bump (1.4.x → 1.5.0). Default true.
+  bool on_minor = 2;
+  // Re-import on major version bump (1.x → 2.0.0). Default false — major
+  // versions may need user attention (new config fields).
+  bool on_major = 3;
+  // Re-import when only the manifest_hash changes within the same version.
+  // Default true (manifest-only changes are usually compatible bug fixes).
+  bool on_manifest_change = 4;
+  // Throttle: max activities re-imported per hour from this provider.
+  // Zero = use system default.
+  int32 max_per_hour = 5;
+}
+
+enum TSSPreference {
+  TSS_PREFERENCE_UNSPECIFIED = 0;
+  // Use the best available signal per activity (power > pace > HR).
+  TSS_PREFERENCE_AUTO = 1;
+  // Power-based only (cycling); falls back to AUTO if no power data.
+  TSS_PREFERENCE_POWER = 2;
+  // Pace-based (running, swimming).
+  TSS_PREFERENCE_PACE = 3;
+  // HR-based.
+  TSS_PREFERENCE_HEART_RATE = 4;
+}
+
+message BestEffortWindowSet {
+  message Window {
+    BestEffortMetric metric = 1;
+    BestEffortWindowKind window_kind = 2;
+    int32 window_value = 3;
+    string label = 4;
+  }
+  repeated Window windows = 1;
+}
+
+// ----------------------------------------------------------------------------
+// SettingsService
+// ----------------------------------------------------------------------------
+
+service SettingsService {
+  rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+
+  // Merge-update — only fields in field_mask are touched. Map updates
+  // are replace-by-key semantics: passing an entry replaces that key's
+  // value entirely; omitting a key leaves the existing value.
+  rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+
+  // Reset to defaults — useful from the settings UI.
+  rpc ResetSettingsSection(ResetSettingsSectionRequest) returns (ResetSettingsSectionResponse);
+}
+
+message GetSettingsRequest {}
+message GetSettingsResponse {
+  UserSettings settings = 1;
+}
+
+message UpdateSettingsRequest {
+  repeated string field_mask = 1;
+  UserSettings settings = 2;
+}
+message UpdateSettingsResponse {
+  UserSettings settings = 1;
+}
+
+enum SettingsSection {
+  SETTINGS_SECTION_UNSPECIFIED = 0;
+  SETTINGS_SECTION_PROFILE = 1;             // height, birthdate, sex
+  SETTINGS_SECTION_THRESHOLDS = 2;          // FTP, LTHR, pace overrides
+  SETTINGS_SECTION_MERGE_POLICIES = 3;      // source priorities
+  SETTINGS_SECTION_AUTO_REIMPORT = 4;
+  SETTINGS_SECTION_POLLING = 5;
+  SETTINGS_SECTION_PRIVACY = 6;
+  SETTINGS_SECTION_TSS_PREFERENCES = 7;
+  SETTINGS_SECTION_BEST_EFFORTS = 8;
+}
+
+message ResetSettingsSectionRequest {
+  SettingsSection section = 1;
+}
+message ResetSettingsSectionResponse {
+  UserSettings settings = 1;
+}

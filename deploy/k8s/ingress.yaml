@@ -1,0 +1,30 @@
+# Public entry point. Terminate TLS here and set CAIRN_HTTP_PUBLIC_BASE_URL
+# (in config.yaml) to this host. Adjust ingressClassName + TLS to your cluster
+# (this example assumes nginx + cert-manager). A strict Content-Security-Policy
+# belongs at this proxy — the Go server only sets baseline security headers.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cairn
+  namespace: cairn
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Activity streams + FIT/GPX uploads can be large; lift the body cap.
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - cairn.example.com
+      secretName: cairn-tls
+  rules:
+    - host: cairn.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cairn
+                port:
+                  number: 80

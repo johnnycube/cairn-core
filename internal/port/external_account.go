@@ -1,0 +1,102 @@
+package port
+
+import (
+	"context"
+	"time"
+
+	"github.com/johnnycube/cairn-core/internal/domain"
+)
+
+// ExternalAccountRepo persists and reads external_accounts.
+//
+// Token columns (access_token_encrypted, refresh_token_encrypted) are
+// deliberately not exposed through this interface. The token-fetch
+// path lives in a separate use case (FetchProviderToken) that talks
+// to a dedicated repository methods FetchTokenForRefresh and
+// StoreRefreshedToken — those handle ciphertext-at-rest and never
+// expose plaintext outside the use case.
+type ExternalAccountRepo interface {
+	GetExternalAccount(ctx context.Context, id domain.ExternalAccountID) (domain.ExternalAccount, error)
+
+	// CreateAccount inserts a new external_accounts row (e.g. after a
+	// successful OAuth connect) and returns the server-allocated id. If a
+	// row for (provider, provider_account_id) already exists for this user
+	// it is reused (re-connect), and its id is returned with no error.
+	CreateAccount(ctx context.Context, a domain.ExternalAccount) (domain.ExternalAccountID, error)
+
+	ListAccountsForUser(ctx context.Context, userID domain.UserID) ([]domain.ExternalAccount, error)
+
+	// FindByProviderAndExternalID resolves an account by its provider-side
+	// id (e.g. Strava's owner_id from a webhook envelope). Returns
+	// domain.ErrNotFound when no matching row exists — the webhook
+	// handler treats that as "orphaned event, 200-OK and ignore".
+	//
+	// Index-backed: there's a UNIQUE constraint on
+	// (provider, provider_account_id) — webhook routing latency is a
+	// single index seek.
+	FindByProviderAndExternalID(ctx context.Context, provider, externalID string) (domain.ExternalAccount, error)
+
+	// RegisterWebhookSubscription records the provider push-subscription →
+	// connection mapping (#50). Idempotent on (provider, subscription_id).
+	RegisterWebhookSubscription(ctx context.Context, provider, subscriptionID string, accountID domain.ExternalAccountID) error
+
+	// FindBySubscription resolves the exact account behind a provider push
+	// subscription. This is unambiguous where FindByProviderAndExternalID is
+	// not (the same provider athlete may be linked by multiple connections).
+	FindBySubscription(ctx context.Context, provider, subscriptionID string) (domain.ExternalAccount, error)
+
+	// SetAutoImport toggles automatic imports (reconcile + webhook fetch) for
+	// one registered account (#93). The account stays linked either way.
+	SetAutoImport(ctx context.Context, id domain.ExternalAccountID, enabled bool) error
+
+	// ListAccountsDueForReconcile returns accounts whose next reconcile
+	// is due based on the per-account schedule. Returned accounts are
+	// always status=active or status=rate_limited (with reset already
+	// past). Caps at `batchSize` so a single tick of the scheduler
+	// can't enqueue tens of thousands of jobs in one go.
+	//
+	// Schedule (implementation-defined, lives in the adapter SQL):
+	//   - webhook_subscribed = true:  reconcile every 24h as drift safety
+	//   - webhook_subscribed = false: reconcile every N min (default 5)
+	//
+	// Configurable via instance_settings; the SQL reads the setting and
+	// computes the WHERE last_sync_at predicate accordingly.
+	ListAccountsDueForReconcile(ctx context.Context, now time.Time, batchSize int) ([]domain.ExternalAccount, error)
+
+	// UpdateSyncWatermark advances the sync_watermark and stamps the
+	// sync timestamps. succeeded=true also sets last_successful_sync_at.
+	UpdateSyncWatermark(
+		ctx context.Context,
+		id domain.ExternalAccountID,
+		watermark time.Time,
+		succeeded bool,
+		at time.Time,
+	) error
+
+	// UpdateStatus flips the lifecycle status. Used by the reauth-event
+	// dispatcher, by the rate-limit-snapshot-updater, and by the manual
+	// admin disable command.
+	UpdateStatus(
+		ctx context.Context,
+		id domain.ExternalAccountID,
+		status domain.ExternalAccountStatus,
+		reason string,
+	) error
+
+	// UpdateRateLimit stores the most recent rate-limit snapshot the
+	// worker observed. Used by the scheduler to skip accounts in
+	// cooldown.
+	UpdateRateLimit(
+		ctx context.Context,
+		id domain.ExternalAccountID,
+		snapshot *domain.RateLimitSnapshot,
+	) error
+
+	// UpdateAccountConfig shallow-merges the patch into the account's config
+	// jsonb. Used for per-connection settings (e.g. poll_interval_seconds).
+	UpdateAccountConfig(
+		ctx context.Context,
+		id domain.ExternalAccountID,
+		patch map[string]any,
+	) error
+}

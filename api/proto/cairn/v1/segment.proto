@@ -1,0 +1,432 @@
+// Segments and segment efforts.
+//
+// A Segment is a named geographic path with a polyline. Cairn supports two
+// sources:
+//
+//   * "strava" — mirrored read-only when activities are imported from
+//     Strava. Each user holds their own copy (Strava's API binds segments
+//     to the authenticated athlete). If two users on the same instance
+//     star the same Strava segment, each has their own mirror.
+//
+//   * "cairn" — user-defined within Cairn. May be private (owner-only) or
+//     shared instance-wide (any user on the instance can match efforts
+//     against it). The owning user controls visibility.
+//
+// Segment matching runs on every activity import — irrespective of the
+// activity's source — using PostGIS ST_DWithin to filter candidates and a
+// Hausdorff-distance + direction check to confirm matches. Matched
+// efforts are recorded in segment_efforts and trigger PR notifications
+// when they beat the user's prior best.
+//
+// Records (fastest 5k, max 5min power, etc.) are NOT segment-scoped;
+// see best efforts in activity.proto. Segment leaderboards are an
+// instance-wide ranking of efforts against a shared segment.
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+import "cairn/v1/activity.proto";
+import "cairn/v1/common.proto";
+import "cairn/v1/metrics.proto";
+
+// ----------------------------------------------------------------------------
+// Segment
+// ----------------------------------------------------------------------------
+
+message Segment {
+  string id = 1;
+
+  // "strava" (imported mirror) or "cairn" (user-defined).
+  // Future: "komoot", "ridewithgps", etc. as importers materialize.
+  string source = 2;
+
+  // Required for source="strava": the Strava segment id.
+  // Empty for source="cairn".
+  optional string external_id = 3;
+
+  // Required for source="strava": the external_account whose Strava import
+  // brought this in. The segment is only visible to that account's owner
+  // (Strava terms-of-service compliance).
+  optional string external_account_id = 4;
+
+  // Required for source="cairn": the user who created the segment.
+  optional string owner_user_id = 5;
+
+  // Visibility scope. Strava-mirrored segments are always SEGMENT_SCOPE_PRIVATE
+  // (one user). Cairn-native segments can be SCOPE_PRIVATE or SCOPE_INSTANCE.
+  SegmentScope scope = 6;
+
+  string name = 7;
+  string description = 8;
+
+  // Type guidance — affects which activity types are eligible for matching.
+  // RIDE-typed segments are matched against rides; RUN against runs, etc.
+  // ACTIVITY_TYPE_WORKOUT acts as a wildcard (matched against all types).
+  ActivityType activity_type = 9;
+
+  // Geometry — the path as an encoded polyline. The Core also stores a
+  // PostGIS GEOGRAPHY column for spatial queries; this is the on-the-wire
+  // form for clients.
+  EncodedPolyline polyline = 10;
+
+  // Bounding box (denormalized for cheap filtering on map views).
+  BoundingBox bounding_box = 11;
+
+  double distance_m = 12;
+  optional double elevation_gain_m = 13;
+  optional double elevation_loss_m = 14;
+  optional double min_elevation_m = 15;
+  optional double max_elevation_m = 16;
+  optional double avg_grade = 17;
+  optional double max_grade = 18;
+
+  // Climb categorization, if applicable (HC/1/2/3/4 for cycling, etc.).
+  // Strava's classification is mirrored; Cairn computes for native segments.
+  optional ClimbCategory climb_category = 19;
+
+  // Matching tolerances. Set per-segment to handle wide variability (a
+  // 30km route can afford a wider corridor than a 200m sprint).
+  // Defaults come from server config if zero here.
+  optional double match_corridor_m = 20;     // meters from polyline
+  optional double match_start_tolerance_m = 21;
+  optional double match_end_tolerance_m = 22;
+  // True means the segment can be matched in both directions
+  // (otherwise direction is enforced).
+  bool bidirectional = 23;
+
+  // Strava-only: a starred segment flag, mirrored from the user's account.
+  bool starred = 24;
+
+  // Cached statistics — denormalized for fast list rendering.
+  SegmentStats stats = 25;
+
+  google.protobuf.Timestamp created_at = 26;
+  google.protobuf.Timestamp updated_at = 27;
+}
+
+enum SegmentScope {
+  SEGMENT_SCOPE_UNSPECIFIED = 0;
+  SEGMENT_SCOPE_PRIVATE = 1;        // visible only to owner_user_id
+  SEGMENT_SCOPE_INSTANCE = 2;       // visible to all users on the instance
+}
+
+enum ClimbCategory {
+  CLIMB_CATEGORY_UNSPECIFIED = 0;
+  CLIMB_CATEGORY_NONE = 1;
+  CLIMB_CATEGORY_FOUR = 2;
+  CLIMB_CATEGORY_THREE = 3;
+  CLIMB_CATEGORY_TWO = 4;
+  CLIMB_CATEGORY_ONE = 5;
+  CLIMB_CATEGORY_HORS_CATEGORIE = 6;
+}
+
+message SegmentStats {
+  // Total efforts recorded against this segment (cross-source).
+  int32 effort_count = 1;
+  // Distinct users who have an effort on this segment (instance segments).
+  int32 athlete_count = 2;
+  // The current best effort time (any user, any source).
+  optional google.protobuf.Duration kom_time = 3;
+  optional string kom_effort_id = 4;
+  // The owner-only personal best (used in private-segment views).
+  optional google.protobuf.Duration pr_time = 5;
+  optional string pr_effort_id = 6;
+}
+
+// ----------------------------------------------------------------------------
+// SegmentEffort
+//
+// One row per (activity, segment) match. Cairn computes these uniformly
+// regardless of the activity's source. If an activity has multiple sources
+// (e.g. both Strava and Garmin), the match runs against each source's
+// stream — typically yielding very similar efforts; the source with the
+// best fidelity (highest sample rate, smallest deviation) wins for stats
+// but all are retained.
+// ----------------------------------------------------------------------------
+
+message SegmentEffort {
+  string id = 1;
+  string segment_id = 2;
+  string activity_id = 3;
+  // Which activity-source stream was matched — for cross-source dedup
+  // and stream-toggle UX.
+  string activity_source_id = 4;
+  string user_id = 5;
+
+  // When the effort happened (start of the segment on the activity's clock).
+  google.protobuf.Timestamp start_time = 6;
+  google.protobuf.Duration elapsed = 7;
+  google.protobuf.Duration moving = 8;
+
+  // Stream offsets within the source's stream.
+  int32 start_offset = 9;
+  int32 end_offset = 10;
+
+  // Summary metrics over the segment.
+  optional int32 avg_heart_rate_bpm = 11;
+  optional int32 max_heart_rate_bpm = 12;
+  optional int32 avg_power_w = 13;
+  optional int32 avg_cadence = 14;
+  optional double avg_speed_mps = 15;
+
+  // Where this effort ranks for this user (1 = current PR; 0 = unranked).
+  int32 personal_rank = 16;
+  // Where this effort ranks instance-wide (only for SCOPE_INSTANCE segments).
+  int32 instance_rank = 17;
+
+  // True if this effort newly set the user's PR. Used to suppress
+  // duplicate PR notifications when reimporting.
+  bool is_personal_record = 18;
+  // True if this effort newly set the instance KOM.
+  bool is_instance_record = 19;
+
+  // Strava reports provider-known efforts on its activity payloads
+  // (ProviderSegmentEffort). For source="strava" Cairn segments, Cairn
+  // computes the effort independently; if Strava also reported one, the
+  // provider's id is stored here for reconciliation/audit.
+  optional string provider_effort_external_id = 20;
+
+  google.protobuf.Timestamp created_at = 21;
+}
+
+// ----------------------------------------------------------------------------
+// SegmentService
+// ----------------------------------------------------------------------------
+
+service SegmentService {
+  // List segments visible to the caller (their own private + their starred
+  // Strava mirrors + instance-shared).
+  rpc ListSegments(ListSegmentsRequest) returns (ListSegmentsResponse);
+
+  rpc GetSegment(GetSegmentRequest) returns (GetSegmentResponse);
+
+  // Create a Cairn-native segment (source="cairn").
+  rpc CreateSegment(CreateSegmentRequest) returns (CreateSegmentResponse);
+
+  // Update a Cairn-native segment. Strava-mirrored segments are read-only
+  // except for the starred flag (which propagates back to Strava via a job).
+  rpc UpdateSegment(UpdateSegmentRequest) returns (UpdateSegmentResponse);
+
+  rpc DeleteSegment(DeleteSegmentRequest) returns (DeleteSegmentResponse);
+
+  // Spatial search — used by the map view "show segments in this area".
+  rpc SearchSegmentsInBoundingBox(SearchSegmentsInBoundingBoxRequest) returns (SearchSegmentsInBoundingBoxResponse);
+
+  // List efforts against a segment, with paging. For SCOPE_INSTANCE, all
+  // users' efforts; for SCOPE_PRIVATE, owner-only.
+  rpc ListSegmentEfforts(ListSegmentEffortsRequest) returns (ListSegmentEffortsResponse);
+
+  // List the calling user's efforts on a segment ordered by elapsed time
+  // ascending — the "my history" view.
+  rpc ListMySegmentEfforts(ListMySegmentEffortsRequest) returns (ListMySegmentEffortsResponse);
+
+  // Leaderboard for instance-scoped segments.
+  rpc GetSegmentLeaderboard(GetSegmentLeaderboardRequest) returns (GetSegmentLeaderboardResponse);
+
+  // Re-run matching for a single activity against all eligible segments.
+  // Useful after creating a new segment that overlaps existing rides.
+  rpc RematchActivity(RematchActivityRequest) returns (RematchActivityResponse);
+
+  // Re-run matching for all of the caller's activities against a single
+  // segment. Used after creating a Cairn-native segment to backfill
+  // historical efforts. Queued as a background job.
+  rpc RematchSegment(RematchSegmentRequest) returns (RematchSegmentResponse);
+}
+
+// ---- List / Get / Create / Update / Delete ----
+
+message ListSegmentsRequest {
+  // Filter by source ("strava", "cairn"), empty = all.
+  repeated string sources = 1;
+  // Filter by visibility.
+  repeated SegmentScope scopes = 2;
+  // Activity type filter (RIDE etc.).
+  repeated ActivityType activity_types = 3;
+  // Only segments the caller has at least one effort on.
+  bool only_with_efforts = 4;
+  // Only starred segments (Strava only).
+  bool only_starred = 5;
+  // Text search on name + description.
+  string query = 6;
+  SegmentSort sort = 7;
+  PageRequest page = 8;
+}
+
+enum SegmentSort {
+  SEGMENT_SORT_UNSPECIFIED = 0;
+  SEGMENT_SORT_NAME_ASC = 1;
+  SEGMENT_SORT_DISTANCE_DESC = 2;
+  SEGMENT_SORT_ELEVATION_DESC = 3;
+  SEGMENT_SORT_EFFORT_COUNT_DESC = 4;
+  SEGMENT_SORT_CREATED_AT_DESC = 5;
+}
+
+message ListSegmentsResponse {
+  repeated Segment segments = 1;
+  PageResponse page = 2;
+}
+
+message GetSegmentRequest {
+  string id = 1;
+  // If true, include effort previews (top N) in the response.
+  bool include_top_efforts = 2;
+}
+message GetSegmentResponse {
+  Segment segment = 1;
+  // Populated only when include_top_efforts is true.
+  repeated SegmentEffort top_efforts = 2;
+}
+
+message CreateSegmentRequest {
+  string name = 1;
+  string description = 2;
+  ActivityType activity_type = 3;
+  EncodedPolyline polyline = 4;
+  SegmentScope scope = 5;
+  // Optional tuning of matching tolerances.
+  optional double match_corridor_m = 6;
+  optional double match_start_tolerance_m = 7;
+  optional double match_end_tolerance_m = 8;
+  bool bidirectional = 9;
+  // If true, queues a RematchSegment job after creation to backfill
+  // historical efforts. Default true.
+  bool backfill_efforts = 10;
+}
+message CreateSegmentResponse {
+  Segment segment = 1;
+  // The backfill job, if backfill_efforts was true.
+  optional string backfill_job_id = 2;
+}
+
+message UpdateSegmentRequest {
+  string id = 1;
+  repeated string field_mask = 2;
+  optional string name = 3;
+  optional string description = 4;
+  optional SegmentScope scope = 5;
+  optional double match_corridor_m = 6;
+  optional double match_start_tolerance_m = 7;
+  optional double match_end_tolerance_m = 8;
+  optional bool bidirectional = 9;
+  optional bool starred = 10;          // Strava: pushes to provider
+  // Polyline edits are not allowed on segments with existing efforts;
+  // create a new segment instead. The Core rejects polyline changes when
+  // SegmentStats.effort_count > 0.
+  optional EncodedPolyline polyline = 11;
+}
+message UpdateSegmentResponse {
+  Segment segment = 1;
+}
+
+message DeleteSegmentRequest {
+  string id = 1;
+  // True keeps recorded SegmentEffort rows (preserves PR history at the
+  // cost of dangling references). False cascade-deletes efforts.
+  bool keep_efforts = 2;
+}
+message DeleteSegmentResponse {}
+
+// ---- Spatial search ----
+
+message SearchSegmentsInBoundingBoxRequest {
+  BoundingBox bbox = 1;
+  // Optional filter by activity type.
+  repeated ActivityType activity_types = 2;
+  // Max results (server-capped). Returned in unspecified order; client
+  // typically renders all of them as map overlays.
+  int32 limit = 3;
+  // Include instance-scoped segments from other users.
+  bool include_instance_segments = 4;
+}
+message SearchSegmentsInBoundingBoxResponse {
+  repeated Segment segments = 1;
+}
+
+// ---- Efforts ----
+
+message ListSegmentEffortsRequest {
+  string segment_id = 1;
+  TimeRange time_range = 2;
+  // For SCOPE_INSTANCE: filter to a specific user (empty = all users).
+  optional string user_id = 3;
+  PageRequest page = 4;
+  // Sort: SEGMENT_EFFORT_SORT_ELAPSED_ASC is the leaderboard sort.
+  SegmentEffortSort sort = 5;
+}
+
+enum SegmentEffortSort {
+  SEGMENT_EFFORT_SORT_UNSPECIFIED = 0;
+  SEGMENT_EFFORT_SORT_ELAPSED_ASC = 1;     // fastest first
+  SEGMENT_EFFORT_SORT_START_TIME_DESC = 2; // recent first
+}
+
+message ListSegmentEffortsResponse {
+  repeated SegmentEffort efforts = 1;
+  PageResponse page = 2;
+}
+
+message ListMySegmentEffortsRequest {
+  string segment_id = 1;
+  TimeRange time_range = 2;
+  PageRequest page = 3;
+}
+message ListMySegmentEffortsResponse {
+  repeated SegmentEffort efforts = 1;
+  PageResponse page = 2;
+  // The caller's PR effort on this segment (if any). Convenient to render
+  // a banner above the table.
+  optional SegmentEffort personal_record = 3;
+}
+
+message GetSegmentLeaderboardRequest {
+  string segment_id = 1;
+  // Restrict to a time window — "all-time", "this year", "last 30d", etc.
+  // Empty = all-time.
+  TimeRange time_range = 2;
+  // Optional age/sex filters. Privacy: only applied if user profiles share
+  // sex/age, otherwise ignored.
+  optional BiologicalSex biological_sex = 3;
+  PageRequest page = 4;
+}
+
+message LeaderboardEntry {
+  int32 rank = 1;
+  string user_id = 2;
+  string user_display_name = 3;
+  optional string user_avatar_url = 4;
+  google.protobuf.Duration elapsed = 5;
+  google.protobuf.Timestamp start_time = 6;
+  string effort_id = 7;
+  string activity_id = 8;
+}
+
+message GetSegmentLeaderboardResponse {
+  repeated LeaderboardEntry entries = 1;
+  PageResponse page = 2;
+  // The calling user's rank in this leaderboard, if any.
+  optional int32 my_rank = 3;
+  optional LeaderboardEntry my_entry = 4;
+}
+
+// ---- Rematch operations ----
+
+message RematchActivityRequest {
+  string activity_id = 1;
+  // If non-empty, match only against these segments; otherwise all eligible.
+  repeated string segment_ids = 2;
+}
+message RematchActivityResponse {
+  string job_id = 1;
+}
+
+message RematchSegmentRequest {
+  string segment_id = 1;
+  // Match only against the caller's activities within this time range.
+  TimeRange time_range = 2;
+}
+message RematchSegmentResponse {
+  string job_id = 1;
+}

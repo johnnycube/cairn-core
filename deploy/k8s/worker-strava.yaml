@@ -1,0 +1,69 @@
+# Strava worker — joins the NATS control plane and consumes
+# cairn.jobs.*.strava. Stateless; pull consumers share the work, so this scales
+# to >1 replica — BUT only if CAIRN_STRAVA_WEBHOOK_VERIFY_TOKEN is UNSET (see
+# the env note below: exactly one instance may own the webhook subject). Strava
+# OAuth client creds are per-user (entered in the Connections UI), so the worker
+# itself only needs NATS + its identity.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cairn-provider-strava
+  namespace: cairn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cairn-provider-strava
+  template:
+    metadata:
+      labels:
+        app: cairn-provider-strava
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10002 # the `worker` user baked into the image
+      containers:
+        - name: worker
+          image: ghcr.io/johnnycube/cairn-provider-strava:v0.2.0
+          env:
+            - name: CAIRN_NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cairn-config
+                  key: CAIRN_NATS_URL
+            # Admin-defined NATS-safe routing name, shared by every replica
+            # (must match the enrollment name in production). Provider + version +
+            # package are compiled into the binary — they define the worker
+            # schema, so they are NOT set here.
+            - name: CAIRN_WORKER_NAME
+              value: "strava-fetcher"
+            # CAIRN_WORKER_INSTANCE_ID is optional — it disambiguates replicas of
+            # the same name in presence/heartbeats and defaults to the hostname
+            # (the pod name) when unset, which is already unique + restart-stable.
+            # Uncomment to set it explicitly:
+            # - name: CAIRN_WORKER_INSTANCE_ID
+            #   valueFrom:
+            #     fieldRef:
+            #       fieldPath: metadata.name
+            # Optional: only set when you register a Strava push subscription.
+            # Setting it makes THIS instance claim the Strava webhook subject and
+            # advertise webhook ownership in its heartbeat — only ONE instance
+            # may do so. So either keep replicas: 1 here, or scale this
+            # Deployment as pull-only (token unset) and run a separate, single-
+            # replica Deployment that sets the token as the webhook owner.
+            - name: CAIRN_STRAVA_WEBHOOK_VERIFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cairn-worker-secrets
+                  key: CAIRN_STRAVA_WEBHOOK_VERIFY_TOKEN
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

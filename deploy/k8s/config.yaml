@@ -1,0 +1,31 @@
+# Non-secret configuration shared by the core server and the workers.
+# In-cluster service DNS: <service>.cairn.svc.cluster.local (short form works
+# within the namespace). Secrets (DB URL, storage creds, master key) live in
+# secrets.example.yaml, NOT here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cairn-config
+  namespace: cairn
+data:
+  # --- core: listen + control plane + blob store ---
+  CAIRN_HTTP_ADDR: "0.0.0.0:8080"
+  CAIRN_NATS_URL: "nats://nats:4222"
+  CAIRN_STORAGE_ENDPOINT: "http://minio:9000"
+  CAIRN_STORAGE_BUCKET: "cairn"
+
+  # Migrations are applied by the one-shot `cairn-migrate` Job, so the server
+  # does NOT auto-migrate (safe for >1 replica — the server refuses to start
+  # against an older schema, gating the rollout).
+  CAIRN_DATABASE_AUTO_MIGRATE: "false"
+
+  # Public origin — drives OIDC redirect URIs, webhook callback + share/reset
+  # links. MUST match the Ingress host (set it before going live).
+  CAIRN_HTTP_PUBLIC_BASE_URL: "https://cairn.example.com"
+
+  # Reconciliation scheduler + reverse-geocoding (Nominatim, public OSM).
+  CAIRN_SCHEDULER_ENABLED: "true"
+  CAIRN_GEOCODER_ENABLED: "true"
+
+  # ActivityPub federation is off by default; flip to "true" + per-user opt-in.
+  CAIRN_FEDERATION_ENABLED: "false"

@@ -1,0 +1,62 @@
+# Garmin worker (Python) — joins the NATS control plane and consumes
+# cairn.jobs.*.garmin. Stateless: per-user Garmin credentials are fetched fresh
+# from core storage over NATS per account (runtime._fetch_creds → CREDS_SUBJECT),
+# so the worker carries no credentials and can run >1 replica.
+#
+# CAIRN_GARTH_HOME is an emptyDir — a per-pod OAuth-token CACHE that lets a
+# warm pod skip re-login between jobs. It is not source of truth; if the pod
+# restarts the worker simply re-authenticates from the fetched creds.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cairn-provider-garmin
+  namespace: cairn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cairn-provider-garmin
+  template:
+    metadata:
+      labels:
+        app: cairn-provider-garmin
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/johnnycube/cairn-provider-garmin:v0.2.0
+          env:
+            # Provider + version + package are compiled into the binary (they
+            # define the worker schema), so no version/package env here.
+            - name: CAIRN_NATS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cairn-config
+                  key: CAIRN_NATS_URL
+            # Admin-defined routing identity, shared by every replica; must match
+            # the enrollment name in production.
+            - name: CAIRN_WORKER_NAME
+              value: "garmin-fetcher"
+            # CAIRN_WORKER_INSTANCE_ID is optional — it disambiguates replicas of
+            # the same name in presence/heartbeats and defaults to a random uuid
+            # when unset. Set it to the pod name if you want a restart-stable id
+            # (a restarted pod then reuses its presence key instead of leaving a
+            # ~60s ghost). Uncomment to set it explicitly:
+            # - name: CAIRN_WORKER_INSTANCE_ID
+            #   valueFrom:
+            #     fieldRef:
+            #       fieldPath: metadata.name
+            # Ephemeral garth token-cache location (matches the emptyDir mount).
+            - name: CAIRN_GARTH_HOME
+              value: "/data/garth"
+          volumeMounts:
+            - name: garth-cache
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              memory: "512Mi"
+      volumes:
+        - name: garth-cache
+          emptyDir: {}

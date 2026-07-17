@@ -1,0 +1,87 @@
+# Cairn core image — ONE distroless binary that serves the API + the web UI.
+#
+# Build context is the repo root:
+#   docker build -f docker/Dockerfile.server -t cairn .
+#
+# Stages:
+#   1. proto — generate the proto code (gen/ + web/src/lib/proto) OFFLINE using
+#              the pinned build-base toolchain (local buf plugins, no BSR).
+#   2. web   — build the SvelteKit frontend as a static SPA (adapter-static).
+#   3. build — compile the Go server with `-tags embedweb`, embedding the SPA
+#              into the binary (internal/adapter/primary/web/dist).
+#   4. final — distroless static, nonroot, no shell. `cairn serve` answers
+#              both /cairn.v1.* + REST and / (the SPA). No Node, no separate
+#              web deployment, no package manager in the runtime image.
+#
+# The generated proto code (gen/) is NOT committed and is NOT expected in the
+# build context — the `proto` stage regenerates it in-image via the build-base
+# toolchain. CI may override BUILD_BASE to pin the toolchain by digest.
+
+# Shared toolchain image (Go + Node + buf + local proto plugins). Bump the tag
+# when docker/Dockerfile.build-base's pinned tool versions change.
+ARG BUILD_BASE=ghcr.io/johnnycube/cairn-build-base:1
+
+# ---- stage 1: generate proto code (offline, pinned toolchain) --------------
+FROM ${BUILD_BASE} AS proto
+
+WORKDIR /src
+# Only what `make proto` needs: the Makefile + the proto schemas + buf config.
+COPY Makefile ./
+COPY api ./api
+# Produces /src/gen/{proto,openapi} and /src/web/src/lib/proto (+ python stubs).
+RUN make proto
+
+# ---- stage 2: build the static SPA -----------------------------------------
+FROM ${BUILD_BASE} AS web
+
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+# The TS proto stubs ($proto) are not committed — take them from the proto stage.
+COPY --from=proto /src/web/src/lib/proto ./src/lib/proto
+# adapter-static SPA (CAIRN_WEB_TARGET=static, vite --mode spa) → ./build
+RUN npm run build:static
+
+# ---- stage 3: compile the Go binary with the SPA embedded ------------------
+FROM ${BUILD_BASE} AS build
+
+WORKDIR /src
+
+# Module graph first for layer caching.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Go source + generated proto (from the proto stage) + proto schemas (api/).
+COPY cmd ./cmd
+COPY internal ./internal
+COPY --from=proto /src/gen ./gen
+COPY api ./api
+
+# Replace the committed placeholder with the real SPA build, then embed it.
+RUN rm -rf internal/adapter/primary/web/dist
+COPY --from=web /web/build internal/adapter/primary/web/dist
+
+ARG VERSION=docker
+ARG COMMIT=
+# Static, stripped, CGO-free → runs on distroless/static. -tags embedweb makes
+# the one binary serve the SPA too.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -tags embedweb \
+    -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o /out/cairn ./cmd/server
+
+# ---- stage 4: distroless runtime -------------------------------------------
+# static-debian12:nonroot ships ca-certificates + tzdata + an unprivileged
+# user (uid 65532) and NO shell/package manager — minimal attack surface.
+# (tzdata is also embedded via time/tzdata, so quiet-hours parsing works even
+# on a scratch-like base.)
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=build /out/cairn /usr/local/bin/cairn
+
+# 65532 = the `nonroot` user baked into the distroless image.
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/cairn"]
+CMD ["serve"]

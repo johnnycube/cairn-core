@@ -1,0 +1,70 @@
+# Cairn core — one distroless binary serving the Connect-RPC + REST API AND
+# the embedded SPA. Stateless (state lives in Postgres/NATS/MinIO), so it can
+# scale horizontally; start at 1 and raise replicas once migrations are applied.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cairn
+  namespace: cairn
+  labels:
+    app: cairn-core
+spec:
+  selector:
+    app: cairn-core
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cairn-core
+  namespace: cairn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cairn-core
+  template:
+    metadata:
+      labels:
+        app: cairn-core
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: cairn
+          image: ghcr.io/johnnycube/cairn-core:v0.2.0
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: cairn-config
+            - secretRef:
+                name: cairn-secrets
+          readinessProbe:
+            httpGet:
+              path: /readyz # checks Postgres + NATS + S3; 503 names the failing dep
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz # cheap liveness
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              memory: "1Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

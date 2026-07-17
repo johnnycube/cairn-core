@@ -1,0 +1,17 @@
+# Live-reload config for the Cairn server (cmd/server). Used by `make dev-server`.
+# air rebuilds + restarts the binary whenever a .go file changes.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/cairn-server ./cmd/server"
+  bin = "./tmp/cairn-server"
+  args_bin = ["serve"]
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "bin", "web", "docs", "transcripts", "workers", "gen/openapi"]
+  exclude_regex = ["_test\\.go"]
+  delay = 300
+  stop_on_error = true
+
+[misc]
+  clean_on_exit = true

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Cairn">
+  <!-- Cairn: a stack of balanced trail-marker stones — muted granite with an
+       alpenglow cap stone, on a slate tile. Matches the app palette. -->
+  <rect width="64" height="64" rx="14" fill="#1f2937"/>
+  <!-- stones, bottom (widest) to top, slight wobble for a natural stack -->
+  <rect x="13"   y="45" width="38" height="11" rx="5.5" fill="#d6d3d1"/>
+  <rect x="17.5" y="33.5" width="29" height="10" rx="5"   fill="#a8a29e"/>
+  <rect x="19.5" y="23"   width="24" height="9"  rx="4.5" fill="#cfcbc4"/>
+  <!-- alpenglow cap stone -->
+  <rect x="24"   y="13.5" width="16" height="8"  rx="4"   fill="#ec7a45"/>
+</svg>

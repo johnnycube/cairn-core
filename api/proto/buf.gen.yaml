@@ -1,0 +1,44 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    # Go modules will be generated relative to this path.
+    # Must match the module declaration in /go.mod.
+    - file_option: go_package_prefix
+      value: github.com/johnnycube/cairn-core/gen/proto
+# All plugins are LOCAL (binaries on PATH) — no buf.build remote calls, so
+# `buf generate` runs fully offline and never hits BSR rate limits. The
+# toolchain that provides these binaries is docker/Dockerfile.build-base
+# (also the build stage for the server + worker images and the container the
+# CI test/check jobs run in). Plugin versions are pinned there.
+plugins:
+  # Go message types
+  - local: protoc-gen-go
+    out: ../../gen/proto
+    opt:
+      - paths=source_relative
+
+  # Connect-Go service handlers and clients
+  - local: protoc-gen-connect-go
+    out: ../../gen/proto
+    opt:
+      - paths=source_relative
+
+  # TypeScript types and Connect-Web clients for the frontend
+  - local: protoc-gen-es
+    out: ../../web/src/lib/proto
+    opt:
+      - target=ts
+      - import_extension=js
+
+  # Python stubs for the provider workers are NOT generated here anymore — the
+  # workers live in their own repos (cairn-provider-garmin commits its own
+  # stubs, cairn-provider-strava commits Go stubs). Core only generates Go +
+  # TypeScript + OpenAPI for itself.
+
+  # OpenAPI v3 generated from the same protos
+  - local: protoc-gen-openapiv2
+    out: ../../gen/openapi
+    opt:
+      - output_format=yaml
+      - openapi_naming_strategy=fqn

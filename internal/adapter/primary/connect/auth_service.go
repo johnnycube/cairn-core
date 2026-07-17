@@ -1,0 +1,260 @@
+package connect
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	connectrpc "connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
+	"github.com/johnnycube/cairn-core/gen/proto/cairn/v1/cairnv1connect"
+	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/johnnycube/cairn-core/internal/port"
+)
+
+// AuthServer implements cairnv1connect.AuthServiceHandler.
+//
+// Only GetCurrentUser + GetLoginMethods are wired today — every other
+// RPC falls through to the embedded Unimplemented base and returns
+// CodeUnimplemented.
+//
+// Password / WebAuthn / OAuth-link RPCs land in subsequent passes; the
+// OIDC sign-in itself runs through the REST handler in cmd/server/oidc.go
+// rather than this service because Connect-RPC's call model doesn't
+// fit cleanly with a redirect-based OAuth flow.
+type AuthServer struct {
+	cairnv1connect.UnimplementedAuthServiceHandler
+
+	Users port.UserRepo
+	// OIDCProviders are the env-configured (CAIRN_OIDC_*) providers. Immutable
+	// at runtime — there is no client database. Empty means OIDC is disabled.
+	OIDCProviders []domain.OIDCProvider
+}
+
+var _ cairnv1connect.AuthServiceHandler = (*AuthServer)(nil)
+
+func NewAuthServer(users port.UserRepo, providers []domain.OIDCProvider) *AuthServer {
+	return &AuthServer{Users: users, OIDCProviders: providers}
+}
+
+// ---------------------------------------------------------------------------
+// GetCurrentUser
+//
+// The "who am I?" call. The session interceptor stashes the user id on
+// successful cookie verification; without a session this returns
+// Unauthenticated and the frontend redirects to /login.
+// ---------------------------------------------------------------------------
+
+func (s *AuthServer) GetCurrentUser(
+	ctx context.Context,
+	req *connectrpc.Request[v1.GetCurrentUserRequest],
+) (*connectrpc.Response[v1.GetCurrentUserResponse], error) {
+	userID, err := userIDFromHandlerCtx(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := s.Users.GetUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			// Session points at a user that's been hard-deleted. Treat
+			// as unauthenticated rather than 500 — the cookie will be
+			// invalidated by the next /auth/logout or expire naturally.
+			return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated,
+				errors.New("user not found"))
+		}
+		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+			fmt.Errorf("get user: %w", err))
+	}
+
+	perms := []string{"user"}
+	if u.Role == domain.UserRoleAdmin {
+		perms = append(perms, "admin")
+	}
+	if u.Role.CanModerate() {
+		perms = append(perms, "moderate")
+	}
+
+	return connectrpc.NewResponse(&v1.GetCurrentUserResponse{
+		User:        userToProto(u),
+		Permissions: perms,
+	}), nil
+}
+
+// ---------------------------------------------------------------------------
+// GetLoginMethods
+//
+// Pre-login probe: lists which sign-in options the instance offers.
+// Used by the /login page to decide what buttons to render.
+//
+// `username_or_email` in the request is currently ignored — every
+// instance-wide method is returned. When per-user method gating ships
+// (e.g. SSO-only org members), this branches on that input.
+// ---------------------------------------------------------------------------
+
+func (s *AuthServer) GetLoginMethods(
+	ctx context.Context,
+	req *connectrpc.Request[v1.GetLoginMethodsRequest],
+) (*connectrpc.Response[v1.GetLoginMethodsResponse], error) {
+	out := &v1.GetLoginMethodsResponse{
+		// Password / passkey availability is global today. Once
+		// per-user gating ships, branch on the request's hint.
+		PasswordEnabled:  true,
+		WebauthnEnabled:  true,  // passkey login via /auth/webauthn/* REST endpoints
+		RegistrationOpen: false, // invite-only by default
+		RequiresInvite:   true,
+	}
+	for _, p := range s.OIDCProviders {
+		out.OidcClients = append(out.OidcClients, &v1.OIDCLoginOption{
+			Id:          p.ID,
+			DisplayName: p.Name,
+		})
+	}
+	return connectrpc.NewResponse(out), nil
+}
+
+// userToProto converts the domain User into the proto wire type.
+func userToProto(u domain.User) *v1.User {
+	out := &v1.User{
+		Id:            u.ID.String(),
+		Username:      u.Username,
+		Email:         u.Email,
+		EmailVerified: u.EmailVerified,
+		DisplayName:   u.DisplayName,
+		Locale:        u.Locale,
+		Timezone:      u.Timezone,
+		Units:         unitsToProto(u.Units),
+		DateFormat:    dateFormatToProto(u.DateFormat),
+		TimeFormat:    timeFormatToProto(u.TimeFormat),
+		Role:          userRoleToProto(u.Role),
+		Status:        userStatusToProto(u.Status),
+		CreatedAt:     timestamppb.New(u.CreatedAt),
+		UpdatedAt:     timestamppb.New(u.UpdatedAt),
+	}
+	if u.AvatarURL != "" {
+		v := u.AvatarURL
+		out.AvatarUrl = &v
+	}
+	if u.LastLoginAt != nil {
+		out.LastLoginAt = timestamppb.New(*u.LastLoginAt)
+	}
+	return out
+}
+
+func userRoleToProto(r domain.UserRole) v1.UserRole {
+	switch r {
+	case domain.UserRoleUser:
+		return v1.UserRole_USER_ROLE_USER
+	case domain.UserRoleAdmin:
+		return v1.UserRole_USER_ROLE_ADMIN
+	}
+	return v1.UserRole_USER_ROLE_UNSPECIFIED
+}
+
+func userStatusToProto(s domain.UserStatus) v1.UserStatus {
+	switch s {
+	case domain.UserStatusActive:
+		return v1.UserStatus_USER_STATUS_ACTIVE
+	case domain.UserStatusInvited:
+		return v1.UserStatus_USER_STATUS_INVITED
+	case domain.UserStatusSuspended:
+		return v1.UserStatus_USER_STATUS_SUSPENDED
+	case domain.UserStatusDeleted:
+		return v1.UserStatus_USER_STATUS_DELETED
+	}
+	return v1.UserStatus_USER_STATUS_UNSPECIFIED
+}
+
+// ---- Format-preference enum <-> domain string converters ----
+
+func unitsToProto(u domain.UserUnits) v1.UnitSystem {
+	switch u {
+	case domain.UserUnitsMetric:
+		return v1.UnitSystem_UNIT_SYSTEM_METRIC
+	case domain.UserUnitsImperial:
+		return v1.UnitSystem_UNIT_SYSTEM_IMPERIAL
+	}
+	return v1.UnitSystem_UNIT_SYSTEM_UNSPECIFIED
+}
+
+func unitsFromProto(u v1.UnitSystem) string {
+	switch u {
+	case v1.UnitSystem_UNIT_SYSTEM_METRIC:
+		return string(domain.UserUnitsMetric)
+	case v1.UnitSystem_UNIT_SYSTEM_IMPERIAL:
+		return string(domain.UserUnitsImperial)
+	}
+	return ""
+}
+
+func dateFormatToProto(s string) v1.DateFormat {
+	switch s {
+	case "iso":
+		return v1.DateFormat_DATE_FORMAT_ISO
+	case "us":
+		return v1.DateFormat_DATE_FORMAT_US
+	case "eu":
+		return v1.DateFormat_DATE_FORMAT_EU
+	}
+	return v1.DateFormat_DATE_FORMAT_UNSPECIFIED
+}
+
+func dateFormatFromProto(d v1.DateFormat) string {
+	switch d {
+	case v1.DateFormat_DATE_FORMAT_ISO:
+		return "iso"
+	case v1.DateFormat_DATE_FORMAT_US:
+		return "us"
+	case v1.DateFormat_DATE_FORMAT_EU:
+		return "eu"
+	}
+	return ""
+}
+
+func timeFormatToProto(s string) v1.TimeFormat {
+	switch s {
+	case "24h":
+		return v1.TimeFormat_TIME_FORMAT_24H
+	case "12h":
+		return v1.TimeFormat_TIME_FORMAT_12H
+	}
+	return v1.TimeFormat_TIME_FORMAT_UNSPECIFIED
+}
+
+func timeFormatFromProto(t v1.TimeFormat) string {
+	switch t {
+	case v1.TimeFormat_TIME_FORMAT_24H:
+		return "24h"
+	case v1.TimeFormat_TIME_FORMAT_12H:
+		return "12h"
+	}
+	return ""
+}
+
+// UpdateUserPreferences persists the caller's display-format preferences and
+// returns the updated user. Session-gated (userIDFromHandlerCtx).
+func (s *AuthServer) UpdateUserPreferences(
+	ctx context.Context,
+	req *connectrpc.Request[v1.UpdateUserPreferencesRequest],
+) (*connectrpc.Response[v1.UpdateUserPreferencesResponse], error) {
+	userID, err := userIDFromHandlerCtx(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	m := req.Msg
+	if err := s.Users.UpdateUserPreferences(ctx, userID,
+		unitsFromProto(m.GetUnits()),
+		dateFormatFromProto(m.GetDateFormat()),
+		timeFormatFromProto(m.GetTimeFormat()),
+	); err != nil {
+		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+			fmt.Errorf("update preferences: %w", err))
+	}
+	u, err := s.Users.GetUser(ctx, userID)
+	if err != nil {
+		return nil, connectrpc.NewError(connectrpc.CodeInternal, fmt.Errorf("reload user: %w", err))
+	}
+	return connectrpc.NewResponse(&v1.UpdateUserPreferencesResponse{User: userToProto(u)}), nil
+}

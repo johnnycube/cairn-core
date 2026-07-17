@@ -1,0 +1,709 @@
+// Authentication, sessions, and external-account linking.
+//
+// Cairn supports three login methods simultaneously, each a first-class
+// option on the login screen:
+//
+//   1. LOCAL — username + password. Argon2id hashed. WebAuthn may be
+//      enabled as a second factor or as a primary credential (passwordless
+//      passkey login).
+//
+//   2. OIDC — any number of configured providers (Authentik, Keycloak,
+//      Google, GitHub, etc.). Configured by the admin via AdminService;
+//      users pick from the list at login time. A user may link multiple
+//      OIDC identities. No additional WebAuthn 2FA required (the provider
+//      handles its own MFA).
+//
+//   3. WEBAUTHN passkey — discoverable credential flow, no username needed.
+//      Resolves to the linked user.
+//
+// Sessions are server-side, stored in Postgres, identified by an opaque
+// cookie (browser) or bearer token (CLI/programmatic). Personal Access
+// Tokens (PATs) provide long-lived, named credentials for the CLI and
+// for webhook recipients.
+//
+// External accounts are OAuth-connected provider accounts (Strava, Garmin,
+// ...). One user can link multiple accounts of the same provider — each
+// must register their own Strava API app since instance-shared apps were
+// dropped in favor of per-user apps for rate-limit isolation and webhook
+// ownership.
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ----------------------------------------------------------------------------
+// User
+// ----------------------------------------------------------------------------
+
+message User {
+  string id = 1;
+  // Login name for local auth; also the public identifier on the instance.
+  // Unique, immutable; users can be invited by username.
+  string username = 2;
+  string email = 3;
+  bool email_verified = 4;
+  string display_name = 5;
+  optional string avatar_url = 6;
+
+  string locale = 7;        // BCP-47, e.g. "de-DE"
+  string timezone = 8;      // IANA, e.g. "Europe/Berlin"
+  UnitSystem units = 9;
+
+  UserRole role = 10;
+  UserStatus status = 11;
+
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  optional google.protobuf.Timestamp last_login_at = 14;
+
+  // Display-format preferences (applied site-wide on every client).
+  DateFormat date_format = 15;
+  TimeFormat time_format = 16;
+}
+
+// Date display format. UNSPECIFIED = follow the user's BCP-47 locale.
+enum DateFormat {
+  DATE_FORMAT_UNSPECIFIED = 0;  // locale default
+  DATE_FORMAT_ISO = 1;          // 2026-06-02
+  DATE_FORMAT_US = 2;           // 06/02/2026
+  DATE_FORMAT_EU = 3;           // 02.06.2026
+}
+
+// Time display format. UNSPECIFIED = follow the user's BCP-47 locale.
+enum TimeFormat {
+  TIME_FORMAT_UNSPECIFIED = 0;  // locale default
+  TIME_FORMAT_24H = 1;          // 14:30
+  TIME_FORMAT_12H = 2;          // 2:30 PM
+}
+
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  USER_ROLE_USER = 1;
+  USER_ROLE_ADMIN = 2;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_INVITED = 2;        // not yet completed signup
+  USER_STATUS_SUSPENDED = 3;
+  USER_STATUS_DELETED = 4;
+}
+
+enum UnitSystem {
+  UNIT_SYSTEM_UNSPECIFIED = 0;
+  UNIT_SYSTEM_METRIC = 1;          // km, kg, °C, m/s
+  UNIT_SYSTEM_IMPERIAL = 2;        // mi, lb, °F, mph
+}
+
+// ----------------------------------------------------------------------------
+// AuthService — login, registration, session management.
+// ----------------------------------------------------------------------------
+
+service AuthService {
+  // ---- Discovery ----
+
+  // List enabled login methods for the login screen, including OIDC clients.
+  // Public; no auth required.
+  rpc GetLoginMethods(GetLoginMethodsRequest) returns (GetLoginMethodsResponse);
+
+  // ---- Local auth ----
+
+  // Username + password. Returns a session token or a 2FA challenge if
+  // the account has WebAuthn enabled as a second factor.
+  rpc LoginPassword(LoginPasswordRequest) returns (LoginPasswordResponse);
+
+  // Complete a 2FA challenge after LoginPassword.
+  rpc Complete2FA(Complete2FARequest) returns (Complete2FAResponse);
+
+  // Register a new local user. May require invite code per instance policy.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Change password (requires current password).
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+
+  // Initiate password reset (sends email if SMTP configured).
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+
+  // Complete password reset using a token from the email.
+  rpc ConfirmPasswordReset(ConfirmPasswordResetRequest) returns (ConfirmPasswordResetResponse);
+
+  // ---- OIDC ----
+
+  // Begin OIDC login: returns an authorize URL the client redirects to.
+  // The state cookie is set on the response automatically.
+  rpc StartOIDCLogin(StartOIDCLoginRequest) returns (StartOIDCLoginResponse);
+
+  // Note: the OIDC callback is handled at a regular HTTP endpoint
+  // (/oauth/login-callback/{oidc_client_id}) not via this RPC, because
+  // OIDC redirects are browser-driven and need cookie handling.
+
+  // Link an additional OIDC identity to the currently authenticated user.
+  rpc StartOIDCLink(StartOIDCLinkRequest) returns (StartOIDCLinkResponse);
+
+  // Unlink an OIDC identity. Cannot unlink the last credential.
+  rpc UnlinkOIDCIdentity(UnlinkOIDCIdentityRequest) returns (UnlinkOIDCIdentityResponse);
+
+  rpc ListLinkedIdentities(ListLinkedIdentitiesRequest) returns (ListLinkedIdentitiesResponse);
+
+  // NOTE: WebAuthn / passkey login is served by REST endpoints under
+  // /auth/webauthn/* and /api/passkeys (go-webauthn already emits the standard
+  // WebAuthn JSON the browser consumes, so a typed RPC surface would be pure
+  // overhead). GetLoginMethodsResponse.webauthn_enabled advertises it.
+
+  // ---- Session ----
+
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // Update the caller's display-format preferences (date/time/units). Applies
+  // site-wide on every client (web + mobile); clients re-read on change.
+  rpc UpdateUserPreferences(UpdateUserPreferencesRequest) returns (UpdateUserPreferencesResponse);
+
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+
+  // ---- Personal Access Tokens ----
+
+  rpc CreatePersonalAccessToken(CreatePersonalAccessTokenRequest) returns (CreatePersonalAccessTokenResponse);
+  rpc ListPersonalAccessTokens(ListPersonalAccessTokensRequest) returns (ListPersonalAccessTokensResponse);
+  rpc RevokePersonalAccessToken(RevokePersonalAccessTokenRequest) returns (RevokePersonalAccessTokenResponse);
+}
+
+// ----------------------------------------------------------------------------
+// Login discovery
+// ----------------------------------------------------------------------------
+
+message GetLoginMethodsRequest {}
+
+message GetLoginMethodsResponse {
+  bool password_enabled = 1;
+  bool webauthn_enabled = 2;
+  bool registration_open = 3;          // self-service signups allowed
+  bool requires_invite = 4;            // signups need an invite code
+  repeated OIDCLoginOption oidc_clients = 5;
+}
+
+message OIDCLoginOption {
+  // Provider id from CAIRN_OIDC_PROVIDERS; used in the
+  // /auth/oidc/{provider}/start redirect URL. Stable across restarts.
+  string id = 1;
+  // Display name shown on the "Sign in with X" button.
+  string display_name = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Password auth
+// ----------------------------------------------------------------------------
+
+message LoginPasswordRequest {
+  // Username or email.
+  string identifier = 1;
+  string password = 2;
+  // Set on browsers; controls cookie lifetime.
+  bool remember_me = 3;
+}
+
+message LoginPasswordResponse {
+  oneof result {
+    // Success: session created and cookie set (or session_token returned
+    // for non-cookie clients).
+    SessionResult session = 1;
+    // 2FA required: client must complete with Complete2FA.
+    TwoFactorChallenge challenge = 2;
+  }
+}
+
+message TwoFactorChallenge {
+  // Short-lived token identifying this pending login. Pass back in Complete2FA.
+  string challenge_token = 1;
+  // The factors the user has configured. Currently only webauthn is supported.
+  repeated TwoFactorMethod methods = 2;
+  // For webauthn 2FA the challenge is fetched from the REST passkey endpoints
+  // (/auth/webauthn/*); no typed field is carried here.
+}
+
+enum TwoFactorMethod {
+  TWO_FACTOR_METHOD_UNSPECIFIED = 0;
+  TWO_FACTOR_METHOD_WEBAUTHN = 1;
+}
+
+message Complete2FARequest {
+  string challenge_token = 1;
+  TwoFactorMethod method = 2;
+  // For webauthn 2FA the assertion is posted to the REST passkey endpoints.
+  bool remember_me = 4;
+}
+message Complete2FAResponse {
+  SessionResult session = 1;
+}
+
+message SessionResult {
+  string session_id = 1;
+  // Bearer token for non-cookie clients (CLI, mobile). On browser flows the
+  // server also sets an HTTP-only cookie; this token field is empty in that case.
+  string session_token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  User user = 4;
+}
+
+message RegisterRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+  string display_name = 4;
+  string locale = 5;
+  string timezone = 6;
+  UnitSystem units = 7;
+  // Required if requires_invite is true.
+  optional string invite_code = 8;
+}
+message RegisterResponse {
+  User user = 1;
+  // If email verification is configured, the user must verify before login.
+  bool requires_email_verification = 2;
+  // Otherwise, the session is created immediately.
+  optional SessionResult session = 3;
+}
+
+message ChangePasswordRequest {
+  string current_password = 1;
+  string new_password = 2;
+}
+message ChangePasswordResponse {}
+
+message RequestPasswordResetRequest {
+  string email = 1;
+}
+message RequestPasswordResetResponse {
+  // Returned unconditionally to avoid email enumeration; emails sent only
+  // if SMTP is configured AND the email matches an account.
+  bool email_dispatch_attempted = 1;
+}
+
+message ConfirmPasswordResetRequest {
+  string reset_token = 1;
+  string new_password = 2;
+}
+message ConfirmPasswordResetResponse {
+  SessionResult session = 1;
+}
+
+// ----------------------------------------------------------------------------
+// OIDC
+// ----------------------------------------------------------------------------
+
+message StartOIDCLoginRequest {
+  // The OIDC client id from GetLoginMethodsResponse.oidc_clients.
+  string oidc_client_id = 1;
+  // Where to redirect after successful login. Validated against allowlist.
+  string post_login_redirect = 2;
+}
+message StartOIDCLoginResponse {
+  // The provider authorize URL the client should redirect to.
+  string authorize_url = 1;
+  // The state value (also set as a cookie server-side; clients don't need
+  // to handle this manually but it's exposed for non-browser use cases).
+  string state = 2;
+}
+
+message StartOIDCLinkRequest {
+  string oidc_client_id = 1;
+}
+message StartOIDCLinkResponse {
+  string authorize_url = 1;
+  string state = 2;
+}
+
+message UnlinkOIDCIdentityRequest {
+  string identity_id = 1;
+}
+message UnlinkOIDCIdentityResponse {}
+
+message ListLinkedIdentitiesRequest {}
+message ListLinkedIdentitiesResponse {
+  repeated LinkedIdentity identities = 1;
+}
+
+message LinkedIdentity {
+  string id = 1;
+  string oidc_client_id = 2;
+  string oidc_client_display_name = 3;
+  string subject = 4;              // OIDC sub claim
+  optional string email = 5;
+  google.protobuf.Timestamp linked_at = 6;
+  google.protobuf.Timestamp last_used_at = 7;
+}
+
+// NOTE: WebAuthn / passkey types intentionally omitted — that flow is served by
+// REST (/auth/webauthn/*, /api/passkeys). go-webauthn emits the standard
+// WebAuthn JSON natively, so a parallel typed-proto surface would be dead weight.
+
+// ----------------------------------------------------------------------------
+// Session and profile
+// ----------------------------------------------------------------------------
+
+message LogoutRequest {
+  // True = revoke all sessions for this user, not just the current one.
+  bool all_devices = 1;
+}
+message LogoutResponse {}
+
+message GetCurrentUserRequest {}
+message GetCurrentUserResponse {
+  User user = 1;
+  // Capabilities the current session has — for the UI to show/hide admin
+  // UI without round-tripping per check.
+  repeated string permissions = 2;
+}
+
+message UpdateUserPreferencesRequest {
+  DateFormat date_format = 1;
+  TimeFormat time_format = 2;
+  UnitSystem units = 3;
+}
+message UpdateUserPreferencesResponse {
+  User user = 1;
+}
+
+message UpdateProfileRequest {
+  repeated string field_mask = 1;
+  optional string display_name = 2;
+  optional string email = 3;
+  optional string locale = 4;
+  optional string timezone = 5;
+  optional UnitSystem units = 6;
+  optional string avatar_url = 7;
+}
+message UpdateProfileResponse {
+  User user = 1;
+}
+
+message Session {
+  string id = 1;
+  // Truncated User-Agent for display ("Chrome on macOS").
+  string user_agent_summary = 2;
+  string ip_address = 3;
+  optional string ip_geo_summary = 4;       // "Berlin, DE" if geo-IP enabled
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  bool is_current = 8;
+  AuthMethod auth_method = 9;
+}
+
+enum AuthMethod {
+  AUTH_METHOD_UNSPECIFIED = 0;
+  AUTH_METHOD_PASSWORD = 1;
+  AUTH_METHOD_PASSWORD_WITH_WEBAUTHN_2FA = 2;
+  AUTH_METHOD_WEBAUTHN_PASSKEY = 3;
+  AUTH_METHOD_OIDC = 4;
+  AUTH_METHOD_PERSONAL_ACCESS_TOKEN = 5;
+}
+
+message ListSessionsRequest {}
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  string id = 1;
+}
+message RevokeSessionResponse {}
+
+// ----------------------------------------------------------------------------
+// Personal Access Tokens (CLI / webhooks / programmatic clients)
+// ----------------------------------------------------------------------------
+
+message PersonalAccessToken {
+  string id = 1;
+  string name = 2;
+  // Scopes for least-privilege tokens. Empty = full account scope.
+  repeated string scopes = 3;
+  google.protobuf.Timestamp created_at = 4;
+  optional google.protobuf.Timestamp expires_at = 5;
+  optional google.protobuf.Timestamp last_used_at = 6;
+}
+
+message CreatePersonalAccessTokenRequest {
+  string name = 1;
+  repeated string scopes = 2;
+  optional google.protobuf.Timestamp expires_at = 3;
+}
+message CreatePersonalAccessTokenResponse {
+  PersonalAccessToken token = 1;
+  // Plain-text token, returned ONCE at creation time. Stored as hash.
+  string secret = 2;
+}
+
+message ListPersonalAccessTokensRequest {}
+message ListPersonalAccessTokensResponse {
+  repeated PersonalAccessToken tokens = 1;
+}
+
+message RevokePersonalAccessTokenRequest {
+  string id = 1;
+}
+message RevokePersonalAccessTokenResponse {}
+
+// ============================================================================
+// External Accounts — OAuth-connected provider accounts
+// ============================================================================
+
+// One ExternalAccount represents one (provider, account@provider) tuple.
+// Users may have multiple ExternalAccounts for the same provider (e.g. two
+// different Strava accounts), each backed by its own per-user-registered
+// provider API app.
+message ExternalAccount {
+  string id = 1;
+  string user_id = 2;
+
+  // Provider id from a worker's manifest.
+  string provider = 3;
+
+  // The user's identity at the provider (e.g. Strava athlete id).
+  // May be empty until first successful OAuth exchange resolves it.
+  string provider_account_id = 4;
+
+  // Friendly label the user assigns ("Main Strava", "Test account").
+  string display_label = 5;
+
+  // The worker name assigned to handle jobs for this account. Defaults to
+  // the primary worker for the provider; admins can reassign for migration.
+  string assigned_worker_name = 6;
+
+  ExternalAccountStatus status = 7;
+  string status_reason = 8;
+
+  // For users with their own provider API apps: stored encrypted.
+  // Sensitive fields are surfaced only via dedicated edit RPCs (write-only).
+  // The list keys here mirror the provider manifest's config_fields.
+  map<string, ConfigValueMeta> config = 9;
+
+  // OAuth state, if applicable. Tokens themselves are never returned;
+  // only metadata (expiry, presence).
+  bool has_valid_credentials = 10;
+  optional google.protobuf.Timestamp access_token_expires_at = 11;
+  repeated string granted_scopes = 12;
+
+  // Webhook subscription, if registered.
+  bool webhook_subscribed = 13;
+  optional google.protobuf.Timestamp webhook_subscribed_at = 14;
+  // Provider's subscription id, for ops/debugging only.
+  optional string webhook_subscription_id = 15;
+
+  // Rate-limit snapshot for visibility.
+  optional ExternalAccountRateLimit rate_limit = 16;
+
+  // Audit
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
+  optional google.protobuf.Timestamp last_sync_at = 19;
+  optional google.protobuf.Timestamp last_successful_sync_at = 20;
+}
+
+// Metadata about a config value, without the value itself for secrets.
+message ConfigValueMeta {
+  // Whether a value is set. Required to be true for required fields when
+  // an account moves out of needs_migration.
+  bool has_value = 1;
+  // For non-secret fields, the actual value is returned.
+  optional string value = 2;
+  // Whether this is a secret field (UI shows "•••••" and a "replace" affordance).
+  bool is_secret = 3;
+}
+
+enum ExternalAccountStatus {
+  EXTERNAL_ACCOUNT_STATUS_UNSPECIFIED = 0;
+  // Healthy and importable.
+  EXTERNAL_ACCOUNT_STATUS_ACTIVE = 1;
+  // OAuth tokens expired and refresh failed — user must re-authorize.
+  EXTERNAL_ACCOUNT_STATUS_AUTH_INVALID = 2;
+  // Worker for this provider is offline; account is read-only.
+  EXTERNAL_ACCOUNT_STATUS_WORKER_OFFLINE = 3;
+  // Provider sustained rate limit; jobs pause until reset.
+  EXTERNAL_ACCOUNT_STATUS_RATE_LIMITED = 4;
+  // Worker upgraded to a version that requires additional config fields;
+  // user must complete the migration form before jobs resume.
+  EXTERNAL_ACCOUNT_STATUS_NEEDS_MIGRATION = 5;
+  // User-disabled (toggle off without deleting).
+  EXTERNAL_ACCOUNT_STATUS_DISABLED = 6;
+}
+
+message ExternalAccountRateLimit {
+  int32 short_remaining = 1;
+  int32 short_limit = 2;
+  google.protobuf.Timestamp short_reset_at = 3;
+  int32 long_remaining = 4;
+  int32 long_limit = 5;
+  google.protobuf.Timestamp long_reset_at = 6;
+}
+
+service ExternalAccountService {
+  // List all external accounts for the current user, with status.
+  rpc ListExternalAccounts(ListExternalAccountsRequest) returns (ListExternalAccountsResponse);
+
+  // List providers available for "Add account": only those with at least
+  // one registered, healthy worker. Returns the manifest's config_fields
+  // and auth method so the UI can render a dynamic form.
+  rpc ListAvailableProviders(ListAvailableProvidersRequest) returns (ListAvailableProvidersResponse);
+
+  // Create a new external account with the user-supplied config. Returns
+  // either the new account record (for AUTH_METHOD_NONE / AUTH_METHOD_API_KEY)
+  // or an authorize_url (for AUTH_METHOD_OAUTH2) the client redirects to.
+  rpc CreateExternalAccount(CreateExternalAccountRequest) returns (CreateExternalAccountResponse);
+
+  // Update an external account's config (e.g. fill in a newly required field).
+  rpc UpdateExternalAccountConfig(UpdateExternalAccountConfigRequest) returns (UpdateExternalAccountConfigResponse);
+
+  // Re-authorize an account whose OAuth tokens went invalid.
+  rpc StartExternalAccountReauthorize(StartExternalAccountReauthorizeRequest) returns (StartExternalAccountReauthorizeResponse);
+
+  // Enable / disable an account without deleting it.
+  rpc SetExternalAccountEnabled(SetExternalAccountEnabledRequest) returns (SetExternalAccountEnabledResponse);
+
+  // Delete: unregisters webhook subscription, removes credentials,
+  // and detaches sources from activities (activities themselves remain
+  // visible with the source marked detached).
+  rpc DeleteExternalAccount(DeleteExternalAccountRequest) returns (DeleteExternalAccountResponse);
+
+  // Trigger an immediate sync for an account (queues an IMPORT_ACTIVITIES
+  // job at high priority).
+  rpc TriggerSync(TriggerSyncRequest) returns (TriggerSyncResponse);
+
+  // Rotate the webhook signing token. Queues unregister + register jobs.
+  rpc RotateWebhookToken(RotateWebhookTokenRequest) returns (RotateWebhookTokenResponse);
+}
+
+message ListExternalAccountsRequest {}
+message ListExternalAccountsResponse {
+  repeated ExternalAccount accounts = 1;
+}
+
+message ListAvailableProvidersRequest {}
+message ListAvailableProvidersResponse {
+  repeated AvailableProvider providers = 1;
+}
+
+// Reflects the worker manifest entry the UI needs to render an "Add" form.
+// Mirrors fields from cairn.worker.v1.ProviderManifest, copied here so
+// frontends do not depend on the worker proto package directly.
+message AvailableProvider {
+  string provider_id = 1;
+  string display_name = 2;
+  string description = 3;
+  string icon_url = 4;
+  string setup_docs_url = 5;
+  repeated AvailableConfigField config_fields = 6;
+  AvailableAuthMethod auth_method = 7;
+  bool supports_webhooks = 8;
+  bool supports_backfill = 9;
+  // For migration visibility: which worker registered this provider and
+  // whether more than one worker claims it.
+  string primary_worker_name = 10;
+  bool has_conflict = 11;
+}
+
+message AvailableConfigField {
+  string key = 1;
+  string label = 2;
+  string help_text = 3;
+  AvailableFieldType type = 4;
+  bool required = 5;
+  string validation_regex = 6;
+  repeated string options = 7;
+  bool computed_by_core = 8;
+  string placeholder = 9;
+  string default_value = 10;
+}
+
+enum AvailableFieldType {
+  AVAILABLE_FIELD_TYPE_UNSPECIFIED = 0;
+  AVAILABLE_FIELD_TYPE_TEXT = 1;
+  AVAILABLE_FIELD_TYPE_SECRET = 2;
+  AVAILABLE_FIELD_TYPE_URL = 3;
+  AVAILABLE_FIELD_TYPE_NUMBER = 4;
+  AVAILABLE_FIELD_TYPE_BOOL = 5;
+  AVAILABLE_FIELD_TYPE_SELECT = 6;
+  AVAILABLE_FIELD_TYPE_MULTI_SELECT = 7;
+  AVAILABLE_FIELD_TYPE_DATE = 8;
+}
+
+enum AvailableAuthMethod {
+  AVAILABLE_AUTH_METHOD_UNSPECIFIED = 0;
+  AVAILABLE_AUTH_METHOD_NONE = 1;
+  AVAILABLE_AUTH_METHOD_OAUTH2 = 2;
+  AVAILABLE_AUTH_METHOD_API_KEY = 3;
+  AVAILABLE_AUTH_METHOD_BASIC = 4;
+  AVAILABLE_AUTH_METHOD_CUSTOM = 5;
+}
+
+message CreateExternalAccountRequest {
+  string provider = 1;
+  string display_label = 2;
+  // All required config_fields from the manifest must be supplied.
+  // Secret field values are stored encrypted at rest.
+  map<string, string> config = 3;
+}
+message CreateExternalAccountResponse {
+  ExternalAccount account = 1;
+  // For OAuth providers: the URL the user must visit to authorize.
+  // Empty for non-OAuth providers (account is ready to use).
+  optional string authorize_url = 2;
+}
+
+message UpdateExternalAccountConfigRequest {
+  string id = 1;
+  // Map of fields to update. Only included keys are touched. To clear a
+  // secret, pass an empty string. To replace a secret, pass the new value.
+  map<string, string> config = 2;
+  optional string display_label = 3;
+  optional string assigned_worker_name = 4;
+}
+message UpdateExternalAccountConfigResponse {
+  ExternalAccount account = 1;
+}
+
+message StartExternalAccountReauthorizeRequest {
+  string id = 1;
+}
+message StartExternalAccountReauthorizeResponse {
+  string authorize_url = 1;
+}
+
+message SetExternalAccountEnabledRequest {
+  string id = 1;
+  bool enabled = 2;
+}
+message SetExternalAccountEnabledResponse {
+  ExternalAccount account = 1;
+}
+
+message DeleteExternalAccountRequest {
+  string id = 1;
+  // If true, also delete activities sourced exclusively from this account
+  // (no other sources remain). Default false — activities are preserved
+  // with the source marked detached.
+  bool delete_exclusive_activities = 2;
+}
+message DeleteExternalAccountResponse {}
+
+message TriggerSyncRequest {
+  string id = 1;
+  // Optional override of "since" — for users wanting to re-sync historical
+  // data. Empty means use the account's stored watermark.
+  optional google.protobuf.Timestamp since = 2;
+}
+message TriggerSyncResponse {
+  string job_id = 1;
+}
+
+message RotateWebhookTokenRequest {
+  string id = 1;
+}
+message RotateWebhookTokenResponse {
+  string unregister_job_id = 1;
+  string register_job_id = 2;
+}

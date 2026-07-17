@@ -1,0 +1,33 @@
+# One-shot schema migration. Run BEFORE rolling out the core Deployment (the
+# server refuses to start against an older schema). Re-running is a no-op
+# ("schema already up to date"). Jobs are immutable — to re-run after a version
+# bump, `kubectl delete job cairn-migrate -n cairn` then re-apply, or use a
+# pre-install/pre-upgrade hook if templating with Helm.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cairn-migrate
+  namespace: cairn
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: cairn-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/johnnycube/cairn-core:v0.2.0
+          args: ["migrate", "up"]
+          envFrom:
+            - configMapRef:
+                name: cairn-config
+            - secretRef:
+                name: cairn-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              memory: "512Mi"

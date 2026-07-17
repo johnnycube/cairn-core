@@ -1,0 +1,91 @@
+package domain
+
+import "errors"
+
+// ---------------------------------------------------------------------------
+// Sentinel errors for domain-level invariants.
+//
+// Use cases and adapters wrap these with %w so callers can branch with
+// errors.Is. Adapters translate them to Connect/HTTP error codes via a
+// shared mapper (internal/adapter/primary/connect/errs.go in the next phase).
+// ---------------------------------------------------------------------------
+
+// Activity invariants — checked by Activity.Validate.
+var (
+	ErrActivityMissingID              = errors.New("activity: id is required")
+	ErrActivityMissingUserID          = errors.New("activity: user_id is required")
+	ErrActivityInvalidType            = errors.New("activity: type is invalid")
+	ErrActivityDisciplineIncompatible = errors.New("activity: discipline does not match type")
+	ErrActivityInvalidPrivacy         = errors.New("activity: privacy is invalid")
+	ErrActivityTimeOrder              = errors.New("activity: end_time precedes start_time")
+	ErrActivityNegativeDuration       = errors.New("activity: duration is negative")
+	ErrActivityMovingExceedsElapsed   = errors.New("activity: moving_duration exceeds elapsed_duration")
+	ErrActivityMissingTimezone        = errors.New("activity: timezone is required")
+	ErrInvalidAthleteMetric           = errors.New("athlete metric: invalid")
+)
+
+// Merge engine errors.
+var (
+	// ErrNoSources is returned by the merge engine when called with an
+	// empty source set. The caller (dedup pipeline) should never reach
+	// this — it is a programmer error.
+	ErrNoSources = errors.New("merge: no sources to merge")
+
+	// ErrSourcesMismatchedUser is returned when sources from different
+	// users are passed together. Indicates a serious bug; merge refuses.
+	ErrSourcesMismatchedUser = errors.New("merge: sources belong to different users")
+
+	// ErrNoClassification is returned when no source provides a usable
+	// ActivityType. The merge cannot produce a valid Activity in this case
+	// and the import should be rejected with a worker bug report.
+	ErrNoClassification = errors.New("merge: no source provided a valid activity type")
+)
+
+// Dedup pipeline errors.
+var (
+	// ErrAmbiguousDedupMatch is returned when stage 2 (heuristic) finds
+	// multiple candidate activities. The caller logs a warning and proceeds
+	// with the closest-in-time match.
+	ErrAmbiguousDedupMatch = errors.New("dedup: multiple candidate activities matched")
+)
+
+// Generic lookup errors. Repositories implement these so use cases can
+// branch on "not found" without each implementation defining its own.
+var (
+	ErrNotFound = errors.New("not found")
+	// ErrUnique is wrapped by repo writes that violate a uniqueness
+	// constraint. Use cases that race on insert/lookup branch on this.
+	ErrUnique = errors.New("unique constraint violation")
+)
+
+// Segment invariants — checked by Segment.Validate.
+var (
+	ErrSegmentInvalidSource            = errors.New("segment: source must be external or native")
+	ErrSegmentInvalidScope             = errors.New("segment: scope must be private or instance")
+	ErrSegmentInvalidActivityType      = errors.New("segment: activity_type is invalid")
+	ErrSegmentExternalMissingExternal  = errors.New("segment: external source requires external_id and external_account_id")
+	ErrSegmentExternalUnexpectedOwner  = errors.New("segment: external source must not set owner_user_id")
+	ErrSegmentExternalScopeNotPrivate  = errors.New("segment: external-mirror segments must be private")
+	ErrSegmentNativeMissingOwner       = errors.New("segment: native source requires owner_user_id")
+	ErrSegmentNativeUnexpectedExternal = errors.New("segment: native source must not set external_id / external_account_id")
+	ErrSegmentMissingPolyline          = errors.New("segment: polyline is required")
+	ErrSegmentInvalidPolylinePrecision = errors.New("segment: polyline_precision must be 5 or 6")
+	ErrSegmentNonPositiveDistance      = errors.New("segment: distance_m must be positive")
+)
+
+// IsActivityValidationError reports whether err is a terminal activity-validation
+// failure (bad data) — retrying the same payload won't help, so the ingest queue
+// should fail the item rather than redeliver forever.
+func IsActivityValidationError(err error) bool {
+	for _, e := range []error{
+		ErrActivityMissingID, ErrActivityMissingUserID, ErrActivityInvalidType,
+		ErrActivityDisciplineIncompatible, ErrActivityInvalidPrivacy, ErrActivityTimeOrder,
+		ErrActivityNegativeDuration, ErrActivityMovingExceedsElapsed, ErrActivityMissingTimezone,
+		ErrNoClassification,
+	} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}

@@ -1,0 +1,132 @@
+name: Build & push core image
+
+# Builds the Cairn core image (docker/Dockerfile.core) with BuildKit and, on a
+# successful build, pushes it to the Gitea registry tagged by git tag + commit
+# hash. The image is a single DISTROLESS binary (nonroot, no shell) that serves
+# both the API and the embedded web SPA — `cairn serve` answers / and /api +
+# /cairn.v1.*.
+#
+# Proto code (gen/) is generated OFFLINE: the test job runs inside the shared
+# build-base toolchain image (local buf plugins on PATH, no BSR), and the
+# Dockerfile's own `proto` stage (FROM build-base) regenerates it in-image — so
+# this workflow needs no setup-go / buf-setup / proto cache.
+#
+# Registry: ghcr.io/johnnycube/cairn-core
+#
+# Triggers:
+#   - push to the default branch  → publishes  sha-<short>  (+ latest)
+#   - push of a v* git tag        → publishes  <tag>  + sha-<short>
+#   - pull_request                → runs the test job only, as a merge gate;
+#                                   the image job is skipped entirely so PRs
+#                                   can never reach the registry
+#
+# Required repo/org secrets (Settings → Actions → Secrets):
+#   DOCKER_REGISTRY_GITEA_USER   Gitea user with write access to the packages
+#   DOCKER_REGISTRY_GITEA_TOKEN  that user's password or token (packages:write)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: build-core-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/johnnycube/cairn-core
+  BUILD_BASE: ghcr.io/johnnycube/cairn-build-base:1
+
+jobs:
+  # Gate: the core unit suite must pass before the image is built. Provider
+  # workers live in their own repos with their own CI. These tests are DB-free
+  # — the integration suite lives behind the `integration` build tag and isn't
+  # run.
+  #
+  # Runs inside the build-base toolchain image: Go + buf + local proto plugins
+  # are already on PATH, so `make proto` runs offline and there's no setup step.
+  test:
+    name: Core tests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/johnnycube/cairn-build-base:1
+      credentials:
+        username: ${{ secrets.DOCKER_REGISTRY_GITEA_USER }}
+        password: ${{ secrets.DOCKER_REGISTRY_GITEA_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      # Cache the Go module + build caches (setup-go isn't used inside the
+      # container, so cache them explicitly).
+      - name: Cache Go
+        uses: actions/cache@v6
+        with:
+          path: |
+            /go/pkg/mod
+            /root/.cache/go-build
+          key: go-core-${{ hashFiles('go.sum') }}
+          restore-keys: go-core-
+      # Proto code (gen/) is NOT committed — regenerate it offline (the build-base
+      # image carries the local buf plugins, so no buf.build calls).
+      - name: Generate protos
+        run: make proto
+      - name: Core packages
+        shell: bash
+        run: |
+          go build ./...
+          go test ./...
+
+  build-push:
+    name: Build & push cairn (core)
+    runs-on: ubuntu-latest
+    # Only build/push once the core tests are green — and only on push events
+    # (main / v* tags). PRs are gated by the test job alone and never build or
+    # push an image.
+    needs: test
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Enables BuildKit (buildx) for the build below.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Derive image tags: the git tag (on tag pushes), the short commit SHA
+      # always, and `latest` on the default branch.
+      - name: Compute tags & labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=tag
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Log in always (not just on push): the Dockerfile's build stages pull the
+      # private build-base image, so even PR build-only gates need registry read.
+      - name: Log in to Gitea registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_REGISTRY_GITEA_USER }}
+          password: ${{ secrets.DOCKER_REGISTRY_GITEA_TOKEN }}
+
+      - name: Build & push (BuildKit)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.core
+          # Publish only from main or a v* release tag; MRs/feature branches
+          # build as a gate but never push to the registry.
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Surfaced into the binary's build info (-ldflags in the Dockerfile).
+          build-args: |
+            BUILD_BASE=${{ env.BUILD_BASE }}
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            COMMIT=${{ github.sha }}

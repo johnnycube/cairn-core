@@ -1,0 +1,877 @@
+// Activities form the core of Cairn's domain model.
+//
+// An Activity is a single workout. It is the merged view of one or more
+// ActivitySources — different external systems may report on the same
+// workout (a Strava activity and the corresponding Garmin Connect activity
+// for the same ride). Sources keep their raw and parsed payloads
+// independently; the Activity's fields are computed by the Core's merge
+// engine using the user's per-activity-type source priorities.
+//
+// Streams (time-series) are NOT merged across sources — each source keeps
+// its own stream. The frontend renders the stream from the highest-priority
+// source for the gps_track field group, and lets the user toggle between
+// sources for comparison.
+syntax = "proto3";
+
+package cairn.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+import "cairn/v1/common.proto";
+
+// ----------------------------------------------------------------------------
+// Activity type and discipline.
+//
+// ActivityType is the coarse category and is used for routing logic
+// (conflict-resolution settings, threshold-config keys, best-effort window
+// sets per activity-type).
+//
+// Discipline is an orthogonal type-specific sub-classification. Validation
+// in the domain ensures the discipline is compatible with the type
+// (RUN_TRAIL is valid only for RUN, etc.).
+//
+// Boolean flags (is_virtual, is_ebike, is_commute, is_race) compose with
+// type+discipline to express the full activity nature without enum explosion.
+// ----------------------------------------------------------------------------
+
+enum ActivityType {
+  ACTIVITY_TYPE_UNSPECIFIED = 0;
+  ACTIVITY_TYPE_RIDE = 1;
+  ACTIVITY_TYPE_RUN = 2;
+  ACTIVITY_TYPE_SWIM = 3;
+  ACTIVITY_TYPE_HIKE = 4;
+  ACTIVITY_TYPE_WALK = 5;
+  ACTIVITY_TYPE_ROW = 6;
+  ACTIVITY_TYPE_SKI = 7;
+  // Catch-all. custom_subtype on Activity carries a free-text label.
+  ACTIVITY_TYPE_WORKOUT = 8;
+
+  // Extended sport set. Coarse top-level kinds only — finer splits (e.g.
+  // inline vs ice skating, kayak vs canoe) belong in Discipline, not here.
+  ACTIVITY_TYPE_SNOWBOARD = 9;
+  ACTIVITY_TYPE_SKATE = 10;       // inline + ice skating
+  ACTIVITY_TYPE_KAYAK = 11;       // kayak + canoe paddling
+  ACTIVITY_TYPE_SUP = 12;         // stand-up paddleboarding
+  ACTIVITY_TYPE_SURF = 13;        // surf + windsurf + kitesurf + wing
+  ACTIVITY_TYPE_GOLF = 14;
+  ACTIVITY_TYPE_CLIMB = 15;       // rock / indoor / bouldering
+  ACTIVITY_TYPE_TENNIS = 16;      // racket sports (tennis, squash, badminton, …)
+  ACTIVITY_TYPE_ELLIPTICAL = 17;
+  ACTIVITY_TYPE_WHEELCHAIR = 18;  // wheelchair + handcycle
+}
+
+enum Discipline {
+  DISCIPLINE_UNSPECIFIED = 0;
+
+  // RIDE
+  DISCIPLINE_RIDE_ROAD = 10;
+  DISCIPLINE_RIDE_MTB = 11;
+  DISCIPLINE_RIDE_GRAVEL = 12;
+  DISCIPLINE_RIDE_CYCLOCROSS = 13;
+  DISCIPLINE_RIDE_TRACK = 14;
+  DISCIPLINE_RIDE_BMX = 15;
+
+  // RUN
+  DISCIPLINE_RUN_ROAD = 20;
+  DISCIPLINE_RUN_TRAIL = 21;
+  DISCIPLINE_RUN_TRACK = 22;
+
+  // SWIM
+  DISCIPLINE_SWIM_POOL = 30;
+  DISCIPLINE_SWIM_OPEN_WATER = 31;
+
+  // SKI
+  DISCIPLINE_SKI_ALPINE = 40;
+  DISCIPLINE_SKI_NORDIC = 41;
+  DISCIPLINE_SKI_TOURING = 42;
+  DISCIPLINE_SKI_BACKCOUNTRY = 43;
+}
+
+// ----------------------------------------------------------------------------
+// Activity — the merged domain aggregate.
+//
+// All numeric fields are in SI units (see common.proto). Optional means
+// the field is unknown (no source reported it), distinct from zero.
+// ----------------------------------------------------------------------------
+
+message Activity {
+  string id = 1;
+  string user_id = 2;
+
+  // Classification
+  ActivityType type = 3;
+  Discipline discipline = 4;
+  bool is_virtual = 5;
+  bool is_ebike = 6;
+  bool is_commute = 7;
+  bool is_race = 8;
+  // For ACTIVITY_TYPE_WORKOUT: user-defined or provider-supplied subtype label.
+  string custom_subtype = 9;
+
+  // Title and description; user-editable, override merge.
+  string title = 10;
+  string description = 11;
+
+  // Time
+  google.protobuf.Timestamp start_time = 12;
+  google.protobuf.Timestamp end_time = 13;
+  // Wall-clock duration including pauses.
+  google.protobuf.Duration elapsed_duration = 14;
+  // Moving time (auto-pauses removed).
+  google.protobuf.Duration moving_duration = 15;
+  // IANA timezone the activity happened in, for local-time display.
+  string timezone = 16;
+
+  // Summary metrics — merged from sources by Core. The merge_provenance
+  // map records which source contributed each field.
+  ActivitySummary summary = 17;
+
+  // Which sources contributed to this Activity. Reverse-resolved on demand
+  // via ListActivitySources; included inline by Get/List endpoints to
+  // surface multi-source state in the UI.
+  repeated ActivitySource sources = 18;
+
+  // The primary stream-bearing source. The frontend renders maps and charts
+  // from this source's streams by default. User-overridable.
+  string primary_stream_source_id = 19;
+
+  // Per-field-group: which source's value won the merge.
+  // Keys are field-group identifiers: "distance", "duration", "elevation",
+  // "heart_rate", "power", "cadence", "temperature", "speed", "gps_track",
+  // "calories". Values are activity_source_id.
+  map<string, string> merge_provenance = 20;
+
+  // When the merge was last computed. Bumps on import/reimport/priority-change.
+  google.protobuf.Timestamp merged_at = 21;
+
+  // Audit
+  google.protobuf.Timestamp created_at = 22;
+  google.protobuf.Timestamp updated_at = 23;
+
+  // User-managed metadata
+  repeated string tags = 24;
+  string gear_id = 25;             // FK to gear (bike/shoe), out-of-scope for v1
+  Privacy privacy = 26;            // who can see (currently only owner — multi-user-sharing future)
+
+  // Soft-delete marker. Activities deleted by the user are retained for
+  // a configurable window (default 30d) for undo.
+  optional google.protobuf.Timestamp deleted_at = 27;
+
+  // Reverse-geocoded start location for the feed/detail subtitle
+  // ("Ride from Darmstadt"). Empty when not yet geocoded or no place found.
+  // start_lat/start_lng cache the first GPS point of the primary stream.
+  string start_place = 28;
+  optional double start_lat = 29;
+  optional double start_lng = 30;
+}
+
+enum Privacy {
+  PRIVACY_UNSPECIFIED = 0;
+  PRIVACY_PRIVATE = 1;             // only owner
+  PRIVACY_FOLLOWERS = 2;           // future: follower-only
+  PRIVACY_PUBLIC = 3;              // future: anyone on the instance
+}
+
+message ActivitySummary {
+  optional double distance_m = 1;
+  optional double elevation_gain_m = 2;
+  optional double elevation_loss_m = 3;
+  optional double min_elevation_m = 4;
+  optional double max_elevation_m = 5;
+
+  optional double avg_speed_mps = 6;
+  optional double max_speed_mps = 7;
+
+  optional int32 avg_heart_rate_bpm = 8;
+  optional int32 max_heart_rate_bpm = 9;
+
+  optional int32 avg_power_w = 10;
+  optional int32 max_power_w = 11;
+  optional int32 normalized_power_w = 12;
+
+  optional int32 avg_cadence = 13;       // unit per type — see Activity.type
+  optional int32 max_cadence = 14;
+
+  optional double avg_temperature_c = 15;
+  optional double min_temperature_c = 16;
+  optional double max_temperature_c = 17;
+
+  optional int32 calories_kcal = 18;
+
+  // Training load metrics computed at import time. Stored on Activity for
+  // query performance; also persisted as cairn.v1.Metric rows for trend graphs.
+  optional double tss = 19;              // Training Stress Score (any variant)
+  optional double intensity_factor = 20; // IF (avg-norm-power / FTP, etc.)
+
+  // Swim-specific
+  optional int32 pool_length_m = 21;
+  optional int32 total_strokes = 22;
+}
+
+// ----------------------------------------------------------------------------
+// ActivitySource — one (provider, external_account) record per Activity.
+// Activities can have many sources; sources hold raw + parsed data, never
+// the merged view.
+// ----------------------------------------------------------------------------
+
+message ActivitySource {
+  string id = 1;
+  string activity_id = 2;
+
+  // Where this source came from.
+  string provider = 3;              // "strava", "garmin", "fit-upload", ...
+  string external_account_id = 4;
+  // Provider's id for this activity (e.g. Strava activity id, FIT file hash).
+  string external_id = 5;
+
+  // Worker provenance for versioning & auto-update. The (provider, package,
+  // version) triple is the maintainer-upheld compatibility contract used by
+  // both the update-available trigger and re-parse eligibility; the former
+  // source_manifest_hash (field 8) is retired.
+  string source_worker_name = 6;    // routing label/alias — NOT part of the key
+  string source_worker_version = 7; // "1" (simple incrementing integer)
+  reserved 8;                        // was source_manifest_hash
+  string source_worker_package = 20; // "cairns.internal.strava-importer"
+
+  // Reference to the raw blob (FIT/GPX/TCX/...) in S3.
+  string raw_blob_id = 9;
+  string raw_content_type = 10;
+  int64 raw_size_bytes = 11;
+
+  // The parsed payload from this source — pre-merge, full fidelity.
+  // Used to recompute the merge and to show source-by-source comparisons.
+  ActivitySourcePayload parsed = 12;
+
+  // Lifecycle status.
+  ActivitySourceStatus status = 13;
+  string status_reason = 14;        // human-readable; rendered in UI
+
+  // Versioning state. Drives the "Update available" UI affordance.
+  ReimportStatus reimport_status = 15;
+  string reimport_status_reason = 16;
+
+  // Audit
+  google.protobuf.Timestamp imported_at = 17;
+  google.protobuf.Timestamp last_reimported_at = 18;
+  google.protobuf.Timestamp updated_at = 19;
+}
+
+enum ActivitySourceStatus {
+  ACTIVITY_SOURCE_STATUS_UNSPECIFIED = 0;
+  // Healthy — worker is registered and account is authorized.
+  ACTIVITY_SOURCE_STATUS_ACTIVE = 1;
+  // The worker for this source's worker_name is not currently registered.
+  // Activity remains visible; reimport is unavailable until the worker
+  // is back. Other sources on the same Activity continue to function.
+  ACTIVITY_SOURCE_STATUS_ORPHANED = 2;
+  // The external account is in needs_attention state (auth_invalid etc.).
+  ACTIVITY_SOURCE_STATUS_ACCOUNT_UNAVAILABLE = 3;
+  // The user explicitly disconnected this source from the activity.
+  ACTIVITY_SOURCE_STATUS_DETACHED = 4;
+}
+
+enum ReimportStatus {
+  REIMPORT_STATUS_UNSPECIFIED = 0;
+  // Source was imported with the currently-registered worker version
+  // and manifest hash.
+  REIMPORT_STATUS_CURRENT = 1;
+  // A newer worker version or different manifest is registered; the user
+  // (or auto-update policy) may trigger a reimport.
+  REIMPORT_STATUS_UPDATE_AVAILABLE = 2;
+  // A reimport is currently in flight.
+  REIMPORT_STATUS_UPDATING = 3;
+  // The most recent reimport attempt failed; status_reason explains why.
+  REIMPORT_STATUS_FAILED = 4;
+}
+
+// The structured payload a worker returns for an Activity.
+// This is the full-fidelity per-source view; it is NOT directly user-facing.
+// The merge engine reads these from all sources of an Activity and produces
+// the merged Activity above.
+message ActivitySourcePayload {
+  // Provider-classified type/discipline, may differ from the merged Activity
+  // (e.g. one source might call it Ride/Road, another Ride/Gravel).
+  ActivityType type = 1;
+  Discipline discipline = 2;
+  bool is_virtual = 3;
+  bool is_ebike = 4;
+  string provider_native_type = 5;  // raw value from the provider, for audit
+  bool is_commute = 19;
+  bool is_race = 20;
+  // Cairn custom subtype when type fell back to WORKOUT (preserves the raw
+  // provider sport_type, e.g. "StairStepper").
+  string custom_subtype = 21;
+
+  // Title/description from the provider.
+  string title = 6;
+  string description = 7;
+
+  google.protobuf.Timestamp start_time = 8;
+  google.protobuf.Timestamp end_time = 9;
+  google.protobuf.Duration elapsed_duration = 10;
+  google.protobuf.Duration moving_duration = 11;
+  string timezone = 12;
+
+  ActivitySummary summary = 13;
+
+  // Activity laps — provider-reported splits.
+  repeated ActivityLap laps = 14;
+
+  // Stream availability summary (the streams themselves are stored separately
+  // and addressed by activity_source_id).
+  StreamSummary stream_summary = 15;
+
+  // Provider-reported segment efforts (e.g. Strava). The Core matches the
+  // stream against Cairn-known segments separately; this captures what the
+  // provider already attributed.
+  repeated ProviderSegmentEffort provider_segment_efforts = 16;
+
+  // Best-effort markers reported by the provider, if any. Cairn computes
+  // its own canonical best efforts; these are kept for audit and as a
+  // fast path when no stream is available.
+  repeated ProviderBestEffort provider_best_efforts = 17;
+
+  // Free-form provider data the Core does not interpret. Persisted for
+  // audit and surfaced in the activity-source detail view.
+  map<string, string> extra = 18;
+}
+
+message ActivityLap {
+  int32 index = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Duration elapsed_duration = 3;
+  google.protobuf.Duration moving_duration = 4;
+  optional double distance_m = 5;
+  optional int32 avg_heart_rate_bpm = 6;
+  optional int32 max_heart_rate_bpm = 7;
+  optional int32 avg_power_w = 8;
+  optional int32 max_power_w = 9;
+  optional double avg_speed_mps = 10;
+  optional int32 avg_cadence = 11;
+  optional double elevation_gain_m = 12;
+  string label = 13;                  // provider-supplied lap name
+}
+
+message StreamSummary {
+  // Which time-series channels this source provides.
+  repeated StreamChannel channels = 1;
+  // Number of data points in the stream.
+  int32 sample_count = 2;
+  // Sampling rate in Hertz (best-effort, may be variable).
+  double sample_rate_hz = 3;
+  // Has GPS data.
+  bool has_gps = 4;
+  // Polyline encoded for cheap rendering (full stream loaded on demand).
+  EncodedPolyline polyline = 5;
+}
+
+enum StreamChannel {
+  STREAM_CHANNEL_UNSPECIFIED = 0;
+  STREAM_CHANNEL_TIME = 1;          // seconds since start
+  STREAM_CHANNEL_LATITUDE = 2;
+  STREAM_CHANNEL_LONGITUDE = 3;
+  STREAM_CHANNEL_ALTITUDE = 4;
+  STREAM_CHANNEL_DISTANCE = 5;
+  STREAM_CHANNEL_SPEED = 6;
+  STREAM_CHANNEL_HEART_RATE = 7;
+  STREAM_CHANNEL_POWER = 8;
+  STREAM_CHANNEL_CADENCE = 9;
+  STREAM_CHANNEL_TEMPERATURE = 10;
+  STREAM_CHANNEL_GRADE = 11;
+  STREAM_CHANNEL_LEFT_RIGHT_BALANCE = 12;
+  STREAM_CHANNEL_LEFT_TORQUE_EFFECTIVENESS = 13;
+  STREAM_CHANNEL_RIGHT_TORQUE_EFFECTIVENESS = 14;
+  STREAM_CHANNEL_LEFT_PEDAL_SMOOTHNESS = 15;
+  STREAM_CHANNEL_RIGHT_PEDAL_SMOOTHNESS = 16;
+  STREAM_CHANNEL_VERTICAL_OSCILLATION = 17;   // running
+  STREAM_CHANNEL_GROUND_CONTACT_TIME = 18;    // running
+  STREAM_CHANNEL_STRIDE_LENGTH = 19;
+  STREAM_CHANNEL_RESPIRATION_RATE = 20;
+  STREAM_CHANNEL_CORE_TEMPERATURE = 21;
+}
+
+message ProviderSegmentEffort {
+  string provider_segment_id = 1;
+  string segment_name = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Duration elapsed = 4;
+  // Offsets within the activity stream.
+  int32 start_index = 5;
+  int32 end_index = 6;
+}
+
+message ProviderBestEffort {
+  string name = 1;                   // e.g. "5k", "10k", "Half Marathon"
+  google.protobuf.Duration elapsed = 2;
+  optional double distance_m = 3;
+  int32 start_index = 4;
+  int32 end_index = 5;
+}
+
+// ----------------------------------------------------------------------------
+// Streams (time-series data).
+//
+// Streams are stored at original resolution in TimescaleDB hypertables.
+// Continuous aggregates provide downsampled views at 1s/5s/30s/60s.
+//
+// API returns streams as parallel arrays (one per channel) for compactness.
+// Length of each non-empty channel array equals sample_count.
+// ----------------------------------------------------------------------------
+
+message ActivityStream {
+  string activity_source_id = 1;
+
+  // Channels actually populated in this response.
+  repeated StreamChannel channels = 2;
+
+  // Number of samples returned (length of each non-empty channel array).
+  int32 sample_count = 3;
+
+  // The resolution this stream was sampled/downsampled to, in Hertz.
+  // 1.0 = 1 Hz (raw), 0.2 = one sample per 5s aggregate, etc.
+  double resolution_hz = 4;
+
+  // Time series data — one entry per sample.
+  // time_s[i] is seconds since activity start.
+  repeated double time_s = 10;
+  repeated double latitude = 11;
+  repeated double longitude = 12;
+  repeated double altitude_m = 13;
+  repeated double distance_m = 14;
+  repeated double speed_mps = 15;
+  repeated int32 heart_rate_bpm = 16;
+  repeated int32 power_w = 17;
+  repeated int32 cadence = 18;
+  repeated double temperature_c = 19;
+  repeated double grade = 20;
+}
+
+// ----------------------------------------------------------------------------
+// Best Efforts and Records.
+//
+// Best efforts are sliding-window maxima/minima computed at import time:
+// "best 5min average power", "fastest 5k pace", etc. Stored per-activity
+// for chart rendering ("power curve for this ride") and aggregated into
+// user records ("fastest 5k all time", "max 5min watts last 90d").
+// ----------------------------------------------------------------------------
+
+enum BestEffortMetric {
+  BEST_EFFORT_METRIC_UNSPECIFIED = 0;
+  BEST_EFFORT_METRIC_PACE = 1;             // seconds per kilometer (run/swim)
+  BEST_EFFORT_METRIC_SPEED = 2;            // meters per second (ride)
+  BEST_EFFORT_METRIC_POWER = 3;            // watts average over window
+  BEST_EFFORT_METRIC_HEART_RATE = 4;       // bpm average over window
+  BEST_EFFORT_METRIC_VAM = 5;              // vertical ascent meters / hour
+}
+
+enum BestEffortWindowKind {
+  BEST_EFFORT_WINDOW_KIND_UNSPECIFIED = 0;
+  BEST_EFFORT_WINDOW_KIND_DISTANCE = 1;    // window_value in meters
+  BEST_EFFORT_WINDOW_KIND_DURATION = 2;    // window_value in seconds
+}
+
+message BestEffort {
+  string id = 1;
+  string activity_id = 2;
+  string user_id = 3;
+  ActivityType activity_type = 4;
+  // Discipline copied from the activity at compute time, for filtered records
+  // queries ("fastest 5k on track").
+  Discipline discipline = 5;
+
+  BestEffortMetric metric = 6;
+  BestEffortWindowKind window_kind = 7;
+  // For DISTANCE: meters (5000 for 5k). For DURATION: seconds (300 for 5min).
+  int32 window_value = 8;
+
+  // For PACE: seconds per km. For SPEED: m/s. For POWER/HR: average value.
+  // For VAM: meters per hour.
+  double achieved_value = 9;
+
+  // Stream offsets where this effort starts and ends.
+  int32 start_offset = 10;
+  google.protobuf.Duration duration = 11;
+  optional double distance_m = 12;
+
+  // Activity wall-clock at which the effort started, for PR-vs-time charts.
+  google.protobuf.Timestamp ts = 13;
+
+  // Which source's stream this effort was computed from.
+  string activity_source_id = 14;
+}
+
+// User-level records — derived view aggregating BestEfforts.
+message UserRecord {
+  string user_id = 1;
+  ActivityType activity_type = 2;
+  optional Discipline discipline = 3;      // unset = across all disciplines
+
+  BestEffortMetric metric = 4;
+  BestEffortWindowKind window_kind = 5;
+  int32 window_value = 6;
+
+  double achieved_value = 7;
+  // The activity (and its source-stream) that holds this record.
+  string activity_id = 8;
+  string activity_source_id = 9;
+  string best_effort_id = 10;
+  google.protobuf.Timestamp ts = 11;
+
+  // Recent improvement context — for "you set a new PR" notifications.
+  optional double previous_value = 12;
+  optional google.protobuf.Timestamp previous_ts = 13;
+}
+
+// User-configurable custom best-effort definitions (e.g. "my 2.4k home loop").
+// Standard windows are wired in; custom ones append to the computation set.
+message CustomBestEffort {
+  string id = 1;
+  string user_id = 2;
+  ActivityType activity_type = 3;
+  BestEffortMetric metric = 4;
+  BestEffortWindowKind window_kind = 5;
+  int32 window_value = 6;
+  string label = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// ----------------------------------------------------------------------------
+// ActivityService
+// ----------------------------------------------------------------------------
+
+service ActivityService {
+  // List activities for the calling user. Supports filtering by time range,
+  // type, discipline, tag, and source-provider.
+  rpc ListActivities(ListActivitiesRequest) returns (ListActivitiesResponse);
+
+  // Get a single activity by id, including sources.
+  rpc GetActivity(GetActivityRequest) returns (GetActivityResponse);
+
+  // Update user-editable fields (title, description, tags, type override).
+  // Does NOT touch source data — only the merged Activity overrides.
+  rpc UpdateActivity(UpdateActivityRequest) returns (UpdateActivityResponse);
+
+  // Soft-delete an activity. Sources are detached, raw blobs retained per
+  // S3 lifecycle policy.
+  rpc DeleteActivity(DeleteActivityRequest) returns (DeleteActivityResponse);
+
+  // Server-streaming feed of activity-related events for the caller. Used
+  // by the UI for live import progress, new-PR toasts, etc.
+  rpc StreamActivityEvents(StreamActivityEventsRequest) returns (stream ActivityEvent);
+
+  // Source management — attach/detach/reorder sources, trigger reimports.
+  rpc ListActivitySources(ListActivitySourcesRequest) returns (ListActivitySourcesResponse);
+
+  // Trigger a reimport of one source. Returns a job id; observe progress
+  // via StreamActivityEvents or via the job status endpoints in admin.proto.
+  rpc ReimportSource(ReimportSourceRequest) returns (ReimportSourceResponse);
+
+  // Dry-run reimport: fetches fresh source data, computes the merge it would
+  // produce, returns the diff WITHOUT committing. The preview is stored
+  // with a TTL (default 1h) and can be either committed or discarded.
+  rpc PreviewSourceReimport(PreviewSourceReimportRequest) returns (PreviewSourceReimportResponse);
+  rpc CommitSourcePreview(CommitSourcePreviewRequest) returns (CommitSourcePreviewResponse);
+  rpc DiscardSourcePreview(DiscardSourcePreviewRequest) returns (DiscardSourcePreviewResponse);
+
+  // Manual source-linking when dedup misses or mistakes.
+  rpc LinkSourceToActivity(LinkSourceToActivityRequest) returns (LinkSourceToActivityResponse);
+  rpc DetachSource(DetachSourceRequest) returns (DetachSourceResponse);
+
+  // Streams — full fidelity or downsampled.
+  rpc GetActivityStream(GetActivityStreamRequest) returns (GetActivityStreamResponse);
+
+
+
+  // Step 1 of a manual file upload: get a pre-signed S3 PUT URL.
+  // The client uploads the FIT/GPX/TCX file directly to S3, then calls
+  // UploadActivity with the returned blob_id. Separating presign from
+  // upload keeps large bodies off the Core entirely.
+  rpc PresignActivityUpload(PresignActivityUploadRequest) returns (PresignActivityUploadResponse);
+
+  // Step 2 of a manual file upload (FIT/GPX/TCX). Returns a job id; the
+  // generic-fit-parser worker processes the upload, dedup happens
+  // afterwards. UI surfaces progress via StreamActivityEvents.
+  rpc UploadActivity(UploadActivityRequest) returns (UploadActivityResponse);
+
+  // Best efforts and records.
+  rpc ListBestEfforts(ListBestEffortsRequest) returns (ListBestEffortsResponse);
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+  rpc CreateCustomBestEffort(CreateCustomBestEffortRequest) returns (CreateCustomBestEffortResponse);
+  rpc DeleteCustomBestEffort(DeleteCustomBestEffortRequest) returns (DeleteCustomBestEffortResponse);
+}
+
+// ---- List / Get / Update / Delete ----
+
+message ListActivitiesRequest {
+  TimeRange time_range = 1;
+  repeated ActivityType types = 2;
+  repeated Discipline disciplines = 3;
+  // Filter to activities that have at least one source from these providers.
+  repeated string providers = 4;
+  repeated string tags = 5;
+  // Sort: SORT_START_TIME_DESC is default.
+  ActivitySort sort = 6;
+  PageRequest page = 7;
+  // Include source records inline. Defaults to false for list endpoints
+  // (cheaper); true is useful for the activity-feed UI which shows source
+  // badges.
+  bool include_sources = 8;
+}
+
+enum ActivitySort {
+  ACTIVITY_SORT_UNSPECIFIED = 0;
+  ACTIVITY_SORT_START_TIME_DESC = 1;
+  ACTIVITY_SORT_START_TIME_ASC = 2;
+  ACTIVITY_SORT_DISTANCE_DESC = 3;
+  ACTIVITY_SORT_DURATION_DESC = 4;
+}
+
+message ListActivitiesResponse {
+  repeated Activity activities = 1;
+  PageResponse page = 2;
+}
+
+message GetActivityRequest {
+  string id = 1;
+}
+message GetActivityResponse {
+  Activity activity = 1;
+}
+
+message UpdateActivityRequest {
+  string id = 1;
+  // Only fields set in the field_mask are applied. Field names are
+  // proto-style (snake_case), e.g. "title", "tags", "type", "is_commute".
+  // The Core enforces which fields are user-editable vs source-driven.
+  repeated string field_mask = 2;
+
+  optional string title = 3;
+  optional string description = 4;
+  optional ActivityType type = 5;
+  optional Discipline discipline = 6;
+  optional bool is_virtual = 7;
+  optional bool is_commute = 8;
+  optional bool is_race = 9;
+  optional bool is_ebike = 10;
+  optional string custom_subtype = 11;
+  repeated string tags = 12;          // when present, replaces tags
+  optional Privacy privacy = 13;
+  optional string primary_stream_source_id = 14;
+
+  // User overrides for summary metrics, applied after the merge (like the
+  // classification overlay) so a hand-correction survives re-derivation.
+  // Sending the field in field_mask sets the override; sending a negative
+  // value clears it (reverts to the merged value).
+  optional double distance_m = 15;
+  optional double elevation_gain_m = 16;
+  optional int64 moving_duration_s = 17;
+}
+
+message UpdateActivityResponse {
+  Activity activity = 1;
+}
+
+message DeleteActivityRequest {
+  string id = 1;
+}
+message DeleteActivityResponse {}
+
+// ---- Activity event stream ----
+
+message StreamActivityEventsRequest {
+  // Optional filters; empty = all events for this user.
+  repeated ActivityEventType types = 1;
+}
+
+enum ActivityEventType {
+  ACTIVITY_EVENT_TYPE_UNSPECIFIED = 0;
+  ACTIVITY_EVENT_TYPE_IMPORT_STARTED = 1;
+  ACTIVITY_EVENT_TYPE_IMPORT_PROGRESS = 2;
+  ACTIVITY_EVENT_TYPE_IMPORT_COMPLETED = 3;
+  ACTIVITY_EVENT_TYPE_IMPORT_FAILED = 4;
+  ACTIVITY_EVENT_TYPE_ACTIVITY_CREATED = 5;
+  ACTIVITY_EVENT_TYPE_ACTIVITY_UPDATED = 6;
+  ACTIVITY_EVENT_TYPE_ACTIVITY_DELETED = 7;
+  ACTIVITY_EVENT_TYPE_SOURCE_ATTACHED = 8;
+  ACTIVITY_EVENT_TYPE_SOURCE_DETACHED = 9;
+  ACTIVITY_EVENT_TYPE_REIMPORT_STARTED = 10;
+  ACTIVITY_EVENT_TYPE_REIMPORT_COMPLETED = 11;
+  ACTIVITY_EVENT_TYPE_REIMPORT_FAILED = 12;
+  ACTIVITY_EVENT_TYPE_NEW_PR = 13;
+  ACTIVITY_EVENT_TYPE_SEGMENT_PR = 14;
+}
+
+message ActivityEvent {
+  ActivityEventType type = 1;
+  google.protobuf.Timestamp ts = 2;
+  // Populated for activity-scoped events.
+  string activity_id = 3;
+  string activity_source_id = 4;
+  // Free-form details. UI translates these via i18n_key + i18n_params.
+  string i18n_key = 5;
+  map<string, string> i18n_params = 6;
+  // For IMPORT_PROGRESS: 0..1 progress, optional totals.
+  optional double progress = 7;
+  optional int32 items_done = 8;
+  optional int32 items_total = 9;
+}
+
+// ---- Source management ----
+
+message ListActivitySourcesRequest {
+  string activity_id = 1;
+}
+message ListActivitySourcesResponse {
+  repeated ActivitySource sources = 1;
+}
+
+message ReimportSourceRequest {
+  string activity_source_id = 1;
+  // If true and the worker supports local reparse, the Core will dispatch
+  // a JOB_TYPE_LOCAL_REPARSE instead of REIMPORT_ACTIVITY, saving rate limit.
+  bool prefer_local_reparse = 2;
+}
+message ReimportSourceResponse {
+  string job_id = 1;
+}
+
+message PreviewSourceReimportRequest {
+  string activity_source_id = 1;
+  bool prefer_local_reparse = 2;
+}
+message PreviewSourceReimportResponse {
+  string preview_id = 1;
+  string job_id = 2;
+}
+
+message CommitSourcePreviewRequest {
+  string preview_id = 1;
+}
+message CommitSourcePreviewResponse {
+  Activity activity = 1;
+}
+
+message DiscardSourcePreviewRequest {
+  string preview_id = 1;
+}
+message DiscardSourcePreviewResponse {}
+
+message LinkSourceToActivityRequest {
+  string activity_source_id = 1;
+  string target_activity_id = 2;
+  // True allows linking even if the heuristic deduplicator would reject
+  // (start times far apart, etc.). Recorded in the audit log.
+  bool force = 3;
+}
+message LinkSourceToActivityResponse {
+  Activity activity = 1;
+}
+
+message DetachSourceRequest {
+  string activity_source_id = 1;
+  // True: the detached source becomes a new Activity on its own.
+  // False: the source is removed entirely (raw blob retained per lifecycle).
+  bool keep_as_new_activity = 2;
+}
+message DetachSourceResponse {
+  // Set when keep_as_new_activity is true.
+  optional Activity new_activity = 1;
+}
+
+// ---- Streams ----
+
+message GetActivityStreamRequest {
+  string activity_source_id = 1;
+  repeated StreamChannel channels = 2;
+  // Target resolution. 0 = highest available (1Hz). Server may downsample
+  // to the nearest available continuous-aggregate resolution.
+  double max_resolution_hz = 3;
+  // Cap the response to this many samples (further downsampling if needed).
+  // 0 = no cap (server still enforces a hard maximum).
+  int32 max_samples = 4;
+}
+message GetActivityStreamResponse {
+  ActivityStream stream = 1;
+}
+
+// ---- Upload ----
+
+message PresignActivityUploadRequest {
+  // Suggested file extension; drives the S3 key and informs the parser
+  // pipeline. One of: "fit", "gpx", "tcx".
+  string extension = 1;
+  // Content-Type the client will upload with.
+  string content_type = 2;
+  // Approximate file size for limit enforcement. Optional.
+  int64 size_hint_bytes = 3;
+}
+
+message PresignActivityUploadResponse {
+  // Opaque blob id to pass to UploadActivity after the PUT completes.
+  string blob_id = 1;
+  // Pre-signed S3 PUT URL. Default expiry 15 minutes.
+  string upload_url = 2;
+  // Headers the client MUST include in the PUT (Content-Type, etc.).
+  map<string, string> required_headers = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message UploadActivityRequest {
+  // From PresignActivityUploadResponse.blob_id. The file must have been
+  // PUT to S3 before this RPC is called.
+  string blob_id = 1;
+  string filename = 2;
+  string content_type = 3;
+  // Optional hints to skip auto-detection.
+  optional ActivityType type_hint = 4;
+  optional Discipline discipline_hint = 5;
+  // Tags to apply to the resulting activity (merged with any from the file).
+  repeated string tags = 6;
+}
+message UploadActivityResponse {
+  string job_id = 1;
+  // Empty until the job completes. Use StreamActivityEvents to await
+  // ACTIVITY_EVENT_TYPE_ACTIVITY_CREATED with the resulting activity_id.
+  string activity_id = 2;
+}
+
+// ---- Best efforts and records ----
+
+message ListBestEffortsRequest {
+  string activity_id = 1;
+  // Optional metric filter.
+  repeated BestEffortMetric metrics = 2;
+}
+message ListBestEffortsResponse {
+  repeated BestEffort efforts = 1;
+}
+
+message ListRecordsRequest {
+  ActivityType activity_type = 1;
+  // Optional: limit to records within a specific discipline. Empty = across all.
+  optional Discipline discipline = 2;
+  // Optional time-bound for "rolling records" (e.g. 90d).
+  optional TimeRange time_range = 3;
+  // Optional: only specific metrics/windows.
+  repeated BestEffortMetric metrics = 4;
+}
+message ListRecordsResponse {
+  repeated UserRecord records = 1;
+}
+
+message CreateCustomBestEffortRequest {
+  ActivityType activity_type = 1;
+  BestEffortMetric metric = 2;
+  BestEffortWindowKind window_kind = 3;
+  int32 window_value = 4;
+  string label = 5;
+}
+message CreateCustomBestEffortResponse {
+  CustomBestEffort custom_best_effort = 1;
+}
+
+message DeleteCustomBestEffortRequest {
+  string id = 1;
+}
+message DeleteCustomBestEffortResponse {}
