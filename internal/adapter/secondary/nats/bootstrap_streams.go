@@ -123,8 +123,14 @@ func (b *Bus) BootstrapStreams(ctx context.Context) error {
 			Replicas:    replicas,
 		},
 		{
-			Bucket:      KVWorkerManifests,
-			Description: "Worker manifests, last 5 retained for diff-on-rollback.",
+			Bucket: KVWorkerManifests,
+			// TTL backstops the presence-driven reaper: workers re-publish their
+			// manifest on a slow cadence (well inside this window), so a live
+			// worker's manifest stays fresh while a decommissioned one expires
+			// instead of lingering forever and replaying through the
+			// update-available watcher on every restart.
+			Description: "Worker manifests, last 5 retained for diff-on-rollback; expired if a worker stops re-publishing.",
+			TTL:         15 * time.Minute,
 			History:     5,
 			Replicas:    replicas,
 		},

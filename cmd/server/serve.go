@@ -852,6 +852,45 @@ func runWorkerPresenceWatcher(ctx context.Context, logger *slog.Logger, app *App
 	seen := map[string]string{}
 	primed := false
 
+	// worker name → consecutive ticks with no live presence. A manifest is
+	// reaped once its worker has been absent this many ticks, so a rolling
+	// redeploy's brief presence gap doesn't drop a still-deployed worker's
+	// manifest. The manifests-bucket TTL is the slower backstop.
+	const manifestReapAfterTicks = 2
+	manifestAbsent := map[string]int{}
+
+	// reapStaleManifests deletes manifest keys whose worker has no live
+	// presence. Without this a decommissioned worker's manifest lingers
+	// forever (no natural writer to expire it) and replays through the
+	// update-available watcher on every server restart. Delete tombstones are
+	// ignored by the manifest watcher, so this drives no spurious re-imports.
+	reapStaleManifests := func(liveNames map[string]struct{}) {
+		kv, err := app.NATSBus.KV("cairn_worker_manifests")
+		if err != nil {
+			return
+		}
+		keys, err := kv.Keys(ctx)
+		if err != nil {
+			return // unavailable or empty this tick; nothing to reap
+		}
+		for _, name := range keys {
+			if _, live := liveNames[name]; live {
+				delete(manifestAbsent, name)
+				continue
+			}
+			manifestAbsent[name]++
+			if manifestAbsent[name] < manifestReapAfterTicks {
+				continue
+			}
+			if err := kv.Delete(ctx, name); err != nil {
+				log.Warn("reap stale manifest failed", "worker", name, "error", err)
+				continue
+			}
+			delete(manifestAbsent, name)
+			log.Info("reaped stale worker manifest (no live presence)", "worker", name)
+		}
+	}
+
 	scan := func() map[string]string {
 		live := map[string]string{}
 		kv, err := app.NATSBus.KV("cairn_worker_presence")
@@ -910,6 +949,13 @@ func runWorkerPresenceWatcher(ctx context.Context, logger *slog.Logger, app *App
 					}
 				}
 			}
+			// Manifest keys are worker names ({name}); presence values are the
+			// same names. Reap manifests whose worker is no longer live.
+			liveNames := make(map[string]struct{}, len(live))
+			for _, name := range live {
+				liveNames[name] = struct{}{}
+			}
+			reapStaleManifests(liveNames)
 			seen = live
 		}
 	}
