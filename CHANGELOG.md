@@ -4,6 +4,20 @@ All notable changes to Cairn are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/). Dates are ISO-8601.
 
+## [0.2.1] — 2026-07-20
+
+### Fixed
+- NATS JetStream now binds an explicit `StorageClass` in the Kubernetes
+  manifest. With no default StorageClass the claim stayed Pending and silently
+  fell back to an `emptyDir`, losing all JetStream state (streams + KV) on every
+  pod reschedule.
+- Stale worker manifests are reaped once a worker has no live presence, and the
+  `cairn_worker_manifests` KV bucket now carries a 15-minute TTL. Previously a
+  decommissioned or replaced worker's manifest lingered indefinitely and
+  replayed through the update-available scan on every server restart. Pairs with
+  the Strava worker's periodic manifest re-publish ([cairn-provider-strava]
+  ≥ v0.2.1); older workers are still cleaned up by the presence-driven reaper.
+
 ## [0.2.0] — 2026-07-16
 
 **First public release.** A working, self-hosted multi-source activity
@@ -98,6 +112,7 @@ workers ([cairn-provider-strava], [cairn-provider-garmin]).
 
 Initial development (internal pre-release iterations v0.1.0–v0.1.12).
 
+[0.2.1]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.1
 [0.2.0]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.0
 [cairn-provider-strava]: https://github.com/johnnycube/cairn-provider-strava
 [cairn-provider-garmin]: https://github.com/johnnycube/cairn-provider-garmin
