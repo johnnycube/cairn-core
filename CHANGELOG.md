@@ -4,6 +4,14 @@ All notable changes to Cairn are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/). Dates are ISO-8601.
 
+## [0.2.2] — 2026-07-20
+
+### Fixed
+- GitHub Actions: the containerized test job now marks the checkout as a git
+  `safe.directory`, fixing the "error obtaining VCS status" build failure that
+  broke the v0.2.1 release pipeline. No code changes since 0.2.1 — this release
+  exists to publish the images that release never produced.
+
 ## [0.2.1] — 2026-07-20
 
 ### Fixed
