@@ -58,6 +58,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # The checkout is owned by a different uid than the container user; mark
+      # it safe so git works and go's -buildvcs stamping doesn't fail the build.
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # Cache the Go module + build caches (setup-go isn't used inside the
       # container, so cache them explicitly).
       - name: Cache Go
