@@ -56,7 +56,7 @@ spec:
     spec:
       containers:
         - name: nats
-          image: nats:2.14.2-alpine
+          image: nats:2.14.3-alpine
           args: ["-c", "/etc/nats/nats.conf", "--cluster_name", "cairn"]
           ports:
             - containerPort: 4222
@@ -94,6 +94,11 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
+        # Explicit class: the cluster has no default StorageClass, so an
+        # unqualified claim stays Pending — which is why prod had drifted to an
+        # emptyDir and lost all JetStream state on every pod reschedule. Single-
+        # replica encrypted Retain matches this single-instance control-plane store.
+        storageClassName: longhorn-db-single-encrypted
         resources:
           requests:
             storage: 5Gi
