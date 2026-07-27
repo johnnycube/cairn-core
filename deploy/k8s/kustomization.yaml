@@ -22,6 +22,6 @@ images:
   - name: ghcr.io/johnnycube/cairn-core
     newTag: v0.2.0
   - name: ghcr.io/johnnycube/cairn-provider-strava
-    newTag: v0.2.0
+    newTag: v0.2.2
   - name: ghcr.io/johnnycube/cairn-provider-garmin
     newTag: v0.2.0
