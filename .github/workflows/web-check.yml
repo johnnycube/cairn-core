@@ -37,7 +37,7 @@ jobs:
         run: make proto
       # Cache npm's download cache (setup-node isn't used inside the container).
       - name: Cache npm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /root/.npm
           key: npm-${{ hashFiles('web/package-lock.json') }}
