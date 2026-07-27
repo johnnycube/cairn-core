@@ -156,7 +156,7 @@ jobs:
       # every tag of this push. Gated like `push:` so it never runs unpushed.
       - name: Install cosign
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign image (keyless)
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
