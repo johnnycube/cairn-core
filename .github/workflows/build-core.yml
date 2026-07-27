@@ -66,7 +66,7 @@ jobs:
       image: ghcr.io/johnnycube/cairn-build-base:1
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       # The checkout is owned by a different uid than the container user; mark
       # it safe so git works and go's -buildvcs stamping doesn't fail the build.
       - name: Mark workspace safe for git
@@ -107,7 +107,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Enables BuildKit (buildx) for the build below.
       - name: Set up Docker Buildx

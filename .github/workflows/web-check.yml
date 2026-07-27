@@ -30,7 +30,7 @@ jobs:
       image: ghcr.io/johnnycube/cairn-build-base:1
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       # The TS proto stubs (web/src/lib/proto) are NOT committed — regenerate
       # them offline before the typecheck/build, which import them via $proto.
       - name: Generate protos
