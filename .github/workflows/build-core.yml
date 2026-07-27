@@ -111,7 +111,7 @@ jobs:
 
       # Enables BuildKit (buildx) for the build below.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Derive image tags: the git tag (on tag pushes), the short commit SHA
       # always, and `latest` on the default branch.
