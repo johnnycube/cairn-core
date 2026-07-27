@@ -74,7 +74,7 @@ jobs:
       # Cache the Go module + build caches (setup-go isn't used inside the
       # container, so cache them explicitly).
       - name: Cache Go
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             /go/pkg/mod
