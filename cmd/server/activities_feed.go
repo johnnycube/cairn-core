@@ -24,7 +24,7 @@ import (
 //	  &speed_min_mps=&speed_max_mps=               average speed
 //	  &hr_min_bpm=&hr_max_bpm=                     average heart rate
 //	  &power_min_w=&power_max_w=                   average power
-//	  → { total, matched, facets:{types:[{value,count}],disciplines:[...]}, activities:[...] }
+//	  → { total, matched, facets:{types:[{value,count}],disciplines:[...],years:[...]}, activities:[...] }
 //
 // facets list ONLY the values the user actually has, so the filter UI can avoid
 // offering impossible options; each facet respects every filter except its own
@@ -161,6 +161,14 @@ func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 
+		// Years are deliberately unfiltered: the year selector should always
+		// offer every year that has data, not shrink with the active filter.
+		yearStats, _ := app.Activities.ActivityYearStats(r.Context(), userID)
+		years := make([]feedFacet, 0, len(yearStats))
+		for _, y := range yearStats {
+			years = append(years, feedFacet{Value: strconv.Itoa(y.Year), Count: y.Count})
+		}
+
 		out := make([]feedActivity, 0, len(acts))
 		for _, a := range acts {
 			out = append(out, feedActivity{
@@ -184,6 +192,7 @@ func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			"facets": map[string]any{
 				"types":       toFeedFacets(types),
 				"disciplines": toFeedFacets(disciplines),
+				"years":       years,
 			},
 			"activities": out,
 			"offset":     offset,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import SportIcon from '$lib/components/SportIcon.svelte';
 	import { formatDistance, formatDuration, formatElevation, formatRelativeDate } from '$lib/format';
@@ -23,7 +23,7 @@
 	type Feed = {
 		total: number;
 		matched: number;
-		facets: { types: Facet[]; disciplines: Facet[] };
+		facets: { types: Facet[]; disciplines: Facet[]; years?: Facet[] };
 		activities: FeedActivity[];
 		has_more: boolean;
 	};
@@ -47,8 +47,8 @@
 	// dashboard's "This week" / "Last week" blocks can deep-link into a
 	// pre-filtered activities view, then editable in place. Half-open: from
 	// inclusive, to exclusive.
-	let fromDate = $state($page.url.searchParams.get('from') ?? '');
-	let toDate = $state($page.url.searchParams.get('to') ?? '');
+	let fromDate = $state(page.url.searchParams.get('from') ?? '');
+	let toDate = $state(page.url.searchParams.get('to') ?? '');
 
 	// Quick date presets — "last N days" sets from = today-N, to = open.
 	const DATE_PRESETS = [
@@ -59,6 +59,7 @@
 	];
 	let activePreset = $state<number | null>(null);
 	function applyPreset(days: number) {
+		yearFilter = '';
 		if (activePreset === days) {
 			activePreset = null;
 			fromDate = '';
@@ -70,6 +71,20 @@
 		d.setDate(d.getDate() - days);
 		fromDate = d.toISOString().slice(0, 10);
 		toDate = '';
+	}
+
+	// Year filter — sugar over the half-open from/to range the API already
+	// supports. Options come from the (unfiltered) years facet.
+	let yearFilter = $state('');
+	function applyYear() {
+		activePreset = null;
+		if (yearFilter) {
+			fromDate = `${yearFilter}-01-01`;
+			toDate = `${Number(yearFilter) + 1}-01-01`;
+		} else {
+			fromDate = '';
+			toDate = '';
+		}
 	}
 
 	// Tri-state classification flags: '' = any, 'true', 'false'.
@@ -137,8 +152,11 @@
 	let moreFilters = $state(false);
 
 	// Debounce free-text numeric/date input so we don't re-query per keystroke.
+	// The effect also runs once on mount — skip that, or the initial load
+	// double-fetches (once immediately, once when the timer fires).
 	let debounced = $state(0);
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+	let debounceInit = false;
 	function bumpDebounced() {
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => (debounced += 1), 350);
@@ -147,28 +165,57 @@
 		JSON.stringify(ranges);
 		fromDate;
 		toDate;
+		if (!debounceInit) {
+			debounceInit = true;
+			return;
+		}
 		bumpDebounced();
 	});
 
 	let feed = $state<Feed | null>(null);
 	let items = $state<FeedActivity[]>([]);
-	let offset = $state(0);
+	let pageNum = $state(1);
 	let loading = $state(false);
-	let loadingMore = $state(false);
+
+	const totalPages = $derived(feed ? Math.max(1, Math.ceil(feed.matched / PAGE_SIZE)) : 1);
+
+	// Windowed pager: first, last, current ±1, with ellipsis gaps.
+	const pageList = $derived.by(() => {
+		const wanted = [1, pageNum - 1, pageNum, pageNum + 1, totalPages];
+		const pages = [...new Set(wanted)].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+		const out: (number | '…')[] = [];
+		let prev = 0;
+		for (const p of pages) {
+			if (p - prev > 1) out.push('…');
+			out.push(p);
+			prev = p;
+		}
+		return out;
+	});
 
 	function humanize(v: string): string {
 		return v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 	}
 
-	async function loadFeed(reset: boolean) {
-		if (reset) {
-			offset = 0;
-			loading = true;
-		} else {
-			loadingMore = true;
-		}
+	// Filter changes can fire faster than responses arrive; abort the in-flight
+	// request and drop stale responses so the list never flashes old results.
+	let feedSeq = 0;
+	let feedAbort: AbortController | null = null;
+
+	// Takes the target page explicitly (not pageNum) so the filter $effect
+	// doesn't track pageNum and re-fire on page navigation.
+	async function loadFeed(p: number) {
+		const seq = ++feedSeq;
+		feedAbort?.abort();
+		const ctrl = new AbortController();
+		feedAbort = ctrl;
+		loading = true;
 		try {
-			const q = new URLSearchParams({ sort, limit: String(PAGE_SIZE), offset: String(offset) });
+			const q = new URLSearchParams({
+				sort,
+				limit: String(PAGE_SIZE),
+				offset: String((p - 1) * PAGE_SIZE)
+			});
 			if (typeFilter) q.set('type', typeFilter);
 			if (disciplineFilter) q.set('discipline', disciplineFilter);
 			if (fromDate) q.set('from', fromDate);
@@ -185,19 +232,24 @@
 					}
 				}
 			}
-			const res = await fetch(`/api/activities/feed?${q.toString()}`);
-			if (res.ok) {
+			const res = await fetch(`/api/activities/feed?${q.toString()}`, { signal: ctrl.signal });
+			if (res.ok && seq === feedSeq) {
 				const data: Feed = await res.json();
-				items = reset ? data.activities : [...items, ...data.activities];
-				offset = items.length;
+				items = data.activities;
 				feed = data;
 			}
 		} catch {
-			/* ignore */
+			/* ignore (includes aborts) */
 		} finally {
-			loading = false;
-			loadingMore = false;
+			if (seq === feedSeq) loading = false;
 		}
+	}
+
+	function goToPage(p: number) {
+		if (p < 1 || p > totalPages || p === pageNum) return;
+		pageNum = p;
+		loadFeed(p);
+		window.scrollTo({ top: 0, behavior: 'smooth' });
 	}
 
 	// Re-query (reset to page 1) whenever a filter or sort changes. Text-input
@@ -208,7 +260,8 @@
 		sort;
 		JSON.stringify(flags);
 		debounced;
-		loadFeed(true);
+		pageNum = 1;
+		loadFeed(1);
 	});
 
 	function clearFilters() {
@@ -217,9 +270,20 @@
 		fromDate = '';
 		toDate = '';
 		activePreset = null;
+		yearFilter = '';
 		flags = { virtual: '', ebike: '', commute: '', race: '' };
 		ranges = Object.fromEntries(RANGE_KEYS.map((k) => [k, { min: '', max: '' }]));
 	}
+
+	// Facets respect every filter except their own dimension, so another filter
+	// can shrink them mid-interaction. Keep a row visible once it has appeared,
+	// or the bar jumps around ("flickers") while filtering.
+	let showSports = $state(false);
+	let showDisciplines = $state(false);
+	$effect(() => {
+		if (feed && feed.facets.types.length > 1) showSports = true;
+		if (feed && feed.facets.disciplines.length > 0) showDisciplines = true;
+	});
 
 	const rangesActive = $derived(
 		Object.values(ranges).some((r) => r.min !== '' || r.max !== '')
@@ -252,7 +316,8 @@
 			}
 			if (imported > 0) {
 				uploadOk = `Imported ${imported} file${imported > 1 ? 's' : ''}.`;
-				await loadFeed(true);
+				pageNum = 1;
+				await loadFeed(1);
 				await invalidateAll();
 			}
 		} catch (e) {
@@ -352,7 +417,7 @@
 	<!-- Filter + sort bar — only renders facet chips for values the user has. -->
 	{#if feed}
 		<div class="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-			{#if feed.facets.types.length > 1}
+			{#if showSports}
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="mr-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Sport</span>
 					<button
@@ -384,7 +449,7 @@
 				</div>
 			{/if}
 
-			{#if feed.facets.disciplines.length > 0}
+			{#if showDisciplines}
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="mr-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Discipline</span>
 					<button
@@ -410,9 +475,24 @@
 				</div>
 			{/if}
 
-			<!-- Date range: quick presets + custom bounds. -->
+			<!-- Date range: year selector + quick presets + custom bounds. -->
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="mr-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Date</span>
+				{#if (feed.facets.years ?? []).length > 0}
+					<select
+						bind:value={yearFilter}
+						onchange={applyYear}
+						aria-label="Year"
+						class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs focus:border-accent-400 focus:outline-none {yearFilter
+							? 'border-accent-500 text-accent-300'
+							: 'text-zinc-300'}"
+					>
+						<option value="">All years</option>
+						{#each feed.facets.years ?? [] as y (y.value)}
+							<option value={y.value}>{y.value} ({y.count})</option>
+						{/each}
+					</select>
+				{/if}
 				{#each DATE_PRESETS as p (p.days)}
 					<button
 						type="button"
@@ -427,7 +507,10 @@
 				<input
 					type="date"
 					bind:value={fromDate}
-					onchange={() => (activePreset = null)}
+					onchange={() => {
+						activePreset = null;
+						yearFilter = '';
+					}}
 					aria-label="From date"
 					class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 focus:border-accent-400 focus:outline-none [color-scheme:dark]"
 				/>
@@ -435,7 +518,10 @@
 				<input
 					type="date"
 					bind:value={toDate}
-					onchange={() => (activePreset = null)}
+					onchange={() => {
+						activePreset = null;
+						yearFilter = '';
+					}}
 					aria-label="To date"
 					class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 focus:border-accent-400 focus:outline-none [color-scheme:dark]"
 				/>
@@ -527,7 +613,7 @@
 			{hasFilter ? 'No activities match this filter.' : m.activities_empty()}
 		</div>
 	{:else}
-		<ul class="space-y-3" class:opacity-50={loading}>
+		<ul class="space-y-3 transition-opacity duration-200" class:opacity-50={loading}>
 			{#each items as activity (activity.id)}
 				<li>
 					<a
@@ -588,17 +674,44 @@
 			{/each}
 		</ul>
 
-		{#if feed?.has_more}
-			<div class="mt-4 text-center">
+		{#if feed && totalPages > 1}
+			<nav class="mt-6 flex items-center justify-center gap-1" aria-label="Pagination">
 				<button
 					type="button"
-					onclick={() => loadFeed(false)}
-					disabled={loadingMore}
-					class="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-accent-500 hover:text-accent-300 disabled:opacity-50"
+					onclick={() => goToPage(pageNum - 1)}
+					disabled={pageNum === 1}
+					class="rounded px-3 py-1.5 text-sm text-zinc-300 hover:text-accent-300 disabled:opacity-40 disabled:hover:text-zinc-300"
 				>
-					{loadingMore ? 'Loading…' : `Load more (${items.length} of ${feed.matched})`}
+					‹ Prev
 				</button>
-			</div>
+				{#each pageList as p, i (i)}
+					{#if p === '…'}
+						<span class="px-2 text-sm text-zinc-600">…</span>
+					{:else}
+						<button
+							type="button"
+							onclick={() => goToPage(p)}
+							aria-current={p === pageNum ? 'page' : undefined}
+							class="min-w-9 rounded px-2.5 py-1.5 text-sm tabular-nums {p === pageNum
+								? 'bg-accent-500 font-medium text-zinc-950'
+								: 'text-zinc-300 hover:bg-zinc-800'}"
+						>
+							{p}
+						</button>
+					{/if}
+				{/each}
+				<button
+					type="button"
+					onclick={() => goToPage(pageNum + 1)}
+					disabled={pageNum === totalPages}
+					class="rounded px-3 py-1.5 text-sm text-zinc-300 hover:text-accent-300 disabled:opacity-40 disabled:hover:text-zinc-300"
+				>
+					Next ›
+				</button>
+			</nav>
+			<p class="mt-2 text-center text-xs text-zinc-500">
+				{(pageNum - 1) * PAGE_SIZE + 1}–{Math.min(pageNum * PAGE_SIZE, feed.matched)} of {feed.matched}
+			</p>
 		{/if}
 	{/if}
 </section>
