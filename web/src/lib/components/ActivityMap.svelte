@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
+	import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import { m } from '$lib/paraglide/messages';
 	import { formatDistance, formatElevation } from '$lib/format';
@@ -75,7 +75,7 @@
 
 	function setMarker(p: TrackPoint | null) {
 		hoverPoint = p;
-		const src = map?.getSource('hover-point') as maplibregl.GeoJSONSource | undefined;
+		const src = map?.getSource('hover-point') as GeoJSONSource | undefined;
 		if (!src) return;
 		src.setData({
 			type: 'FeatureCollection',
@@ -111,7 +111,7 @@
 			layers: [{ id: 'basemap', type: 'raster' as const, source: 'basemap' }]
 		};
 
-		map = new maplibregl.Map({
+		map = new MapLibreMap({
 			container,
 			style,
 			center: coordinates[Math.floor(coordinates.length / 2)],
@@ -203,7 +203,7 @@
 			// Fit bounds to the full track with some padding.
 			const bounds = coordinates.reduce(
 				(b, c) => b.extend(c),
-				new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+				new LngLatBounds(coordinates[0], coordinates[0])
 			);
 			map.fitBounds(bounds, { padding: 32, duration: 0 });
 
