@@ -91,9 +91,50 @@
 			loadError = (e as Error).message || 'failed to load';
 		}
 	}
+	// --- export customization ---
+	// Which features this activity's merged stream actually has (from the
+	// options endpoint); null while loading or when there is nothing to export.
+	const exportFeatures: [string, string][] = [
+		['gps', 'GPS track'],
+		['altitude', 'Altitude'],
+		['distance', 'Distance'],
+		['speed', 'Speed'],
+		['heart_rate', 'Heart rate'],
+		['power', 'Power'],
+		['cadence', 'Cadence'],
+		['temperature', 'Temperature'],
+		['title', 'Title']
+	];
+	let exportAvail = $state<Record<string, boolean> | null>(null);
+	let exportSel = $state<Record<string, boolean>>({});
+	async function loadExportOptions() {
+		try {
+			const res = await fetch(`/api/activities/${a.id}/export/options`);
+			if (!res.ok) return; // no stream to export — keep plain buttons
+			const av = (await res.json()).available ?? {};
+			exportAvail = av;
+			const sel: Record<string, boolean> = {};
+			for (const [key] of exportFeatures) if (av[key]) sel[key] = true;
+			exportSel = sel;
+		} catch {
+			/* ignore — buttons fall back to full export */
+		}
+	}
+	const exportExclude = $derived(
+		exportFeatures
+			.map(([key]) => key)
+			.filter((key) => exportAvail?.[key] && !exportSel[key])
+	);
+	const exportQuery = $derived(
+		exportExclude.length > 0 ? `?exclude=${exportExclude.join(',')}` : ''
+	);
+	// GPX is position-only; without the GPS track the file would be empty.
+	const gpxDisabled = $derived(exportAvail != null && (!exportAvail.gps || !exportSel.gps));
+
 	onMount(() => {
 		loadManage();
 		loadShares();
+		loadExportOptions();
 	});
 
 	function fmtBytes(n: number): string {
@@ -304,21 +345,45 @@
 			regardless of where it was imported from). GPX needs a GPS track; TCX also carries indoor
 			HR/power.
 		</p>
+		{#if exportAvail != null}
+			<fieldset class="mb-4 flex flex-wrap gap-x-4 gap-y-2">
+				<legend class="mb-2 text-xs text-zinc-500">
+					Include in the file (deselected features are left out):
+				</legend>
+				{#each exportFeatures as [key, label] (key)}
+					{#if exportAvail[key]}
+						<label class="flex items-center gap-2 text-xs text-zinc-300">
+							<input type="checkbox" bind:checked={exportSel[key]} />
+							{label}
+						</label>
+					{/if}
+				{/each}
+			</fieldset>
+		{/if}
 		<div class="flex flex-wrap gap-3">
+			{#if gpxDisabled}
+				<span
+					class="cursor-not-allowed rounded border border-zinc-800 px-3 py-1.5 text-xs text-zinc-600"
+					title="GPX needs the GPS track"
+				>
+					Download GPX
+				</span>
+			{:else}
+				<a
+					href={`/api/activities/${a.id}/export.gpx${exportQuery}`}
+					class="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-300"
+				>
+					Download GPX
+				</a>
+			{/if}
 			<a
-				href={`/api/activities/${a.id}/export.gpx`}
-				class="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-300"
-			>
-				Download GPX
-			</a>
-			<a
-				href={`/api/activities/${a.id}/export.tcx`}
+				href={`/api/activities/${a.id}/export.tcx${exportQuery}`}
 				class="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-300"
 			>
 				Download TCX
 			</a>
 			<a
-				href={`/api/activities/${a.id}/export.fit`}
+				href={`/api/activities/${a.id}/export.fit${exportQuery}`}
 				class="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-300"
 			>
 				Download FIT
