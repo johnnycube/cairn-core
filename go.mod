@@ -25,12 +25,12 @@ require (
 	//   jwt/v2     : JWT minting + verification for NATS account/user JWTs
 	//
 	// Versions are the latest stable as of May 2026.
-	github.com/nats-io/nats.go v1.52.0
+	github.com/nats-io/nats.go v1.53.1
 	github.com/nats-io/nkeys v0.4.16
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/spf13/cobra v1.10.2
 	github.com/vgarvardt/pgx-google-uuid/v5 v5.6.0
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.55.0
 )
 
 require (
@@ -88,12 +88,12 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20221208152030-732eee02a75a // indirect
-	golang.org/x/mod v0.37.0 // indirect
+	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260625142307-59b4966ccb57 // indirect
-	golang.org/x/text v0.40.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260708182218-49f421fb7959 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/tools v0.48.0 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
 	honnef.co/go/tools v0.4.2 // indirect
 	mvdan.cc/gofumpt v0.4.0 // indirect
