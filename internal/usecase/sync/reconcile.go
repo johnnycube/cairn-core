@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -213,6 +214,7 @@ type reconcileJobBody struct {
 	Provider    string     `json:"provider"`
 	Watermark   *time.Time `json:"watermark,omitempty"`
 	MaxEnqueue  int        `json:"max_enqueue,omitempty"`
+	KnownExtIDs []string   `json:"known_ext_ids,omitempty"`
 	WebhookSeen bool       `json:"webhook_seen"`
 	Reason      string     `json:"reason"`
 	IssuedAt    time.Time  `json:"issued_at"`
@@ -222,6 +224,19 @@ type reconcileJobBody struct {
 // run may enqueue. A safety valve: combined with the worker's bounded lookback
 // window, this guarantees reconcile can never flood the job stream.
 const reconcileMaxEnqueuePerRun = 500
+
+// Workers list activities from max(now - 30d lookback floor, watermark - 1h
+// drift margin) and skip anything in known_ext_ids. These mirror the worker
+// constants so the known-IDs window covers everything a worker may list;
+// without the list, the drift margin re-fetches the newest activity (whose
+// start_time IS the watermark) on every tick.
+const (
+	reconcileKnownIDsLookback     = 30 * 24 * time.Hour
+	reconcileWatermarkDriftMargin = time.Hour
+	// reconcileKnownIDsMax bounds the job payload; a truncated list only
+	// costs a few redundant (idempotent) fetches.
+	reconcileKnownIDsMax = 2000
+)
 
 // publishOne publishes a single reconcile job. The msgID is bucketed
 // to the minute so two scheduler ticks that fire near-simultaneously
@@ -233,6 +248,21 @@ func (uc *ReconcileExternalAccount) publishOne(
 ) error {
 	now := uc.now()
 	subject := fmt.Sprintf("cairn.jobs.reconcile.%s", a.Provider)
+
+	since := now.Add(-reconcileKnownIDsLookback)
+	if a.SyncWatermark != nil {
+		if wm := a.SyncWatermark.Add(-reconcileWatermarkDriftMargin); wm.After(since) {
+			since = wm
+		}
+	}
+	known, err := uc.accounts.ListKnownExternalIDs(ctx, a.ID, since, reconcileKnownIDsMax)
+	if err != nil {
+		// Degrade to no dedup list (worker re-fetches, ingest is idempotent)
+		// rather than blocking the account's sync.
+		slog.Warn("reconcile: list known external ids failed",
+			"account_id", a.ID, "error", err)
+		known = nil
+	}
 
 	// Dedup key buckets to the minute so a scheduler tick + manual
 	// admin trigger within the same minute collapse to one job. The
@@ -247,6 +277,7 @@ func (uc *ReconcileExternalAccount) publishOne(
 		Provider:    a.Provider,
 		Watermark:   a.SyncWatermark,
 		MaxEnqueue:  reconcileMaxEnqueuePerRun,
+		KnownExtIDs: known,
 		WebhookSeen: a.WebhookSubscribed,
 		Reason:      reason,
 		IssuedAt:    now,

@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,6 +22,18 @@ import (
 type fakeAccounts struct {
 	byID    map[domain.ExternalAccountID]domain.ExternalAccount
 	dueList []domain.ExternalAccount
+
+	knownExtIDs    []string  // returned by ListKnownExternalIDs
+	knownErr       error     // forced ListKnownExternalIDs failure
+	knownSinceSeen time.Time // records the `since` the use case asked for
+}
+
+func (f *fakeAccounts) ListKnownExternalIDs(ctx context.Context, id domain.ExternalAccountID, since time.Time, limit int) ([]string, error) {
+	f.knownSinceSeen = since
+	if f.knownErr != nil {
+		return nil, f.knownErr
+	}
+	return f.knownExtIDs, nil
 }
 
 func (f *fakeAccounts) GetExternalAccount(ctx context.Context, id domain.ExternalAccountID) (domain.ExternalAccount, error) {
@@ -203,6 +216,90 @@ func TestExecute_SingleAccount_PublishesOne(t *testing.T) {
 	}
 	if !strings.Contains(p.MsgID, "2026-05-17T12:34") {
 		t.Errorf("msgID = %q, missing minute-bucket timestamp", p.MsgID)
+	}
+}
+
+func TestExecute_KnownExtIDsInJobBody(t *testing.T) {
+	id := domain.ExternalAccountID(stableAccount)
+	watermark := fixedNow.Add(-2 * time.Hour)
+	acct := makeActiveAccount("garmin")
+	acct.SyncWatermark = &watermark
+	accounts := &fakeAccounts{
+		byID:        map[domain.ExternalAccountID]domain.ExternalAccount{id: acct},
+		knownExtIDs: []string{"garmin-111", "garmin-222"},
+	}
+	bus := &fakeBus{}
+	uc := newUC(t, accounts, bus)
+
+	if _, err := uc.Execute(context.Background(), ReconcileInput{AccountID: &id}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(bus.published) != 1 {
+		t.Fatalf("published = %d, want 1", len(bus.published))
+	}
+
+	var body struct {
+		Watermark   *time.Time `json:"watermark"`
+		KnownExtIDs []string   `json:"known_ext_ids"`
+	}
+	if err := json.Unmarshal(bus.published[0].Body, &body); err != nil {
+		t.Fatalf("unmarshal job body: %v", err)
+	}
+	if len(body.KnownExtIDs) != 2 || body.KnownExtIDs[0] != "garmin-111" {
+		t.Errorf("known_ext_ids = %v, want [garmin-111 garmin-222]", body.KnownExtIDs)
+	}
+
+	// Watermark newer than the 30d floor governs: since = watermark - 1h,
+	// mirroring the workers' drift margin so the newest activity (whose
+	// start time IS the watermark) is always in the known set.
+	wantSince := watermark.Add(-time.Hour)
+	if !accounts.knownSinceSeen.Equal(wantSince) {
+		t.Errorf("since = %v, want %v", accounts.knownSinceSeen, wantSince)
+	}
+}
+
+func TestExecute_KnownExtIDs_LookbackFloorWithoutWatermark(t *testing.T) {
+	id := domain.ExternalAccountID(stableAccount)
+	accounts := &fakeAccounts{byID: map[domain.ExternalAccountID]domain.ExternalAccount{
+		id: makeActiveAccount("garmin"),
+	}}
+	bus := &fakeBus{}
+	uc := newUC(t, accounts, bus)
+
+	if _, err := uc.Execute(context.Background(), ReconcileInput{AccountID: &id}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	wantSince := fixedNow.Add(-30 * 24 * time.Hour)
+	if !accounts.knownSinceSeen.Equal(wantSince) {
+		t.Errorf("since = %v, want 30d floor %v", accounts.knownSinceSeen, wantSince)
+	}
+}
+
+func TestExecute_KnownExtIDsLookupFailure_StillPublishes(t *testing.T) {
+	id := domain.ExternalAccountID(stableAccount)
+	accounts := &fakeAccounts{
+		byID:     map[domain.ExternalAccountID]domain.ExternalAccount{id: makeActiveAccount("garmin")},
+		knownErr: errors.New("db down"),
+	}
+	bus := &fakeBus{}
+	uc := newUC(t, accounts, bus)
+
+	res, err := uc.Execute(context.Background(), ReconcileInput{AccountID: &id})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.AccountsScheduled != 1 || len(bus.published) != 1 {
+		t.Fatalf("scheduled=%d published=%d, want 1/1 (degrade, don't block)",
+			res.AccountsScheduled, len(bus.published))
+	}
+	var body struct {
+		KnownExtIDs []string `json:"known_ext_ids"`
+	}
+	if err := json.Unmarshal(bus.published[0].Body, &body); err != nil {
+		t.Fatalf("unmarshal job body: %v", err)
+	}
+	if len(body.KnownExtIDs) != 0 {
+		t.Errorf("known_ext_ids = %v, want empty on lookup failure", body.KnownExtIDs)
 	}
 }
 

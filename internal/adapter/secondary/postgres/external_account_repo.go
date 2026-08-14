@@ -342,6 +342,43 @@ func (r *ExternalAccountRepo) ListAccountsDueForReconcile(
 	return out, nil
 }
 
+// ListKnownExternalIDs returns external_ids of sources already imported for
+// the account with start_time >= since. Per-account row counts inside the
+// reconcile window are small, so the ::timestamptz cast scan is fine.
+func (r *ExternalAccountRepo) ListKnownExternalIDs(
+	ctx context.Context,
+	id domain.ExternalAccountID,
+	since time.Time,
+	limit int,
+) ([]string, error) {
+	db := dbtx(ctx, r.pool)
+	rows, err := db.Query(ctx,
+		`SELECT external_id
+		   FROM activity_sources
+		  WHERE external_account_id = $1
+		    AND (parsed->>'start_time')::timestamptz >= $2
+		  ORDER BY (parsed->>'start_time')::timestamptz DESC
+		  LIMIT $3`,
+		id.UUID(), since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list known external ids: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var extID string
+		if err := rows.Scan(&extID); err != nil {
+			return nil, fmt.Errorf("scan known external id: %w", err)
+		}
+		out = append(out, extID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate known external ids: %w", err)
+	}
+	return out, nil
+}
+
 // UpdateAccountConfig shallow-merges the patch into the account's config jsonb.
 func (r *ExternalAccountRepo) UpdateAccountConfig(
 	ctx context.Context,

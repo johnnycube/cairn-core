@@ -99,4 +99,19 @@ type ExternalAccountRepo interface {
 		id domain.ExternalAccountID,
 		patch map[string]any,
 	) error
+
+	// ListKnownExternalIDs returns the provider-side external_ids of
+	// activity sources already imported for the account whose start_time
+	// is at or after `since`. Sent with reconcile jobs as known_ext_ids so
+	// workers skip re-fetching activities Cairn already holds — without it
+	// the watermark's drift margin re-fetches the newest activity on every
+	// reconcile tick. All source statuses count (a detached source still
+	// dedups to the same row). Newest first, capped at `limit`; a
+	// truncated list only costs a few redundant idempotent fetches.
+	ListKnownExternalIDs(
+		ctx context.Context,
+		id domain.ExternalAccountID,
+		since time.Time,
+		limit int,
+	) ([]string, error)
 }
