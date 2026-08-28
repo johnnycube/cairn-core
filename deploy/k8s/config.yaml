@@ -27,5 +27,10 @@ data:
   CAIRN_SCHEDULER_ENABLED: "true"
   CAIRN_GEOCODER_ENABLED: "true"
 
+  # Raster tiles behind server-rendered activity snapshots (map.png). Default
+  # is the public OSM tile server (low volume, cached in S3); point it at a
+  # keyed/self-hosted {z}/{x}/{y} template for real traffic.
+  # CAIRN_MAP_TILE_URL: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+
   # ActivityPub federation is off by default; flip to "true" + per-user opt-in.
   CAIRN_FEDERATION_ENABLED: "false"

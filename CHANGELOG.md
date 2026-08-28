@@ -4,6 +4,18 @@ All notable changes to Cairn are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/). Dates are ISO-8601.
 
+## [Unreleased]
+
+### Fixed
+- Maps showed an "API KEY REQUIRED" watermark: CARTO started stamping its free
+  Voyager raster tiles. The interactive map (activity page, privacy-zone picker)
+  now defaults to OpenFreeMap's key-less Liberty vector style
+  (`VITE_MAP_STYLE_URL` still overrides it). The server-rendered activity
+  snapshot (`/api/activities/{id}/map.png`) fetches from the new
+  `CAIRN_MAP_TILE_URL` (default: public OSM tiles; set `CAIRN_MAP_USER_AGENT`
+  for policy-compliant identification) and its S3 cache key was bumped to v5 so
+  watermarked snapshots are re-rendered.
+
 ## [0.2.2] — 2026-07-20
 
 ### Fixed

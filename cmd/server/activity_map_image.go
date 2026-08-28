@@ -5,11 +5,14 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/png"
+	_ "image/jpeg" // tile providers may serve JPEG
+	_ "image/png"
 	"log/slog"
 	"net/http"
-	"time"
+	"strconv"
+	"strings"
 
+	"github.com/johnnycube/cairn-core/internal/config"
 	"github.com/johnnycube/cairn-core/internal/domain"
 	"github.com/johnnycube/cairn-core/internal/staticmap"
 )
@@ -30,35 +33,42 @@ const mapImageCacheControl = "public, max-age=86400"
 // instead of served. v2: orange casing + start/finish markers + retina tiles.
 // v3: 2:1 landscape framing to fit the feed thumbnail boxes without cropping.
 // v4: 3:1 short banner so the snapshot takes less vertical space in feeds.
-const mapImageStyleVersion = "v4"
+// v5: basemap moved off CARTO (its free tiles became "API KEY REQUIRED"
+// watermarks) to the configurable CAIRN_MAP_TILE_URL source.
+const mapImageStyleVersion = "v5"
 
-// cartoTileFetcher pulls key-less CARTO Voyager raster tiles (the same basemap
-// the interactive map uses). Render-time only; results are cached in S3 so this
-// runs once per activity+variant, not per request.
-var cartoHTTPClient = &http.Client{Timeout: 15 * time.Second}
-
-func cartoTileFetcher(ctx context.Context, z, x, y int) (image.Image, error) {
-	sub := []string{"a", "b", "c"}[(x+y)%3]
-	// @2x retina tiles (512 px) — the exact basemap the interactive MapLibre
-	// view uses, so the snapshot matches it instead of looking coarse.
-	url := fmt.Sprintf("https://%s.basemaps.cartocdn.com/rastertiles/voyager/%d/%d/%d@2x.png", sub, z, x, y)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+// newTileFetcher builds the raster tile fetcher for the configured basemap.
+// Render-time only; results are cached in S3 so this runs once per
+// activity+variant, not per request.
+func newTileFetcher(cfg config.MapConfig) staticmap.TileFetcher {
+	client := &http.Client{Timeout: cfg.Timeout}
+	ua := cfg.UserAgent
+	if ua == "" {
+		ua = "Cairn/" + Version + " (static map; +https://github.com/johnnycube/cairn-core)"
 	}
-	req.Header.Set("User-Agent", "Cairn/1 (static map)")
-	resp, err := cartoHTTPClient.Do(req)
-	if err != nil {
-		return nil, err
+	return func(ctx context.Context, z, x, y int) (image.Image, error) {
+		r := strings.NewReplacer("{z}", strconv.Itoa(z), "{x}", strconv.Itoa(x), "{y}", strconv.Itoa(y))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.Replace(cfg.TileURL), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", ua)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("tile %d/%d/%d: status %d", z, x, y, resp.StatusCode)
+		}
+		// image.Decode rather than png.Decode: providers serve PNG or JPEG.
+		img, _, err := image.Decode(resp.Body)
+		return img, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tile %d/%d/%d: status %d", z, x, y, resp.StatusCode)
-	}
-	return png.Decode(resp.Body)
 }
 
-func mountActivityMapImage(mux *http.ServeMux, app *App, logger *slog.Logger) {
+func mountActivityMapImage(mux *http.ServeMux, app *App, cfg config.MapConfig, logger *slog.Logger) {
+	fetchTile := newTileFetcher(cfg)
 	mux.HandleFunc("GET /api/activities/{id}/map.png", func(w http.ResponseWriter, r *http.Request) {
 		actID, err := domain.ParseUUID[domain.ActivityID](r.PathValue("id"))
 		if err != nil {
@@ -105,7 +115,7 @@ func mountActivityMapImage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			}
 		}
 
-		imgBytes, ok := renderActivityMap(r.Context(), app, act, trim, logger)
+		imgBytes, ok := renderActivityMap(r.Context(), app, act, trim, fetchTile, logger)
 		if !ok {
 			http.NotFound(w, r) // no renderable GPS track
 			return
@@ -118,13 +128,13 @@ func mountActivityMapImage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		serveMapPNG(w, imgBytes)
 	})
 
-	logger.Info("activity map-image endpoint mounted", "path", "/api/activities/{id}/map.png")
+	logger.Info("activity map-image endpoint mounted", "path", "/api/activities/{id}/map.png", "tiles", cfg.TileURL)
 }
 
 // renderActivityMap reads the activity's GPS track, optionally trims it against
 // the owner's privacy zones, and renders the static PNG. ok=false when there is
 // no renderable track (no GPS, or every point fell inside a zone).
-func renderActivityMap(ctx context.Context, app *App, act domain.Activity, trim bool, logger *slog.Logger) ([]byte, bool) {
+func renderActivityMap(ctx context.Context, app *App, act domain.Activity, trim bool, fetchTile staticmap.TileFetcher, logger *slog.Logger) ([]byte, bool) {
 	if act.PrimaryStreamSourceID == nil {
 		return nil, false
 	}
@@ -159,7 +169,7 @@ func renderActivityMap(ctx context.Context, app *App, act domain.Activity, trim 
 	}
 
 	var buf bytes.Buffer
-	if err := staticmap.RenderPNG(ctx, &buf, pts, staticmap.DefaultOptions(), cartoTileFetcher); err != nil {
+	if err := staticmap.RenderPNG(ctx, &buf, pts, staticmap.DefaultOptions(), fetchTile); err != nil {
 		logger.Warn("map image: render failed", "activity", act.ID, "error", err)
 		return nil, false
 	}

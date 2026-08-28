@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
+	import { basemapStyle, basemapAttribution } from '$lib/basemap';
 	import { m } from '$lib/paraglide/messages';
 	import { formatDistance, formatElevation } from '$lib/format';
 	import type { TrackPoint } from '../../routes/activities/[id]/+layout';
@@ -89,34 +90,12 @@
 	onMount(() => {
 		if (coordinates.length === 0) return;
 
-		// Real street-level base map. CARTO's Voyager basemap is a light,
-		// detailed style (roads + labels) that's free without an API key and
-		// shows the route clearly; operators can point VITE_MAP_STYLE_URL at a
-		// MapTiler/Mapbox style for richer tiles.
-		const styleOverride = import.meta.env.VITE_MAP_STYLE_URL as string | undefined;
-		const style = styleOverride ?? {
-			version: 8 as const,
-			sources: {
-				basemap: {
-					type: 'raster' as const,
-					tiles: [
-						'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-						'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-						'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png'
-					],
-					tileSize: 256,
-					attribution: '© OpenStreetMap contributors © CARTO'
-				}
-			},
-			layers: [{ id: 'basemap', type: 'raster' as const, source: 'basemap' }]
-		};
-
 		map = new MapLibreMap({
 			container,
-			style,
+			style: basemapStyle(),
 			center: coordinates[Math.floor(coordinates.length / 2)],
 			zoom: 12,
-			attributionControl: { compact: true }
+			attributionControl: { compact: true, customAttribution: basemapAttribution() }
 		});
 
 		map.on('load', () => {

@@ -277,7 +277,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mountReviewQueue(mux, app, logger)
 	mountActivityManage(mux, app, logger)
 	mountActivityExport(mux, app, logger)
-	mountActivityMapImage(mux, app, logger)
+	mountActivityMapImage(mux, app, cfg.Map, logger)
 	mountActivitySimilar(mux, app, logger)
 	mountBestEffortHistory(mux, app, logger)
 	mountSegmentsList(mux, app, logger)

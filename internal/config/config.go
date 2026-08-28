@@ -43,6 +43,7 @@ type Config struct {
 	Log        LogConfig        `envconfig:"LOG"`
 	Scheduler  SchedulerConfig  `envconfig:"SCHEDULER"`
 	Geocoder   GeocoderConfig   `envconfig:"GEOCODER"`
+	Map        MapConfig        `envconfig:"MAP"`
 	Quota      QuotaConfig      `envconfig:"QUOTA"`
 	Federation FederationConfig `envconfig:"FEDERATION"`
 }
@@ -205,6 +206,24 @@ type StorageConfig struct {
 // wire.go uses this to decide whether to instantiate the BlobStore.
 func (s StorageConfig) Configured() bool {
 	return s.AccessKeyID != "" && s.SecretAccessKey != ""
+}
+
+// MapConfig configures the raster basemap behind server-rendered activity
+// snapshots (/api/activities/{id}/map.png). Tiles are fetched once per
+// activity+variant and cached in S3, so volume is low. The default is the
+// public OSM tile server, whose usage policy requires an identifying
+// User-Agent and forbids heavy use — self-hosters with real traffic should
+// point TileURL at a keyed or self-hosted provider. The interactive web map is
+// configured separately at build time (VITE_MAP_STYLE_URL).
+type MapConfig struct {
+	// TileURL is a slippy-map template with {z}, {x}, {y} placeholders. 256 px
+	// or @2x (512 px) tiles both render correctly.
+	TileURL string `envconfig:"TILE_URL" default:"https://tile.openstreetmap.org/{z}/{x}/{y}.png"`
+
+	// UserAgent overrides the default identifying User-Agent sent with tile
+	// requests (the OSM policy requires one that names the application).
+	UserAgent string        `envconfig:"USER_AGENT"`
+	Timeout   time.Duration `envconfig:"TIMEOUT" default:"15s"`
 }
 
 // GeocoderConfig configures reverse-geocoding of activity start locations.
