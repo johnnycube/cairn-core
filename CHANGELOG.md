@@ -4,7 +4,13 @@ All notable changes to Cairn are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/). Dates are ISO-8601.
 
-## [Unreleased]
+## [0.2.4] — 2026-08-28
+
+### Added
+- Export options: `GET /api/activities/{id}/export` accepts
+  `?exclude=gps,altitude,distance,speed,heart_rate,power,cadence,temperature,title`
+  to strip data from the exported GPX/TCX/FIT file; the manage page exposes the
+  same choices as checkboxes.
 
 ### Fixed
 - Maps showed an "API KEY REQUIRED" watermark: CARTO started stamping its free
@@ -15,6 +21,29 @@ All notable changes to Cairn are documented here. The format follows
   `CAIRN_MAP_TILE_URL` (default: public OSM tiles; set `CAIRN_MAP_USER_AGENT`
   for policy-compliant identification) and its S3 cache key was bumped to v5 so
   watermarked snapshots are re-rendered.
+- Scheduled reconcile re-imported the newest activity of every account on each
+  tick: the worker window starts at watermark − 1 h, so the activity that *is*
+  the watermark always fell inside it, and core never populated the workers'
+  `known_ext_ids` skip-list. Core now sends the external IDs it already holds
+  for the window; a lookup failure degrades to the old behaviour instead of
+  blocking sync.
+
+### Changed
+- Dependencies: maplibre-gl 5 → 6.6, SvelteKit/Svelte/Vite/Paraglide minors,
+  Go modules (AWS SDK, smithy-go, protobuf, x/crypto, nats.go), dev-stack NATS
+  2.14.6 and Mailpit 1.31.
+
+## [0.2.3] — 2026-07-29
+
+### Added
+- Activities page: year facet + year filter (sugar over the existing `from`/`to`
+  range; the year list is deliberately unfiltered so it always offers every
+  year with data) and proper paging instead of endless lists.
+
+### Fixed
+- Activities page no longer flickers when filters change.
+- CI: images are signed keyless with cosign (Sigstore OIDC) and published with
+  provenance attestations + SBOM; the Gitea mirror workflows were dropped.
 
 ## [0.2.2] — 2026-07-20
 
@@ -132,6 +161,9 @@ workers ([cairn-provider-strava], [cairn-provider-garmin]).
 
 Initial development (internal pre-release iterations v0.1.0–v0.1.12).
 
+[0.2.4]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.4
+[0.2.3]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.3
+[0.2.2]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.2
 [0.2.1]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.1
 [0.2.0]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.0
 [cairn-provider-strava]: https://github.com/johnnycube/cairn-provider-strava
