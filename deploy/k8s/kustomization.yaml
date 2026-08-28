@@ -20,7 +20,7 @@ resources:
 # (or with `kustomize edit set image ...`) instead of editing each manifest.
 images:
   - name: ghcr.io/johnnycube/cairn-core
-    newTag: v0.2.3
+    newTag: v0.2.4
   - name: ghcr.io/johnnycube/cairn-provider-strava
     newTag: v0.2.2
   - name: ghcr.io/johnnycube/cairn-provider-garmin
