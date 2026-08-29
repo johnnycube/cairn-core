@@ -64,6 +64,8 @@
 	const icons = {
 		overview: 'M3 11.5 12 4l9 7.5 M5 10v10h5v-6h4v6h5V10',
 		activities: 'M8 6h13 M8 12h13 M8 18h13 M3.5 6h.01 M3.5 12h.01 M3.5 18h.01',
+		heatmap:
+			'M12 22c4.4 0 7-2.9 7-6.5 0-3-1.7-5-3.5-7-.5 2-1.5 3-2.5 3.5.5-3-1-6.5-4-9 .3 3-1 4.5-2.5 6.5C5 11.5 5 13.7 5 15.5 5 19.1 7.6 22 12 22z',
 		analysis: 'M3 3v18h18 M7 14l4-4 3 3 5-6',
 		stats: 'M6 20v-8 M12 20V6 M18 20v-5',
 		records:
@@ -99,6 +101,7 @@
 			items: [
 				{ href: '/', label: m.nav_overview(), icon: icons.overview },
 				{ href: '/activities', label: m.nav_activities(), icon: icons.activities },
+				{ href: '/heatmap', label: 'Heatmap', icon: icons.heatmap },
 				{ href: '/analysis', label: m.nav_analysis(), icon: icons.analysis },
 				{ href: '/stats', label: m.nav_stats(), icon: icons.stats },
 				{ href: '/records', label: 'Records', icon: icons.records },

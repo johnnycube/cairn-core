@@ -394,6 +394,53 @@ func (r *StreamRepo) RefreshAggregates(ctx context.Context, sourceID domain.Sour
 // hypertable (not the downsampled aggregates) so it works regardless of
 // continuous-aggregate materialisation state. found is false when the source
 // has no GPS-bearing samples.
+func (r *StreamRepo) QueryGeoTracks(ctx context.Context, sourceIDs []domain.SourceID, res domain.StreamResolution) (map[domain.SourceID][]domain.GeoPoint, error) {
+	out := make(map[domain.SourceID][]domain.GeoPoint, len(sourceIDs))
+	if len(sourceIDs) == 0 {
+		return out, nil
+	}
+	table, tsCol := "activity_streams", "ts"
+	switch res {
+	case domain.StreamResolution5s:
+		table, tsCol = "activity_streams_5s", "bucket"
+	case domain.StreamResolution30s:
+		table, tsCol = "activity_streams_30s", "bucket"
+	case "", domain.StreamResolutionRaw:
+	default:
+		return nil, fmt.Errorf("unsupported stream resolution: %q", res)
+	}
+	ids := make([]string, len(sourceIDs))
+	for i, id := range sourceIDs {
+		ids[i] = id.String()
+	}
+	db := dbtx(ctx, r.pool)
+	// table/tsCol come from the constant set above, never from input.
+	rows, err := db.Query(ctx,
+		`SELECT activity_source_id, latitude, longitude
+		   FROM `+table+`
+		  WHERE activity_source_id = ANY($1::uuid[])
+		    AND latitude IS NOT NULL AND longitude IS NOT NULL
+		  ORDER BY activity_source_id, `+tsCol+` ASC`,
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query geo tracks (%s): %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id domain.SourceID
+		var p domain.GeoPoint
+		if err := rows.Scan(&id, &p.Lat, &p.Lon); err != nil {
+			return nil, fmt.Errorf("scan geo track row: %w", err)
+		}
+		out[id] = append(out[id], p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate geo tracks: %w", err)
+	}
+	return out, nil
+}
+
 func (r *StreamRepo) FirstGeoPoint(ctx context.Context, sourceID domain.SourceID) (lat, lon float64, found bool, err error) {
 	db := dbtx(ctx, r.pool)
 	row := db.QueryRow(ctx,

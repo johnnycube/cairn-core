@@ -40,6 +40,12 @@ type StreamRepo interface {
 	// track, charts) would come back empty. Must run outside a transaction.
 	RefreshAggregates(ctx context.Context, sourceID domain.SourceID) error
 
+	// QueryGeoTracks returns the GPS polyline of every listed source at the
+	// given resolution in one round trip, keyed by source. Sources without
+	// GPS samples are absent. Built for the heatmap, which needs hundreds of
+	// tracks at once and nothing but lat/lon.
+	QueryGeoTracks(ctx context.Context, sourceIDs []domain.SourceID, res domain.StreamResolution) (map[domain.SourceID][]domain.GeoPoint, error)
+
 	// FirstGeoPoint returns the earliest GPS sample (lat, lon) for a source.
 	// found is false when the source has no GPS-bearing samples (indoor
 	// activity, no track). Used by the start-location reverse-geocoder.

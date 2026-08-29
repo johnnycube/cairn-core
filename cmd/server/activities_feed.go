@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -98,6 +99,38 @@ func toFeedFacets(in []port.ActivityFacet) []feedFacet {
 	return out
 }
 
+// parseActivityFilter reads the filter query params documented above into a
+// port.ActivityListFilter. Shared by every endpoint that takes the standard
+// activity filter (feed, heatmap) so the UI's filter bar means the same thing
+// everywhere. Paging is left to the caller.
+func parseActivityFilter(q url.Values) port.ActivityListFilter {
+	return port.ActivityListFilter{
+		Type:       q.Get("type"),
+		Discipline: q.Get("discipline"),
+		Sort:       q.Get("sort"),
+		From:       parseFeedDate(q.Get("from")),
+		To:         parseFeedDate(q.Get("to")),
+
+		IsVirtual: feedBool(q.Get("virtual")),
+		IsEbike:   feedBool(q.Get("ebike")),
+		IsCommute: feedBool(q.Get("commute")),
+		IsRace:    feedBool(q.Get("race")),
+
+		DistanceMinM:   feedFloat(q.Get("distance_min_m")),
+		DistanceMaxM:   feedFloat(q.Get("distance_max_m")),
+		DurationMinS:   feedFloat(q.Get("duration_min_s")),
+		DurationMaxS:   feedFloat(q.Get("duration_max_s")),
+		ElevationMinM:  feedFloat(q.Get("elevation_min_m")),
+		ElevationMaxM:  feedFloat(q.Get("elevation_max_m")),
+		AvgSpeedMinMps: feedFloat(q.Get("speed_min_mps")),
+		AvgSpeedMaxMps: feedFloat(q.Get("speed_max_mps")),
+		AvgHRMinBpm:    feedFloat(q.Get("hr_min_bpm")),
+		AvgHRMaxBpm:    feedFloat(q.Get("hr_max_bpm")),
+		AvgPowerMinW:   feedFloat(q.Get("power_min_w")),
+		AvgPowerMaxW:   feedFloat(q.Get("power_max_w")),
+	}
+}
+
 func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	mux.HandleFunc("GET /api/activities/feed", func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
@@ -119,34 +152,9 @@ func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		if offset < 0 {
 			offset = 0
 		}
-		filter := port.ActivityListFilter{
-			Type:       q.Get("type"),
-			Discipline: q.Get("discipline"),
-			Sort:       q.Get("sort"),
-			From:       parseFeedDate(q.Get("from")),
-			To:         parseFeedDate(q.Get("to")),
-
-			IsVirtual: feedBool(q.Get("virtual")),
-			IsEbike:   feedBool(q.Get("ebike")),
-			IsCommute: feedBool(q.Get("commute")),
-			IsRace:    feedBool(q.Get("race")),
-
-			DistanceMinM:   feedFloat(q.Get("distance_min_m")),
-			DistanceMaxM:   feedFloat(q.Get("distance_max_m")),
-			DurationMinS:   feedFloat(q.Get("duration_min_s")),
-			DurationMaxS:   feedFloat(q.Get("duration_max_s")),
-			ElevationMinM:  feedFloat(q.Get("elevation_min_m")),
-			ElevationMaxM:  feedFloat(q.Get("elevation_max_m")),
-			AvgSpeedMinMps: feedFloat(q.Get("speed_min_mps")),
-			AvgSpeedMaxMps: feedFloat(q.Get("speed_max_mps")),
-			AvgHRMinBpm:    feedFloat(q.Get("hr_min_bpm")),
-			AvgHRMaxBpm:    feedFloat(q.Get("hr_max_bpm")),
-			AvgPowerMinW:   feedFloat(q.Get("power_min_w")),
-			AvgPowerMaxW:   feedFloat(q.Get("power_max_w")),
-
-			Limit:  limit,
-			Offset: offset,
-		}
+		filter := parseActivityFilter(q)
+		filter.Limit = limit
+		filter.Offset = offset
 
 		types, disciplines, total, err := app.Activities.ActivityFacets(r.Context(), userID, filter)
 		if err != nil {

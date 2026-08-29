@@ -4,6 +4,32 @@ All notable changes to Cairn are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/). Dates are ISO-8601.
 
+## [Unreleased]
+
+### Added
+- Heatmap (`/heatmap`): every GPS track the filter matches, drawn as
+  translucent lines so the routes you ride most burn brightest; click a track
+  to open the activity. Backed by `GET /api/activities/heatmap`, which takes
+  the same filter params as the feed and serves the tracks from the 30 s
+  aggregates in one response (newest 5000 activities, flagged when truncated).
+- The activity filter bar is now one shared component (`ActivityFilterBar`
+  over an `ActivityFilter` model) used by both `/activities` and `/heatmap`,
+  so the filter vocabulary is identical everywhere.
+- Manage page: "Regenerate map snapshot" re-renders the static `map.png`
+  (`POST /api/activities/{id}/map/regenerate`, owner-only) for when the track
+  changed under the cache or a render failed.
+- `scripts/dev-sample-data.py` seeds a dev instance with synthetic GPX
+  activities (favourite loops + one-offs) through the normal upload path.
+
+### Fixed
+- Interactive maps were blank in production builds (no tiles, no route):
+  MapLibre ≥6 resolves its web worker relative to `import.meta.url`, which is a
+  hashed chunk path in the Vite bundle, so the worker 404'd and nothing was
+  parsed. The worker is now pinned to a Vite-bundled asset. Dev mode was
+  unaffected, which is why v0.2.4 shipped with it.
+- `map.png` responses carry an ETag and a short private max-age instead of a
+  day-long public one, so regenerated snapshots show up promptly.
+
 ## [0.2.4] — 2026-08-28
 
 ### Added
