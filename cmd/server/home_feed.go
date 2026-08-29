@@ -80,8 +80,10 @@ func mountHomeFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			entries = append(entries, entry{a.StartTime, item})
 		}
 
-		// Federated activities received from followed remote actors.
-		if app.FederationFeed != nil {
+		// Federated activities received from followed remote actors. Gated on
+		// the instance flag, not just the wired repo: with federation switched
+		// off, items received while it was on must stay dormant too.
+		if app.FederationEnabled && app.FederationFeed != nil {
 			fitems, _ := app.FederationFeed.ListForUser(r.Context(), me, limit, offset)
 			for _, it := range fitems {
 				m := map[string]any{

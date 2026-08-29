@@ -21,6 +21,12 @@ All notable changes to Cairn are documented here. The format follows
 - `scripts/dev-sample-data.py` seeds a dev instance with synthetic GPX
   activities (favourite loops + one-offs) through the normal upload path.
 
+### Changed
+- `CAIRN_FEDERATION_ENABLED=false` (the default) now keeps federation fully
+  dormant: the dashboard feed no longer surfaces previously received remote
+  activities, and the SPA hides the "Federated" feed filter. The flag is
+  exposed to the UI via the new public `GET /api/instance/features`.
+
 ### Fixed
 - Interactive maps were blank in production builds (no tiles, no route):
   MapLibre ≥6 resolves its web worker relative to `import.meta.url`, which is a

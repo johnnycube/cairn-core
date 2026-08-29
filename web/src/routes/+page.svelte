@@ -80,12 +80,15 @@
 	}
 
 	// Quick filter: which feed sources to show (own / friends / federated).
+	// The federated chip only exists when the instance federates at all.
 	let sources = $state({ self: true, following: true, federated: true });
-	const sourceMeta = [
-		{ key: 'self' as const, label: 'Mine' },
-		{ key: 'following' as const, label: 'Friends' },
-		{ key: 'federated' as const, label: 'Federated' }
-	];
+	const sourceMeta = $derived(
+		[
+			{ key: 'self' as const, label: 'Mine' },
+			{ key: 'following' as const, label: 'Friends' },
+			{ key: 'federated' as const, label: 'Federated' }
+		].filter((s) => s.key !== 'federated' || data.features?.federation)
+	);
 	const shown = $derived(feed.filter((a) => sources[a.source]));
 
 	const summary = $derived(
