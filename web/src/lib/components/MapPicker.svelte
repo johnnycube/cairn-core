@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Map as MapLibreMap, Marker, NavigationControl, type LngLatLike } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { basemapStyle, basemapAttribution } from '$lib/basemap';
+	import { basemapStyle } from '$lib/basemap';
 
 	// A small click-to-pick map: clicking drops a marker and reports the
 	// coordinates via onPick. Used to set a privacy-zone centre without typing
@@ -30,7 +30,7 @@
 			style: basemapStyle(),
 			center: hasInitial ? [lng as number, lat as number] : [0, 25],
 			zoom: hasInitial ? 13 : 1,
-			attributionControl: { compact: true, customAttribution: basemapAttribution() }
+			attributionControl: { compact: true }
 		});
 		map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
 		if (hasInitial) place([lng as number, lat as number]);

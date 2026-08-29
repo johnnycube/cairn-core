@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { basemapStyle, basemapAttribution } from '$lib/basemap';
+	import { basemapStyle } from '$lib/basemap';
 	import { m } from '$lib/paraglide/messages';
 	import { formatDistance, formatElevation } from '$lib/format';
 	import type { TrackPoint } from '../../routes/activities/[id]/+layout';
@@ -95,7 +95,7 @@
 			style: basemapStyle(),
 			center: coordinates[Math.floor(coordinates.length / 2)],
 			zoom: 12,
-			attributionControl: { compact: true, customAttribution: basemapAttribution() }
+			attributionControl: { compact: true }
 		});
 
 		map.on('load', () => {
