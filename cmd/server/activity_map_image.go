@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"image"
 	_ "image/jpeg" // tile providers may serve JPEG
@@ -26,7 +28,9 @@ import (
 // (segments inside the owner's zones are dropped) — the same masking the rest of
 // the projection applies. Rendered images are cached in S3 by (activity, variant).
 
-const mapImageCacheControl = "public, max-age=86400"
+// Short private TTL + ETag revalidation: regenerating a snapshot (below)
+// must show up on the next page load, not after a day.
+const mapImageCacheControl = "private, max-age=300"
 
 // mapImageStyleVersion namespaces the S3 cache. Bump it whenever the rendered
 // style changes (colours, markers, tile density) so stale snapshots are bypassed
@@ -105,12 +109,12 @@ func mountActivityMapImage(mux *http.ServeMux, app *App, cfg config.MapConfig, l
 		if trim {
 			variant = "trimmed"
 		}
-		cacheKey := "mapimg/" + mapImageStyleVersion + "/" + actID.String() + "/" + variant + ".png"
+		cacheKey := mapImageCacheKey(actID, variant)
 
 		// Serve from the S3 cache when present.
 		if app.BlobStore != nil {
 			if data, _, err := app.BlobStore.Get(r.Context(), cacheKey); err == nil && len(data) > 0 {
-				serveMapPNG(w, data)
+				serveMapPNG(w, r, data)
 				return
 			}
 		}
@@ -125,10 +129,57 @@ func mountActivityMapImage(mux *http.ServeMux, app *App, cfg config.MapConfig, l
 				logger.Warn("map image: cache store failed", "activity", actID, "error", err)
 			}
 		}
-		serveMapPNG(w, imgBytes)
+		serveMapPNG(w, r, imgBytes)
+	})
+
+	// Owner-only: drop the cached snapshots and render the owner's variant
+	// afresh (the trimmed one re-renders lazily on the next non-owner view).
+	// For when the track changed under the cache — re-import, source pinned,
+	// privacy zone edited — or a render failed and cached nothing.
+	mux.HandleFunc("POST /api/activities/{id}/map/regenerate", func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := resolveSessionUser(r, app)
+		if !ok {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		actID, err := domain.ParseUUID[domain.ActivityID](r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "bad id", http.StatusBadRequest)
+			return
+		}
+		act, err := app.Activities.GetActivity(r.Context(), actID)
+		if err != nil || act.UserID != userID || act.IsDeleted() {
+			http.NotFound(w, r)
+			return
+		}
+		if app.BlobStore != nil {
+			for _, variant := range []string{"full", "trimmed"} {
+				if err := app.BlobStore.Delete(r.Context(), mapImageCacheKey(actID, variant)); err != nil {
+					logger.Warn("map image: cache delete failed", "activity", actID, "variant", variant, "error", err)
+				}
+			}
+		}
+		imgBytes, ok := renderActivityMap(r.Context(), app, act, false, fetchTile, logger)
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"regenerated": false,
+				"warnings":    []string{"no renderable GPS track"},
+			})
+			return
+		}
+		if app.BlobStore != nil {
+			if err := app.BlobStore.Put(r.Context(), mapImageCacheKey(actID, "full"), imgBytes, "image/png"); err != nil {
+				logger.Warn("map image: cache store failed", "activity", actID, "error", err)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"regenerated": true})
 	})
 
 	logger.Info("activity map-image endpoint mounted", "path", "/api/activities/{id}/map.png", "tiles", cfg.TileURL)
+}
+
+func mapImageCacheKey(id domain.ActivityID, variant string) string {
+	return "mapimg/" + mapImageStyleVersion + "/" + id.String() + "/" + variant + ".png"
 }
 
 // renderActivityMap reads the activity's GPS track, optionally trims it against
@@ -190,8 +241,15 @@ func downsample(pts []staticmap.LatLng, max int) []staticmap.LatLng {
 	return out
 }
 
-func serveMapPNG(w http.ResponseWriter, data []byte) {
-	w.Header().Set("Content-Type", "image/png")
+func serveMapPNG(w http.ResponseWriter, r *http.Request, data []byte) {
+	sum := sha256.Sum256(data)
+	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
+	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", mapImageCacheControl)
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
 	_, _ = w.Write(data)
 }

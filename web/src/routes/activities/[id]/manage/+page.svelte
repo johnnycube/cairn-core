@@ -175,6 +175,13 @@
 		}
 	}
 
+	// Cache-buster for the snapshot preview after a regenerate.
+	let mapBust = $state(0);
+	async function regenerateMap() {
+		await runAction('map/regenerate', 'Regenerate map');
+		mapBust = Date.now();
+	}
+
 	async function refetchSource(s: ManageSource) {
 		if (
 			!confirm(
@@ -462,7 +469,22 @@
 					? 'Recomputing…'
 					: 'Recompute best-efforts, segments & training load'}
 			</button>
+			<button
+				type="button"
+				disabled={!!busy}
+				onclick={regenerateMap}
+				title="Re-render the static map snapshot used in feeds and shares"
+				class="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-300 disabled:opacity-50"
+			>
+				{busy === 'Regenerate map' ? 'Regenerating…' : 'Regenerate map snapshot'}
+			</button>
 		</div>
+		<img
+			src={`/api/activities/${a.id}/map.png${mapBust ? `?v=${mapBust}` : ''}`}
+			alt=""
+			class="mt-3 h-20 rounded border border-zinc-800 object-cover"
+			onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+		/>
 		{#if actionMsg}
 			<p class="mt-3 text-xs {actionMsg.ok ? 'text-emerald-400' : 'text-red-400'}">
 				{actionMsg.text}
