@@ -6,7 +6,7 @@ module github.com/johnnycube/cairn-core
 // 1.26), -30% cgo overhead (relevant if/when we add a FIT parser via
 // cgo), and the new `new(expr)` allocator syntax that we use in a few
 // recompute paths.
-go 1.26
+go 1.26.0
 
 require (
 	// Direct dependencies pinned to current stable as of May 2026.
@@ -27,10 +27,10 @@ require (
 	// Versions are the latest stable as of May 2026.
 	github.com/nats-io/nats.go v1.53.1
 	github.com/nats-io/nkeys v0.4.16
-	github.com/pressly/goose/v3 v3.27.3
+	github.com/pressly/goose/v3 v3.28.0
 	github.com/spf13/cobra v1.10.2
 	github.com/vgarvardt/pgx-google-uuid/v5 v5.6.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
@@ -73,7 +73,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/kisielk/errcheck v1.6.1 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/mdempsky/unconvert v0.0.0-20230125054757-2661c2c99a9b // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -81,7 +81,7 @@ require (
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
-	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/sethvargo/go-retry v0.4.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
