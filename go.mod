@@ -13,7 +13,7 @@ require (
 	// After fresh checkout run `go mod tidy` to resolve indirect deps.
 
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/nats-io/jwt/v2 v2.8.2
 
