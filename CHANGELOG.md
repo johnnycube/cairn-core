@@ -6,6 +6,8 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-09-11
+
 ### Added
 - Heatmap (`/heatmap`): every GPS track the filter matches, drawn as
   translucent lines so the routes you ride most burn brightest; click a track
