@@ -195,7 +195,6 @@ message ProviderManifest {
 }
 
 // DataTypeCapability declares what a worker can do with one canonical data type.
-// Axes per the merge-layer brief (docs/merge-layer-rewrite-plan.md §4).
 message DataTypeCapability {
   // The worker can fetch this data type from the provider.
   bool read = 1;

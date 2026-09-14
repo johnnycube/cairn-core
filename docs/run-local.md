@@ -107,7 +107,7 @@ repos and publish their own images (`.../cairn-provider-strava`,
 toolchain image as its build stage and runs `make proto` in-image (offline,
 local buf plugins) — no separate proto step.
 
-## ⚠ Secrets
+## Secrets
 
 `dev.env` holds throwaway dev secrets so the stack runs with zero setup. **Never
 ship them.** For production generate real values (`cairn gen-secrets`), inject as

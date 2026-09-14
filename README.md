@@ -272,19 +272,16 @@ flow.
 
 Pre-authorise a worker so it can self-register against NATS. The full
 flow lives in `docs/architecture.md §4.5`; this is the operator-facing
-piece you'll actually invoke. Until the NATS adapter ships you can
-already use `create` / `list` / `revoke` against Postgres — the token
-just isn't honoured by NATS yet.
+piece you'll actually invoke.
 
 ```sh
-# Generate a single-use, 7-day token for a Strava worker.
+# Generate a 7-day token. Provider and version are reported by the worker
+# itself; the name must equal CAIRN_WORKER_NAME on the worker.
 curl -s -X POST "$BASE/api/admin/worker-enrollments" $ADMIN \
   -H 'content-type: application/json' -d '{
-    "provider":            "strava",
-    "worker_name_pattern": "strava-fetcher",
-    "expires_in":          "168h",
-    "max_uses":            1,
-    "note":                "prod cluster A pod-12"
+    "name":             "strava-fetcher",
+    "expires_in_hours": 168,
+    "note":             "prod cluster A pod-12"
   }' | jq
 
 # Response (token is shown ONCE):
@@ -299,11 +296,8 @@ curl -s -X POST "$BASE/api/admin/worker-enrollments" $ADMIN \
 #   CAIRN_WORKER_NAME=strava-fetcher
 #   CAIRN_WORKER_ENROLLMENT_TOKEN=cairn_enroll_3kF8vR1nQXjQ...
 
-# List active enrollments (default filter excludes revoked + expired).
-curl -s "$BASE/api/admin/worker-enrollments?provider=strava" $ADMIN | jq
-
-# Include the lot:
-curl -s "$BASE/api/admin/worker-enrollments?include_revoked=true&include_expired=true" $ADMIN | jq
+# List enrollments, including revoked and expired ones.
+curl -s "$BASE/api/admin/worker-enrollments" $ADMIN | jq
 
 # Revoke an enrollment (kills future connects from this token; does NOT
 # kick already-open NATS connections — those expire when their user-JWT
@@ -376,20 +370,18 @@ Notes:
 
 ## Status
 
-The items this section once listed as TODO — Connect-RPC handlers,
-proto↔domain converters, the NATS/JetStream worker control plane,
-notification delivery channels (in-app/email/webhook + quiet hours +
-preferences + retry), the S3 blob adapter, OIDC + WebAuthn/passkeys, the
-worker SDK + reference Strava worker, and the SvelteKit frontend — are all
-**built and shipped**. `docs/architecture.md` remains the canonical spec for
-the NATS async layer, worker integration, blob storage, and the
-error-handling matrix.
+Cairn is feature-complete for a self-hosted single instance: Connect-RPC +
+REST API, the NATS/JetStream worker control plane, notification delivery
+(in-app/email/webhook with quiet hours, preferences and retry), S3 blob
+storage, OIDC + WebAuthn/passkeys, the worker SDK, and the SvelteKit
+frontend. `docs/architecture.md` is the canonical spec for the NATS async
+layer, worker integration, blob storage, and the error-handling matrix.
 
-**Federation / ActivityPub is shipped** (Phases 1–5; off by default —
-`CAIRN_FEDERATION_ENABLED` + a per-user opt-in): remote follow, publishing a
+**Federation / ActivityPub** is available but off by default
+(`CAIRN_FEDERATION_ENABLED` + a per-user opt-in): remote follow, publishing a
 user's public activities to remote followers, federated kudos + comments, a
 durable signed delivery queue, instance defederation, and per-domain inbox
-rate-limiting — proven interoperating between two live instances. See
+rate-limiting, verified between two live instances. See
 `docs/federation-design.md`.
 
 Two provider workers ship: the **Strava** reference worker (Go,

@@ -1019,7 +1019,6 @@ func (x *ProviderManifest) GetCapabilities() map[string]*DataTypeCapability {
 }
 
 // DataTypeCapability declares what a worker can do with one canonical data type.
-// Axes per the merge-layer brief (docs/merge-layer-rewrite-plan.md §4).
 type DataTypeCapability struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The worker can fetch this data type from the provider.

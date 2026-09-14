@@ -44,7 +44,6 @@ use-case implementations. For those see `CLAUDE.md`, the migrations under
 10. [The `port.BlobStore` interface](#10-the-portblobstore-interface)
 11. [Error-handling matrix](#11-error-handling-matrix)
 12. [Multi-server coordination](#12-multi-server-coordination)
-13. [Implementation order](#13-implementation-order)
 
 ---
 
@@ -273,7 +272,7 @@ func (h *TokenHandler) Handle(ctx context.Context, msg port.Message) ([]byte, er
     acct, err := h.accounts.GetExternalAccount(ctx, req.AccountID)
     if err != nil { ... }
 
-    // ★ The critical line ★
+    // The critical check: the account's provider must match the subject's.
     if acct.Provider != requestedProvider {
         // A strava-fetcher slipped in a Garmin account UUID.
         // Responds with error, logs as security event.
@@ -700,7 +699,7 @@ GET /oauth/strava/callback?code=abc123&state=<token>
   → publish cairn.events.external_account.connected
       headers: Nats-Msg-Id = "connected:<account_id>"
       body:    { account_id, user_id, provider: "strava" }
-  → 302 Redirect to the UI ("Strava connected ✓")
+  → 302 Redirect to the UI ("Strava connected")
 ```
 
 Token storage: AES-GCM encrypted-at-rest with `CAIRN_TOKEN_ENCRYPTION_KEY`.
@@ -863,16 +862,32 @@ NATS Object Store, see section 9.
 Server (durable push consumer "ingest-router" on cairn.results.fetch_source.>):
   - decode body → IngestInput
   - call IngestActivityFromWorker.Execute(ctx, IngestInput)
-    [existing pipeline, no change]:
-      → Stage 1: FindSourceByExternalID(...)
-      → Stage 2: FindActivityCandidatesByHeuristic(...)
-      → Stage 3: (TODO geo-hash)
-      → handleCreateNew / handleAttachToExisting / handleReimport
+      → identity lookup on (provider, external_account_id, external_id)
+      → hit:  handleReimport (replace the source payload in place)
+      → miss: handleCreateNew (persist as a new singleton activity)
+  - call match.ReclusterBucket over the user's ±24h window around the
+    activity start: fuzzy scoring + union-find across every source record
+    in the bucket, stable-id reconciliation (split/merge), re-merge of each
+    affected activity
   - publish cairn.events.activity.ingested
       headers: Nats-Msg-Id = "ingest:<source_id>:<imported_at>"
       body:    { activity_id, source_id, user_id, action }
   - ack(result-message)
 ```
+
+Ingest only resolves a source's identity; "which sources are the same
+real-world activity" is a derived, re-runnable decision, never an
+irreversible attach-on-ingest. The invariant is
+`merged = derive(archived sources, priority rules, manual overrides)`.
+The matcher (`internal/domain/match`) is pure and deterministic, buckets by
+UTC time, allows at most one source per provider per activity (a
+same-provider collision is logged as a conflict, not merged), assigns a
+confidence band per cluster (high → auto, medium → review queue, low → kept
+separate), and honours manual must-link / cannot-link constraints.
+Detaching a source also records its provider identity in a denylist; on
+re-cluster a denied identity is forced into a standalone singleton, so a
+source the user detached does not re-attach when the provider pushes it
+again under a new source id.
 
 The four follow-up consumers (best-effort, segment-match, training-load,
 PR-dispatch) listen on `cairn.events.activity.ingested`. See section 8.
@@ -1151,10 +1166,9 @@ Webhook arriving → server publishes cairn.jobs.fetch_source.strava
 
 Worker fetches, publishes result.
 Server ingest handler calls IngestActivityFromWorker.Execute(...):
-  - Stage 1 (FindSourceByExternalID): not there → ErrNotFound
-  - Stage 2 (Heuristic): empty activity list for the user → nothing
-  - Stage 3: TODO
-  - Fall-through → handleCreateNew
+  - identity lookup (FindSourceByExternalID): not there → ErrNotFound
+  - handleCreateNew → new singleton activity
+  - ReclusterBucket: no other source in the window → stays standalone
 
 The activity is created **as new**. That is correct — the webhook has
 implicitly triggered the import before the backfill got there.
@@ -1791,132 +1805,3 @@ With two API server instances behind a load balancer:
 
 Effectively: multi-server becomes trivial. NATS does the cluster state,
 Postgres does the data state, no additional coordination library.
-
----
-
-## 13. Implementation order
-
-If you build this entire layer, in this order:
-
-1. **Port interfaces** ✅ **present**. The following already exist as
-   pure Go definitions, compile in isolation, without implementation:
-   - `internal/port/job_bus.go` — JobBus + KV + ObjectStore + helpers
-   - `internal/port/rate_limiter.go` — RateLimiter + BucketSnapshot
-   - `internal/port/external_account.go` — ExternalAccountRepo
-   - `internal/port/blob_store.go` — BlobStore (to be written if
-     not yet there)
-   - Plus the domain aggregate: `internal/domain/external_account.go`
-     with `ExternalAccount`, `ExternalAccountStatus`, `RateLimitSnapshot`
-
-2. **NATS adapter** under `internal/adapter/secondary/nats/` ✅
-   **done** (May 2026):
-   - `bus.go` — `port.JobBus` over `nats.go/jetstream`. Publish with
-     JS+Core fallback, Subscribe with error→Ack/Nak/Term mapping,
-     pull consumer, request/reply, KV/OS handle cache,
-     TLS config builder, reconnect handlers
-   - `bootstrap_streams.go` — idempotent bootstrap of all 4
-     JetStream streams + 4 KV buckets + 1 OS bucket
-   - `credential_issuer.go` — `port.NATSCredentialIssuer` over `jwt/v2`
-     + `nkeys`. Lazy-loaded + cached account NKey from
-     `SigningKeyRepo`. Plus `BootstrapAccountKey()` helper function.
-   - `auth_callout.go` — subscriber on `$SYS.REQ.USER.AUTH`, route
-     through `enrollment.ProcessAuthCallout`, signed
-     `AuthorizationResponseClaims`
-   - `rate_limiter.go` — `port.RateLimiter` via NATS-KV with CAS loop,
-     ForceRefill from 429 headers
-   - Plus `internal/auth/secretbox.go` for AES-256-GCM
-     encrypt-at-rest, `postgres.SigningKeyRepo` over
-     `instance_signing_keys`
-
-3. **S3 adapter** under `internal/adapter/secondary/s3/`:
-   - `blob_store.go` — `aws-sdk-go-v2` wrapper
-   - custom-endpoint support for MinIO
-   - Test: MinIO container in CI (Docker-Compose service)
-
-4. **Postgres adapter for `ExternalAccountRepo`** ✅ **done**
-   (May 2026) — `internal/adapter/secondary/postgres/external_account_repo.go`
-   with all 5 port methods including the gnarly
-   `ListAccountsDueForReconcile` query (webhook-vs-polling schedule).
-   Token columns are not exposed in the repo — separate path.
-
-5. **OAuth token-fetch handler** as a server-side request/reply subscriber:
-   - mount in `cmd/server/serve.go`, hooks onto `port.JobBus.RespondTo`
-   - Logic: load + refresh + reply
-   - Defense-in-depth: parse subject, compare with `account.Provider`
-     (see §4 "How is the Strava worker prevented from seeing Garmin")
-
-6. **Worker SDK** under `internal/workersdk/` (or a separate repo):
-   - `Worker` struct with NATS connection, heartbeat loop, token cache
-   - `RegisterHandler(jobType, fn)` API
-   - automatically handles Ack/Nak/Term based on handler return errors
-   - automatically handles token-refresh cache + blob-presign requests
-   - automatically handles RateLimiter.Reserve before every API call,
-     plus ForceRefill logic on 429
-
-7. **Strava worker** as the first concrete worker:
-   - `cmd/worker-strava/main.go`
-   - Implements `fetch_source.strava`, `parse_blob.strava`,
-     `backfill.strava`, **`reconcile.strava`** handlers
-   - Strava API client under `internal/workersdk/strava/`
-
-8. **Server-side subscribers** for the async flows:
-   - `ingest-router` on `cairn.results.fetch_source.>` (all providers,
-     one handler)
-   - `reconcile-result-router` on `cairn.results.reconcile.>`:
-     diffed against DB, publishes missing-fetch_source sub-jobs, updates
-     watermark
-   - `presign-upload` handler on `cairn.blobs.presign_upload.>`
-   - `presign-download` handler on `cairn.blobs.presign_download.>`
-   - **`rate-limit-status-subscriber`** on
-     `cairn.events.external_account.rate_limited`: updates
-     `external_accounts.status` and the `rate_limit` jsonb
-   - **`reauth-event-subscriber`** on
-     `cairn.events.external_account.{needs_reauth,reconnected}`:
-     status flip + notification dispatch + (on reconnected)
-     reconcile trigger
-   - **`deleted-upstream-subscriber`** on
-     `cairn.events.source.deleted_upstream`: find source-by-ext-id
-     (no-op if not present), status='detached',
-     `recompute.Execute`
-   - Webhook HTTP handler in `internal/adapter/primary/http/webhooks/`
-
-9. **Reconcile scheduler** as a background goroutine in
-   `cmd/server/serve.go`:
-   - Tick every 60s (configurable via `CAIRN_RECONCILE_INTERVAL`)
-   - `ReconcileExternalAccount.Execute(ReconcileInput{All: true})`
-   - The use case already exists: `internal/usecase/sync/reconcile.go`
-     with tests
-   - Plus admin endpoint `POST /admin/external-accounts/<id>/reconcile`
-     for manual trigger
-
-10. **Connect-RPC** for the user-facing API (Connect):
-    - activity listing, activity detail, best-effort charts, segment
-      leaderboards, training-load curve, notifications
-    - most urgently needed when building the frontend
-
-11. **Async migration of the follow-ups** (optional, later):
-    - Only if an operator needs multi-server or throughput overloads the
-      synchronous model
-    - Insert event-publish in `runFollowUps` (`cmd/server/result_router.go`)
-    - Four new subscribers for best-effort, segment, training-load,
-      PR dispatch
-    - Keep the sync variant as a fallback via feature flag
-
-12. **DLQ inspection UI + replay endpoint** —
-    `/admin/dlq` and `POST /admin/dlq/<id>/replay`. ~100 lines.
-
-**Paths that are NOT in this order** (deliberately omitted):
-
-- Stage-3 dedup (geo-hash) — separate path, has nothing to do with NATS
-- Detach-source use case (operator-side detach) — separate path,
-  independent (the *upstream* detach via webhook is included in step 8)
-- Notification delivery channels (Email, Push, Webhook) — independent
-  layer on top of the existing in-app dispatch
-- WebAuthn / OIDC — completely independent
-- SvelteKit frontend — depends on Connect-RPC (step 10)
-
-This order minimizes throwaway code. You build the streams once
-in step 2, all the rest hangs off it. The Strava worker (step 7)
-works end-to-end once steps 1-6 are in place — complete backfill,
-webhook-driven updates and a reconcile loop for real user data are possible,
-without the frontend existing.

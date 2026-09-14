@@ -1,9 +1,8 @@
-# Segments — open questions / TODO
+# Segments — design decisions and open questions
 
-Status notes for the first-class segments feature. What already works, and
-the decisions still open. (2026-07-06)
+How segment matching works today, and the decisions still open.
 
-## What holds today
+## Current behaviour
 
 - **Geometric matching runs for every source, every provider.** The
   matcher (`internal/usecase/segment/match.go`) is a follow-up of every
@@ -23,10 +22,10 @@ the decisions still open. (2026-07-06)
   polylines). Efforts are wiped-and-rewritten per source, so re-runs are
   idempotent.
 
-## TODO: react to segment changes
+## Open: reacting to segment changes
 
 When a segment is created or its geometry/tolerances change, existing
-activities are NOT re-evaluated — matching only runs when a *source* is
+activities are not re-evaluated; matching only runs when a *source* is
 (re)ingested or explicitly recomputed. Open decisions:
 
 - Backfill matching for a NEW segment: run the reverse query (activities
@@ -38,7 +37,7 @@ activities are NOT re-evaluated — matching only runs when a *source* is
 - Cost control: instance-wide re-match is O(activities × segments); needs
   batching + the import-queue-style pacing.
 
-## Resolved: provider-reported vs matcher-found efforts (2026-07-06)
+## Decided: provider-reported vs matcher-found efforts
 
 Canonical rule, implemented in `ingestSegmentEffortEvent`:
 
