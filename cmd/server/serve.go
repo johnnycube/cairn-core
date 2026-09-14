@@ -131,7 +131,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	// ------------------------------------------------------------------
-	// HTTP server (stub — real handlers wired in the next phase)
+	// HTTP server: health, REST, Connect-RPC, embedded UI
 	// ------------------------------------------------------------------
 
 	mux := http.NewServeMux()
@@ -321,7 +321,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// consume. Each service grows method-by-method off the Unimplemented
 	// base so unfinished RPCs return CodeUnimplemented automatically.
 	mountConnectRPC(mux, app, logger)
-	// TODO(next phase): mount GraphQL handler under /graphql.
 
 	// Embedded web UI at / (catch-all; loses to every specific pattern
 	// above). Present only in production builds compiled with

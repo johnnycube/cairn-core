@@ -168,11 +168,6 @@ type NATSConfig struct {
 	// JetStream parks it in the dead-letter consumer. Cairn dispatches
 	// a JobFailedFinal notification when this fires.
 	JobMaxDeliver int `envconfig:"JOB_MAX_DELIVER" default:"5"`
-
-	// StreamRetentionDays is how long completed-job records stay in the
-	// CAIRN_RESULTS stream before JetStream evicts them. Audit/replay
-	// window — increase if compliance needs longer history.
-	StreamRetentionDays int `envconfig:"STREAM_RETENTION_DAYS" default:"30"`
 }
 
 // StorageConfig points at the S3-compatible object store. Defaults assume

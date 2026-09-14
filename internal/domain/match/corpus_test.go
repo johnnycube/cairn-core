@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// These are sanity checks that keep the fixture corpus honest and the package
-// compiling. The REAL matcher tests (pairwise scoring, union-find clustering,
-// precision/recall against this corpus) arrive in Phase 3 — see
-// docs/merge-layer-rewrite-plan.md.
+// Sanity checks that keep the fixture corpus honest. The matcher tests
+// (pairwise scoring, union-find clustering, precision/recall against this
+// corpus) live in cluster_test.go and calibration_test.go.
 
 func TestCorpus_NonEmpty(t *testing.T) {
 	c := Corpus()

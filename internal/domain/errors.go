@@ -6,8 +6,7 @@ import "errors"
 // Sentinel errors for domain-level invariants.
 //
 // Use cases and adapters wrap these with %w so callers can branch with
-// errors.Is. Adapters translate them to Connect/HTTP error codes via a
-// shared mapper (internal/adapter/primary/connect/errs.go in the next phase).
+// errors.Is and translate them to Connect/HTTP error codes.
 // ---------------------------------------------------------------------------
 
 // Activity invariants — checked by Activity.Validate.

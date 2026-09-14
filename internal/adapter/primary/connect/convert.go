@@ -529,10 +529,6 @@ func resolutionHz(r domain.StreamResolution) float64 {
 	return 0
 }
 
-// time.Time placeholder kept reachable so the import isn't flagged when
-// we add reverse-direction conversions later.
-var _ = time.Time{}
-
 // ---------------------------------------------------------------------------
 // BestEffort conversion
 // ---------------------------------------------------------------------------

@@ -6,12 +6,10 @@ import (
 	"time"
 )
 
-// merge_golden_test.go pins the CURRENT merge-engine output for a fixed,
-// deterministic multi-source input. It is the baseline the merge-layer rewrite
-// (docs/merge-layer-rewrite-plan.md) must not silently regress — in particular
-// Phase 7, which changes the MergeProvenance shape to carry decided-by/timestamp
-// metadata, must keep producing the SAME per-field-group winners this snapshot
-// records. Behavioural assertions live in merge_engine_test.go; this file is the
+// merge_golden_test.go pins the merge-engine output for a fixed, deterministic
+// multi-source input. Changes to the MergeProvenance shape or the cascade must
+// keep producing the SAME per-field-group winners this snapshot records.
+// Behavioural assertions live in merge_engine_test.go; this file is the
 // whole-result golden snapshot.
 
 // goldenInput returns the canonical two-source ride (Strava imported an hour
