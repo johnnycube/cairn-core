@@ -231,6 +231,7 @@ func applyWorkerFailure(ctx context.Context, app *App, log *slog.Logger, subject
 	}
 	eu, err := uuid.Parse(ref.GetExternalAccountId())
 	if err != nil {
+		log.Warn("worker error ref has malformed external_account_id", "value", ref.GetExternalAccountId(), "error", err)
 		return
 	}
 	reason := "worker: " + we.GetCode()
@@ -263,6 +264,7 @@ func failQueueItem(ctx context.Context, app *App, log *slog.Logger, ref *workerv
 	}
 	eu, err := uuid.Parse(ref.GetExternalAccountId())
 	if err != nil {
+		log.Warn("ingest ref has malformed external_account_id", "value", ref.GetExternalAccountId(), "error", err)
 		return
 	}
 	if err := app.ImportQueue.MarkFailedByExternalID(ctx, domain.ExternalAccountID(eu), domain.ImportItemActivity, ref.GetExternalId(), "invalid: "+cause.Error()); err != nil {

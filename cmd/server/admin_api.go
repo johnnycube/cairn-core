@@ -76,6 +76,8 @@ func mountAdminAPI(mux *http.ServeMux, app *App, logger *slog.Logger) {
 				for _, k := range keys {
 					entry, err := kv.Get(r.Context(), k)
 					if err != nil {
+						// Presence keys carry a TTL; one can expire between Keys and Get.
+						logger.Debug("admin workers: presence key vanished", "key", k, "error", err)
 						continue
 					}
 					var hb struct {
@@ -209,7 +211,10 @@ func mountAdminAPI(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		var body struct {
 			Reason string `json:"reason"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := decodeOptionalJSONBody(r, &body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
 		adminID := admin.ID
 		if err := app.RevokeWorkerEnrollment.Execute(r.Context(), enrollment.RevokeInput{
 			EnrollmentID: domain.WorkerEnrollmentID(id),
@@ -236,7 +241,10 @@ func mountAdminAPI(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		var body struct {
 			ExpiresInHours int `json:"expires_in_hours"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := decodeOptionalJSONBody(r, &body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
 		if body.ExpiresInHours <= 0 {
 			body.ExpiresInHours = 365 * 24
 		}

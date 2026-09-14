@@ -79,6 +79,7 @@ func publishActivityCreate(ctx context.Context, app *App, log *slog.Logger, act 
 	}
 	u, err := app.Users.GetUser(ctx, act.UserID)
 	if err != nil {
+		log.Warn("federation publish: load owner failed", "user_id", act.UserID, "error", err)
 		return
 	}
 
@@ -139,11 +140,16 @@ func publishActivityDelete(ctx context.Context, app *App, log *slog.Logger, user
 		return
 	}
 	inboxes, err := app.FederationFollows.ListInboundFollowerInboxes(ctx, userID)
-	if err != nil || len(inboxes) == 0 {
+	if err != nil {
+		log.Warn("federation delete: list followers failed", "user_id", userID, "error", err)
+		return
+	}
+	if len(inboxes) == 0 {
 		return
 	}
 	u, err := app.Users.GetUser(ctx, userID)
 	if err != nil {
+		log.Warn("federation delete: load owner failed", "user_id", userID, "error", err)
 		return
 	}
 	base := strings.TrimRight(app.PublicBaseURL, "/")
@@ -152,6 +158,7 @@ func publishActivityDelete(ctx context.Context, app *App, log *slog.Logger, user
 	del := buildActivityDelete(actorID, objID)
 	body, err := json.Marshal(del)
 	if err != nil {
+		log.Warn("federation delete: marshal Delete failed", "activity_id", activityID, "error", err)
 		return
 	}
 	queued := 0

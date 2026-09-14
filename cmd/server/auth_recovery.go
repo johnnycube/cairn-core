@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -42,7 +41,10 @@ func mountAuthRecovery(mux *http.ServeMux, app *App, logger *slog.Logger, public
 		var body struct {
 			Email string `json:"email"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := decodeJSONBody(r, &body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
 		email := strings.TrimSpace(strings.ToLower(body.Email))
 
 		// Always respond the same way regardless of whether the email exists.
@@ -90,7 +92,10 @@ func mountAuthRecovery(mux *http.ServeMux, app *App, logger *slog.Logger, public
 			Code     string `json:"code"`
 			Password string `json:"password"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := decodeJSONBody(r, &body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
 		if len(body.Password) < minResetPasswordChars {
 			http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
 			return

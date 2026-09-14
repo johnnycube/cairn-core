@@ -869,11 +869,13 @@ func runWorkerPresenceWatcher(ctx context.Context, logger *slog.Logger, app *App
 	reapStaleManifests := func(liveNames map[string]struct{}) {
 		kv, err := app.NATSBus.KV("cairn_worker_manifests")
 		if err != nil {
+			log.Warn("reap stale manifests: manifests bucket unavailable", "error", err)
 			return
 		}
 		keys, err := kv.Keys(ctx)
 		if err != nil {
-			return // unavailable or empty this tick; nothing to reap
+			log.Debug("reap stale manifests: no keys this tick", "error", err)
+			return
 		}
 		for _, name := range keys {
 			if _, live := liveNames[name]; live {
@@ -907,6 +909,8 @@ func runWorkerPresenceWatcher(ctx context.Context, logger *slog.Logger, app *App
 		for _, k := range keys {
 			entry, err := kv.Get(ctx, k)
 			if err != nil {
+				// Presence keys carry a TTL; one can expire between Keys and Get.
+				log.Debug("presence scan: key vanished", "key", k, "error", err)
 				continue
 			}
 			var hb struct {

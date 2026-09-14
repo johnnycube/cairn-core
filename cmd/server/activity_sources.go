@@ -109,7 +109,10 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		var body struct {
 			Reason string `json:"reason"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := decodeOptionalJSONBody(r, &body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
 		reason := strings.TrimSpace(body.Reason)
 		if reason == "" {
 			reason = "user_detach"
@@ -280,7 +283,10 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		var reqBody struct {
 			Mode string `json:"mode"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := decodeOptionalJSONBody(r, &reqBody); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
 		mode := reqBody.Mode
 		if mode == "" {
 			mode = "refetch"

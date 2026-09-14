@@ -142,7 +142,7 @@ func mountActivityManage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		// version + package as the importer is online. Those three are the
 		// compatibility contract; it is the maintainer's job to keep a
 		// (provider, package, version) triple parse-compatible.
-		workers := currentWorkers(r.Context(), app)
+		workers := currentWorkers(r.Context(), app, logger)
 
 		out := make([]map[string]any, 0, len(sources))
 		for _, s := range sources {
@@ -248,13 +248,14 @@ type liveWorker struct {
 // currentWorkers reads the worker-presence KV and returns the identity of every
 // live worker. Empty when NATS isn't wired / nothing is online — callers treat
 // that as "no compatible worker, re-parse not possible".
-func currentWorkers(ctx context.Context, app *App) []liveWorker {
+func currentWorkers(ctx context.Context, app *App, log *slog.Logger) []liveWorker {
 	var out []liveWorker
 	if app.NATSBus == nil {
 		return out
 	}
 	kv, err := app.NATSBus.KV("cairn_worker_presence")
 	if err != nil {
+		log.Warn("live workers: presence bucket unavailable", "error", err)
 		return out
 	}
 	keys, _ := kv.Keys(ctx)
@@ -262,6 +263,8 @@ func currentWorkers(ctx context.Context, app *App) []liveWorker {
 	for _, k := range keys {
 		entry, err := kv.Get(ctx, k)
 		if err != nil {
+			// Presence keys carry a TTL; one can expire between Keys and Get.
+			log.Debug("live workers: presence key vanished", "key", k, "error", err)
 			continue
 		}
 		var hb struct {

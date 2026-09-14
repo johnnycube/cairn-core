@@ -20,27 +20,33 @@
 	let policy = $state<Record<string, string[]>>({});
 	let saving = $state(false);
 	let saved = $state(false);
+	let loadError = $state<string | null>(null);
+	// Saving is blocked until the policy loaded, otherwise a failed fetch would
+	// be saved back as an empty policy.
+	let policyLoaded = $state(false);
 
 	onMount(async () => {
 		username = usernameProp;
 		// public toggle is derived from the profile endpoint
 		try {
 			const p = await fetch(`/api/profiles/${username}`);
-			if (p.ok) { const b = await p.json(); isPublic = b.is_public; }
-		} catch { /* ignore */ }
+			if (!p.ok) throw new Error(p.statusText);
+			const b = await p.json(); isPublic = b.is_public;
+		} catch { loadError = 'Could not load your profile settings — reload to retry.'; }
 		try {
 			const v = await fetch('/api/profile/visibility');
-			if (v.ok) {
-				const b = await v.json();
-				audiences = b.all_audiences ?? ['public', 'followers', 'link'];
-				categories = b.all_categories ?? [];
-				policy = b.policy ?? {};
-			}
-		} catch { /* ignore */ }
+			if (!v.ok) throw new Error(v.statusText);
+			const b = await v.json();
+			audiences = b.all_audiences ?? ['public', 'followers', 'link'];
+			categories = b.all_categories ?? [];
+			policy = b.policy ?? {};
+			policyLoaded = true;
+		} catch { loadError = 'Could not load your visibility policy — reload to retry.'; }
 		try {
 			const z = await fetch('/api/profile/privacy-zones');
-			if (z.ok) { const b = await z.json(); zones = b.zones ?? []; }
-		} catch { /* ignore */ }
+			if (!z.ok) throw new Error(z.statusText);
+			const b = await z.json(); zones = b.zones ?? [];
+		} catch { loadError = 'Could not load your privacy zones — reload to retry.'; }
 	});
 
 	async function togglePublic() {
@@ -114,6 +120,9 @@
 		<h2 class="mb-1 text-lg font-semibold">Privacy &amp; Sharing</h2>
 		<p class="text-sm text-zinc-400">Control who sees what across your activities.</p>
 	</div>
+	{#if loadError}
+		<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-sm text-red-300">{loadError}</div>
+	{/if}
 
 	<!-- Public profile -->
 	<div class="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 max-md:gap-3">
@@ -159,7 +168,7 @@
 			</table>
 		</div>
 		<div class="mt-3 flex items-center gap-3">
-			<button onclick={savePolicy} disabled={saving}
+			<button onclick={savePolicy} disabled={saving || !policyLoaded}
 				class="rounded bg-accent-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-accent-400 disabled:opacity-50">
 				{saving ? 'Saving…' : 'Save visibility'}
 			</button>

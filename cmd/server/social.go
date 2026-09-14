@@ -126,6 +126,7 @@ func mountSocial(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			for _, id := range ids {
 				u, err := app.Users.GetUser(r.Context(), id)
 				if err != nil {
+					logger.Warn("follow list: load user failed", "user_id", id, "error", err)
 					continue
 				}
 				out = append(out, userCardJSON(u))

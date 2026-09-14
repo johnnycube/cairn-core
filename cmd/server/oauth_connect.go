@@ -134,6 +134,8 @@ func mountOAuthConnect(mux *http.ServeMux, app *App, logger *slog.Logger, public
 				for _, k := range keys {
 					entry, err := kv.Get(r.Context(), k)
 					if err != nil {
+						// Presence keys carry a TTL; one can expire between Keys and Get.
+						logger.Debug("webhook endpoints: presence key vanished", "key", k, "error", err)
 						continue
 					}
 					var hb struct {

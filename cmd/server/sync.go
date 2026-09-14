@@ -708,6 +708,7 @@ func runImportQueueProcessor(ctx context.Context, logger *slog.Logger, app *App)
 func processAccountQueue(ctx context.Context, log *slog.Logger, app *App, acctID domain.ExternalAccountID) {
 	acct, err := app.ExternalAccounts.GetExternalAccount(ctx, acctID)
 	if err != nil {
+		log.Warn("queue: load account failed", "account_id", acctID, "error", err)
 		return
 	}
 	if rateLimitedNow(acct.RateLimit) {
@@ -716,6 +717,7 @@ func processAccountQueue(ctx context.Context, log *slog.Logger, app *App, acctID
 
 	counts, err := app.ImportQueue.CountByStatus(ctx, acctID)
 	if err != nil {
+		log.Warn("queue: count by status failed", "account_id", acctID, "error", err)
 		return
 	}
 	avail := queueMaxInFlightPerAccount - counts[domain.ImportStatusInProgress]
@@ -724,7 +726,11 @@ func processAccountQueue(ctx context.Context, log *slog.Logger, app *App, acctID
 	}
 
 	items, err := app.ImportQueue.ClaimPending(ctx, acctID, avail)
-	if err != nil || len(items) == 0 {
+	if err != nil {
+		log.Warn("queue: claim pending failed", "account_id", acctID, "error", err)
+		return
+	}
+	if len(items) == 0 {
 		return
 	}
 	for _, it := range items {
