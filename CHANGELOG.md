@@ -6,6 +6,29 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-09-29
+
+### Changed
+- Malformed JSON request bodies are rejected with `400` instead of being
+  treated as empty. This applies to password-reset request/confirm, source
+  detach/reparse and admin enrollment revoke/prolong. An empty body on the
+  endpoints where the body is optional still works as before.
+- `CAIRN_NATS_STREAM_RETENTION_DAYS` is removed. Nothing read it, so setting
+  it had no effect.
+- Dependency updates: nats.go 1.54.0, go-webauthn 0.18.2, aws-sdk-go-v2 (S3
+  1.113.4), maplibre-gl 6.11.0 and the routine Go and npm minor/patch bumps.
+  The deployment manifests reference cairn-provider-strava v0.2.4 and
+  cairn-provider-garmin v0.2.2.
+
+### Fixed
+- Error paths that gave up silently now log: federation publish and delete,
+  the import-queue processor, the result router, the follow list and the
+  worker-presence scans. They log at Warn, or at Debug where the failure is
+  expected.
+- Privacy & sharing settings no longer ignore a failed load. Each fetch shows
+  an inline error, and "Save visibility" stays disabled until the policy has
+  loaded, so a failed fetch cannot be saved back as an empty policy.
+
 ## [0.2.5] — 2026-09-11
 
 ### Added
@@ -195,6 +218,8 @@ workers ([cairn-provider-strava], [cairn-provider-garmin]).
 
 Initial development (internal pre-release iterations v0.1.0–v0.1.12).
 
+[0.2.6]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.6
+[0.2.5]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.5
 [0.2.4]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.4
 [0.2.3]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.3
 [0.2.2]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.2
