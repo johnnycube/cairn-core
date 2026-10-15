@@ -18,6 +18,7 @@ import (
 
 	"github.com/johnnycube/cairn-core/internal/domain"
 	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/johnnycube/cairn-core/internal/safehttp"
 )
 
 // DeliverNotifications fans freshly-created notifications out to a user's
@@ -79,8 +80,7 @@ func NewDeliverNotifications(
 // newWebhookHTTPClient builds the client used to POST to user-configured
 // webhook URLs. It defends against SSRF: a dial-time Control hook inspects the
 // ACTUAL resolved IP of every connection (so DNS-rebinding and redirect hops
-// can't reach internal addresses) and rejects loopback / private / link-local /
-// unspecified / multicast targets. Redirects are capped at 3 and re-dialed
+// can't reach internal addresses) and rejects every safehttp.IsBlocked target. Redirects are capped at 3 and re-dialed
 // through the same guard.
 func newWebhookHTTPClient() *http.Client {
 	dialer := &net.Dialer{
@@ -91,7 +91,7 @@ func newWebhookHTTPClient() *http.Client {
 				return err
 			}
 			ip := net.ParseIP(host)
-			if ip == nil || isBlockedWebhookIP(ip) {
+			if ip == nil || safehttp.IsBlocked(ip) {
 				return fmt.Errorf("webhook target %s resolves to a disallowed address", host)
 			}
 			return nil
@@ -107,14 +107,6 @@ func newWebhookHTTPClient() *http.Client {
 			return nil
 		},
 	}
-}
-
-// isBlockedWebhookIP reports whether an IP is in a range a webhook must never
-// reach (the cloud metadata endpoint 169.254.169.254 is link-local, covered).
-func isBlockedWebhookIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified()
 }
 
 // record writes a best-effort delivery-audit row. Nil repo / empty event id

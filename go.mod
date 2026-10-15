@@ -17,7 +17,6 @@ require (
 
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/nats-io/jwt/v2 v2.8.2
 
 	// NATS stack — added for the worker-control-plane + dynamic
@@ -48,6 +47,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/prometheus/client_golang v1.25.0
+	github.com/sethvargo/go-envconfig v1.4.3
 	github.com/tormoder/fit v0.15.0
 	github.com/wneessen/go-mail v0.8.1
 	golang.org/x/oauth2 v0.37.0
