@@ -92,12 +92,22 @@ func TestReverseGeocodeNoPlaceIsCached(t *testing.T) {
 
 	for range 2 {
 		got, err := n.ReverseGeocode(context.Background(), 0, 0)
-		if err != nil || got != (port.Place{}) {
-			t.Fatalf("got %+v, %v", got, err)
+		if !errors.Is(err, port.ErrNoPlace) || got.Name != "" {
+			t.Fatalf("got %+v, %v; want ErrNoPlace", got, err)
 		}
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("hits = %d, want 1", hits.Load())
+	}
+}
+
+func TestReverseGeocodeAddressWithoutPlace(t *testing.T) {
+	n, _ := newTestGeocoder(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"address":{"country":"Atlantis"}}`))
+	}, config.GeocoderConfig{})
+	got, err := n.ReverseGeocode(context.Background(), 1, 2)
+	if !errors.Is(err, port.ErrNoPlace) || got.Country != "Atlantis" {
+		t.Fatalf("got %+v, %v; want ErrNoPlace", got, err)
 	}
 }
 
