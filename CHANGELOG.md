@@ -6,6 +6,8 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-15
+
 ### Fixed
 - Worker enrollment under NATS auth never worked: nats-server rejected every
   auth-callout reply (wrong audience, and a user JWT with `issuer_account`
