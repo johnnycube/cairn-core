@@ -23,7 +23,7 @@ func TestDedupeSamplesByTimestamp(t *testing.T) {
 	if len(out) != 4 {
 		t.Fatalf("len = %d; want 4", len(out))
 	}
-	if !out[2].Timestamp.Equal(t0.Add(2 * time.Second)) || *out[2].SpeedMps != 4 {
+	if !out[2].Timestamp.Equal(t0.Add(2*time.Second)) || *out[2].SpeedMps != 4 {
 		t.Errorf("duplicate not collapsed to last occurrence: ts=%v speed=%v", out[2].Timestamp, *out[2].SpeedMps)
 	}
 	if !out[3].Timestamp.Equal(t0.Add(3 * time.Second)) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/johnnycube/cairn-core/internal/port"
 )
 
-// userIDFromRequest extracts the authenticated user id from a request.
+// connectErrNotAuthenticated is returned when no identity is in the context.
 //
 // The ONLY auth source is the user id stuffed into the request context by
 // SessionInterceptor after verifying the cairn_session cookie. The frontend
@@ -25,11 +26,8 @@ import (
 // reverse proxy does not strip the header, so any client could impersonate
 // any user by setting it. It has been removed; do not reintroduce a
 // client-controlled identity header.
-func userIDFromRequest[T any](req *connectrpc.Request[T]) (domain.UserID, error) {
-	if id, ok := userIDFromCtxValue(req); ok {
-		return id, nil
-	}
-	return domain.UserID{}, connectrpc.NewError(
+func connectErrNotAuthenticated() error {
+	return connectrpc.NewError(
 		connectrpc.CodeUnauthenticated,
 		errors.New("not authenticated"),
 	)
@@ -49,11 +47,11 @@ func notFoundErr(err error) error {
 // A Connect-RPC interceptor that reads the cairn_session cookie, looks
 // up the session row, verifies it's active, and stuffs the resolved
 // user ID into the request context. Handlers then call
-// userIDFromRequest which checks the context first.
+// userIDFromHandlerCtx which checks the context.
 //
 // Unauthenticated requests pass through — the interceptor doesn't deny;
 // it only enriches. The handler decides whether the operation needs
-// auth and emits CodeUnauthenticated when userIDFromRequest finds
+// auth and emits CodeUnauthenticated when userIDFromHandlerCtx finds
 // nothing.
 // ---------------------------------------------------------------------------
 
@@ -70,7 +68,7 @@ const (
 // patTokenPrefix marks a personal access token; oauthTokenPrefix marks an
 // OAuth 2.1 access token issued by Cairn's authorization server.
 const (
-	patTokenPrefix   = "cairn_pat_"
+	patTokenPrefix   = "cairn_pat_" //nolint:gosec // G101: token prefix, not a credential
 	oauthTokenPrefix = "cairn_at_"
 )
 
@@ -82,39 +80,58 @@ const (
 func SessionInterceptor(sessions port.SessionRepo, pats port.PATRepo, oauth port.OAuthServerRepo, sessionCookieName string) connectrpc.UnaryInterceptorFunc {
 	return func(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
 		return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
-			// 1. Session cookie.
-			if sessions != nil {
-				if token := readSessionCookie(req.Header().Get("Cookie"), sessionCookieName); token != "" {
-					hash := sha256.Sum256([]byte(token))
-					if sess, err := sessions.GetByTokenHash(ctx, hash[:]); err == nil && sess.IsActive(time.Now().UTC()) {
-						_ = sessions.TouchLastSeen(ctx, sess.ID)
-						return next(context.WithValue(ctx, ctxKeyUserID, sess.UserID), req)
-					}
-				}
-			}
-			// Bearer credential: PAT or OAuth access token.
-			tok := strings.TrimPrefix(req.Header().Get("Authorization"), "Bearer ")
-			// 2. Personal access token (full user access).
-			if pats != nil && strings.HasPrefix(tok, patTokenPrefix) {
-				hash := sha256.Sum256([]byte(tok))
-				if pat, err := pats.FindByTokenHash(ctx, hash[:]); err == nil && pat.IsValidAt(time.Now().UTC()) {
-					_ = pats.TouchLastUsed(ctx, pat.ID)
-					return next(context.WithValue(ctx, ctxKeyUserID, pat.UserID), req)
-				}
-			}
-			// 3. OAuth 2.1 access token (scoped access; ScopeInterceptor enforces).
-			if oauth != nil && strings.HasPrefix(tok, oauthTokenPrefix) {
-				hash := sha256.Sum256([]byte(tok))
-				if at, err := oauth.FindAccessToken(ctx, hash[:]); err == nil && at.IsValidAt(time.Now().UTC()) {
-					ctx = context.WithValue(ctx, ctxKeyUserID, at.UserID)
-					ctx = context.WithValue(ctx, ctxKeyScopes, domain.ParseScopes(at.Scope))
-					return next(ctx, req)
-				}
+			if authed, ok := connectAuthenticate(ctx, req.Header(), sessions, pats, oauth, sessionCookieName); ok {
+				return next(authed, req)
 			}
 			// Not authenticated; handlers decide whether to refuse.
 			return next(ctx, req)
 		}
 	}
+}
+
+// connectAuthenticate tries cookie, PAT, then OAuth token; ok reports whether one matched.
+func connectAuthenticate(ctx context.Context, h http.Header, sessions port.SessionRepo, pats port.PATRepo, oauth port.OAuthServerRepo, sessionCookieName string) (context.Context, bool) {
+	// 1. Session cookie.
+	if authed, ok := connectAuthSessionCookie(ctx, h, sessions, sessionCookieName); ok {
+		return authed, true
+	}
+	// Bearer credential: PAT or OAuth access token.
+	tok := strings.TrimPrefix(h.Get("Authorization"), "Bearer ")
+	// 2. Personal access token (full user access).
+	if pats != nil && strings.HasPrefix(tok, patTokenPrefix) {
+		hash := sha256.Sum256([]byte(tok))
+		if pat, err := pats.FindByTokenHash(ctx, hash[:]); err == nil && pat.IsValidAt(time.Now().UTC()) {
+			_ = pats.TouchLastUsed(ctx, pat.ID)
+			return context.WithValue(ctx, ctxKeyUserID, pat.UserID), true
+		}
+	}
+	// 3. OAuth 2.1 access token (scoped access; ScopeInterceptor enforces).
+	if oauth != nil && strings.HasPrefix(tok, oauthTokenPrefix) {
+		hash := sha256.Sum256([]byte(tok))
+		if at, err := oauth.FindAccessToken(ctx, hash[:]); err == nil && at.IsValidAt(time.Now().UTC()) {
+			ctx = context.WithValue(ctx, ctxKeyUserID, at.UserID)
+			ctx = context.WithValue(ctx, ctxKeyScopes, domain.ParseScopes(at.Scope))
+			return ctx, true
+		}
+	}
+	return ctx, false
+}
+
+// connectAuthSessionCookie resolves the caller from the session cookie, if any.
+func connectAuthSessionCookie(ctx context.Context, h http.Header, sessions port.SessionRepo, sessionCookieName string) (context.Context, bool) {
+	if sessions == nil {
+		return ctx, false
+	}
+	token := readSessionCookie(h.Get("Cookie"), sessionCookieName)
+	if token == "" {
+		return ctx, false
+	}
+	hash := sha256.Sum256([]byte(token))
+	if sess, err := sessions.GetByTokenHash(ctx, hash[:]); err == nil && sess.IsActive(time.Now().UTC()) {
+		_ = sessions.TouchLastSeen(ctx, sess.ID)
+		return context.WithValue(ctx, ctxKeyUserID, sess.UserID), true
+	}
+	return ctx, false
 }
 
 // ScopeInterceptor enforces OAuth scopes on the Connect API. It only applies to
@@ -164,54 +181,15 @@ func hasAnyWriteScope(scopes []string) bool {
 	return false
 }
 
-// userIDFromCtxValue reads the interceptor's stash. Returns (zero, false)
-// when no session interceptor ran or the cookie was missing.
-//
-// We expose the same lookup by both a Request[T] wrapper (for ergonomic
-// handler code) and by *connect.AnyRequest implicitly via the context
-// chain: connectrpc.NewResponse keeps the request's ctx in scope.
-func userIDFromCtxValue[T any](req *connectrpc.Request[T]) (domain.UserID, bool) {
-	v := contextOf(req).Value(ctxKeyUserID)
-	if v == nil {
-		return domain.UserID{}, false
-	}
-	id, ok := v.(domain.UserID)
-	if !ok {
-		return domain.UserID{}, false
-	}
-	return id, true
-}
-
-// connect.Request[T] doesn't expose ctx directly — the interceptor stash
-// rides on the http.Request context which Connect threads into handlers
-// via the outer context.Context argument. Handlers receive that ctx
-// independently and pass it to the repo layer; for the userIDFromRequest
-// helper we extract via the connect-internal HTTP method.
-//
-// In practice we just check connect's request peer info — for now we
-// return Background() and rely on the header fallback. The interceptor
-// path is fully functional via the `userIDFromContext` function below,
-// which handlers can call explicitly when they have the ctx in hand.
-func contextOf[T any](req *connectrpc.Request[T]) context.Context {
-	// Best-effort: Connect exposes the http.Request via Peer(), but not
-	// the original context object directly. Handlers should prefer
-	// userIDFromHandlerCtx(ctx, req) when they have ctx.
-	return context.Background()
-}
-
 // userIDFromHandlerCtx is the primary helper for handlers to call. It
-// reads the interceptor stash directly off the supplied ctx, then
-// falls back to userIDFromRequest's header path.
-//
-// Handlers that have ctx in scope (every Connect handler does) should
-// prefer this over userIDFromRequest.
-func userIDFromHandlerCtx[T any](ctx context.Context, req *connectrpc.Request[T]) (domain.UserID, error) {
+// reads the interceptor stash directly off the supplied ctx.
+func userIDFromHandlerCtx(ctx context.Context) (domain.UserID, error) {
 	if v := ctx.Value(ctxKeyUserID); v != nil {
 		if id, ok := v.(domain.UserID); ok {
 			return id, nil
 		}
 	}
-	return userIDFromRequest(req)
+	return domain.UserID{}, connectErrNotAuthenticated()
 }
 
 // RequireAdminInterceptor refuses any RPC where the resolved user

@@ -14,7 +14,7 @@ import (
 
 // seedUser inserts a throwaway user and returns its id, for FK-satisfying
 // fixtures in the notification repo integration tests.
-func seedUser(t *testing.T) (domain.UserID, *UserRepo) {
+func seedUser(t *testing.T) domain.UserID {
 	t.Helper()
 	ctx, pool := requirePool(t)
 	repo := NewUserRepo(pool)
@@ -28,12 +28,12 @@ func seedUser(t *testing.T) (domain.UserID, *UserRepo) {
 	if err := repo.CreateUser(ctx, u, domain.Credentials{UserID: id, PasswordHash: "x"}); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	return id, repo
+	return id
 }
 
 func TestWebhookEndpointRepo_Integration(t *testing.T) {
 	ctx, pool := requirePool(t)
-	userID, _ := seedUser(t)
+	userID := seedUser(t)
 	sb, err := auth.NewSecretBoxFromMasterKey("dGVzdC1tYXN0ZXIta2V5LTMyLWJ5dGVzLWxvbmctISE=")
 	if err != nil {
 		t.Fatalf("secretbox: %v", err)
@@ -109,7 +109,7 @@ func TestWebhookEndpointRepo_Integration(t *testing.T) {
 
 func TestQuietHoursRepo_Integration(t *testing.T) {
 	ctx, pool := requirePool(t)
-	userID, _ := seedUser(t)
+	userID := seedUser(t)
 	repo := NewQuietHoursRepo(pool)
 
 	// Default (no row) → disabled, UTC.
@@ -140,7 +140,7 @@ func TestQuietHoursRepo_Integration(t *testing.T) {
 
 func TestNotificationDeliveryRepo_Integration(t *testing.T) {
 	ctx, pool := requirePool(t)
-	userID, _ := seedUser(t)
+	userID := seedUser(t)
 	notifRepo := NewNotificationRepo(pool)
 	delivRepo := NewNotificationDeliveryRepo(pool)
 

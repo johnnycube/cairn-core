@@ -1,0 +1,47 @@
+version: "2"
+
+run:
+  # Lint the DB integration suite and the embedded-SPA build too.
+  build-tags: [integration, embedweb]
+
+formatters:
+  enable: [gofmt]
+  exclusions:
+    paths: [web/]
+
+linters:
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+    - unparam
+    - gosec
+    - errorlint
+    - gocognit
+    - funlen
+    - dupl
+  settings:
+    gocognit:
+      min-complexity: 15
+    funlen:
+      lines: 60
+      statements: 40
+    dupl:
+      threshold: 120
+    errcheck:
+      # Fire-and-forget writes to stdout/stderr and response writers.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    # web/node_modules ships stray Go sources.
+    paths: [web/]
+    rules:
+      # Tests use fixed credentials, temp files and local URLs by design.
+      - path: _test\.go
+        linters:
+          - gosec
+          - funlen
+          - gocognit
+          - dupl

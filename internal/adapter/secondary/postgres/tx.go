@@ -65,7 +65,7 @@ func (m *TxManager) InTx(ctx context.Context, fn func(ctx context.Context) error
 			// doesn't prevent the rollback from being sent.
 			if rbErr := tx.Rollback(context.Background()); rbErr != nil &&
 				!errors.Is(rbErr, pgx.ErrTxClosed) {
-				err = fmt.Errorf("%w (rollback: %v)", err, rbErr)
+				err = fmt.Errorf("%w (rollback: %w)", err, rbErr)
 			}
 		}
 	}()

@@ -66,9 +66,7 @@ func IsWriteScope(s string) bool { return strings.HasSuffix(s, ":write") }
 // ParseScopes splits a space-separated scope string, dropping blanks.
 func ParseScopes(s string) []string {
 	var out []string
-	for _, f := range strings.Fields(s) {
-		out = append(out, f)
-	}
+	out = append(out, strings.Fields(s)...)
 	return out
 }
 

@@ -97,6 +97,59 @@ const (
 	atlDays = 7
 )
 
+// trainingLoadTSSByDay buckets TSS by UTC day. Activities without TSS contribute 0.
+func trainingLoadTSSByDay(activities []domain.Activity) (map[time.Time]float64, int) {
+	tssByDay := make(map[time.Time]float64, 128)
+	activitiesUsed := 0
+	for _, a := range activities {
+		if a.Summary.TSS == nil {
+			continue
+		}
+		day := truncateUTCDay(a.StartTime)
+		tssByDay[day] += *a.Summary.TSS
+		activitiesUsed++
+	}
+	return tssByDay, activitiesUsed
+}
+
+// trainingLoadRows walks the window day-by-day, applying the EWMA recurrence.
+func (uc *ComputeTrainingLoadForUser) trainingLoadRows(userID domain.UserID, startDay, endDay time.Time, tssByDay map[time.Time]float64) ([]domain.Metric, int) {
+	var (
+		ctl, atl float64
+		rows     []domain.Metric
+		now      = uc.now()
+		days     = 0
+	)
+	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
+		tss := tssByDay[d]
+		ctl += (tss - ctl) / ctlDays
+		atl += (tss - atl) / atlDays
+		tsb := ctl - atl
+
+		// Emit four metric rows per day. The external_id is
+		// deterministic ("computed:YYYY-MM-DD") so re-runs upsert via
+		// the partial unique index.
+		externalID := "computed:" + d.Format("2006-01-02")
+		base := domain.Metric{
+			UserID:        userID,
+			Timestamp:     d,
+			PeriodSeconds: 86400,
+			Provider:      domain.MetricProviderComputed,
+			ExternalID:    externalID,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		rows = append(rows,
+			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadTSS, tss),
+			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadCTL, ctl),
+			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadATL, atl),
+			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadTSB, tsb),
+		)
+		days++
+	}
+	return rows, days
+}
+
 // Execute runs the compute. Activities are loaded fresh each call; the
 // previous-window state is not persisted, so consecutive calls with
 // overlapping windows just rewrite the overlap.
@@ -119,52 +172,8 @@ func (uc *ComputeTrainingLoadForUser) Execute(ctx context.Context, in Input) (Re
 		return Result{}, fmt.Errorf("list activities: %w", err)
 	}
 
-	// Bucket TSS by UTC day. Activities without TSS contribute 0.
-	tssByDay := make(map[time.Time]float64, 128)
-	activitiesUsed := 0
-	for _, a := range activities {
-		if a.Summary.TSS == nil {
-			continue
-		}
-		day := truncateUTCDay(a.StartTime)
-		tssByDay[day] += *a.Summary.TSS
-		activitiesUsed++
-	}
-
-	// Walk the window day-by-day, applying the EWMA recurrence.
-	var (
-		ctl, atl float64
-		rows     []domain.Metric
-		now      = uc.now()
-		days     = 0
-	)
-	for d := startDay; !d.After(endDay); d = d.AddDate(0, 0, 1) {
-		tss := tssByDay[d]
-		ctl += (tss - ctl) / ctlDays
-		atl += (tss - atl) / atlDays
-		tsb := ctl - atl
-
-		// Emit four metric rows per day. The external_id is
-		// deterministic ("computed:YYYY-MM-DD") so re-runs upsert via
-		// the partial unique index.
-		externalID := "computed:" + d.Format("2006-01-02")
-		base := domain.Metric{
-			UserID:        in.UserID,
-			Timestamp:     d,
-			PeriodSeconds: 86400,
-			Provider:      domain.MetricProviderComputed,
-			ExternalID:    externalID,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-		}
-		rows = append(rows,
-			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadTSS, tss),
-			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadCTL, ctl),
-			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadATL, atl),
-			withKeyAndValue(base, uc.newID, domain.MetricKeyTrainingLoadTSB, tsb),
-		)
-		days++
-	}
+	tssByDay, activitiesUsed := trainingLoadTSSByDay(activities)
+	rows, days := uc.trainingLoadRows(in.UserID, startDay, endDay, tssByDay)
 
 	// Persist atomically: delete the prior computed window, then upsert
 	// the fresh rows. Delete is bounded to the same window so prior data

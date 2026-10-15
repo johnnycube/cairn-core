@@ -38,11 +38,6 @@ const notificationColumns = `
 	created_at, updated_at
 `
 
-// coalesceWindow is the time window within which two events with the
-// same (user_id, type, dedup_key) tuple coalesce. 24h covers same-day
-// hill repeats; longer would suppress legitimate "tomorrow's PR" events.
-const coalesceWindow = 24 * time.Hour
-
 // SaveNotifications writes each notification through the coalesce-or-insert
 // path. Implemented per-row rather than as a batch because each write needs
 // its own coalesce decision; for typical PR dispatch this is a handful of
@@ -87,59 +82,8 @@ func (r *NotificationRepo) saveOne(ctx context.Context, db DBTX, n domain.Notifi
 		extAcctParam = n.ExternalAccountID.UUID()
 	}
 
-	// The CTE structure:
-	//   existing  - finds the most-recent matching event in [now-24h, now]
-	//   bumped    - UPDATEs coalesce_count + i18n_params on hit
-	//   INSERT    - fires only if no row was bumped
-	//
-	// The dedup_key='' fast path skips coalescing — no rows ever match
-	// because the existing-index has WHERE dedup_key != '' anyway, so
-	// the existing CTE returns empty and the INSERT always proceeds.
 	var persisted uuid.UUID
-	err = db.QueryRow(ctx, `
-		WITH existing AS (
-			SELECT id, i18n_params
-			  FROM notification_events
-			 WHERE user_id = $2
-			   AND type = $3
-			   AND dedup_key = $12
-			   AND dedup_key != ''
-			   AND created_at > now() - INTERVAL '24 hours'
-			 ORDER BY created_at DESC
-			 LIMIT 1
-		),
-		bumped AS (
-			UPDATE notification_events ne
-			   SET coalesce_count = ne.coalesce_count + 1,
-			       i18n_params    = ne.i18n_params || $7::jsonb,
-			       updated_at     = COALESCE($17, now())
-			  FROM existing e
-			 WHERE ne.id = e.id
-		 RETURNING ne.id
-		),
-		inserted AS (
-			INSERT INTO notification_events (
-				id, user_id, type, severity,
-				title_i18n_key, body_i18n_key, i18n_params,
-				activity_id, segment_id, external_account_id, worker_name,
-				dedup_key, coalesce_count,
-				read, read_at,
-				created_at, updated_at
-			)
-			SELECT
-				$1, $2, $3, $4,
-				$5, $6, $7::jsonb,
-				$8, $9, $10, $11,
-				$12, $13,
-				$14, $15,
-				COALESCE($16, now()), COALESCE($17, now())
-			WHERE NOT EXISTS (SELECT 1 FROM bumped)
-			RETURNING id
-		)
-		SELECT id FROM bumped
-		UNION ALL
-		SELECT id FROM inserted
-		`,
+	err = db.QueryRow(ctx, notificationSaveSQL,
 		n.ID.UUID(), n.UserID.UUID(), int(n.Type), string(n.Severity),
 		n.TitleI18nKey, n.BodyI18nKey, []byte(params),
 		activityParam, segmentParam, extAcctParam, n.WorkerName,
@@ -188,20 +132,7 @@ func (r *NotificationRepo) ListNotificationsForUser(
 	if err != nil {
 		return nil, fmt.Errorf("list notifications for %s: %w", userID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.Notification
-	for rows.Next() {
-		n, err := scanNotificationRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan notification row: %w", err)
-		}
-		out = append(out, n)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate notifications: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanNotificationRow, "scan notification row", "iterate notifications")
 }
 
 // MarkRead sets read = true and read_at = now() for IDs owned by userID.
@@ -283,46 +214,85 @@ func (r *NotificationRepo) GetByID(
 // Row scanner
 // ---------------------------------------------------------------------------
 
+// notificationSaveSQL coalesces or inserts one event. The CTE structure:
+//
+//	existing  - finds the most-recent matching event in [now-24h, now]
+//	bumped    - UPDATEs coalesce_count + i18n_params on hit
+//	INSERT    - fires only if no row was bumped
+//
+// The empty-dedup_key fast path skips coalescing — no rows ever match
+// because the existing-index excludes empty dedup_key anyway, so
+// the existing CTE returns empty and the INSERT always proceeds.
+const notificationSaveSQL = `
+		WITH existing AS (
+			SELECT id, i18n_params
+			  FROM notification_events
+			 WHERE user_id = $2
+			   AND type = $3
+			   AND dedup_key = $12
+			   AND dedup_key != ''
+			   AND created_at > now() - INTERVAL '24 hours'
+			 ORDER BY created_at DESC
+			 LIMIT 1
+		),
+		bumped AS (
+			UPDATE notification_events ne
+			   SET coalesce_count = ne.coalesce_count + 1,
+			       i18n_params    = ne.i18n_params || $7::jsonb,
+			       updated_at     = COALESCE($17, now())
+			  FROM existing e
+			 WHERE ne.id = e.id
+		 RETURNING ne.id
+		),
+		inserted AS (
+			INSERT INTO notification_events (
+				id, user_id, type, severity,
+				title_i18n_key, body_i18n_key, i18n_params,
+				activity_id, segment_id, external_account_id, worker_name,
+				dedup_key, coalesce_count,
+				read, read_at,
+				created_at, updated_at
+			)
+			SELECT
+				$1, $2, $3, $4,
+				$5, $6, $7::jsonb,
+				$8, $9, $10, $11,
+				$12, $13,
+				$14, $15,
+				COALESCE($16, now()), COALESCE($17, now())
+			WHERE NOT EXISTS (SELECT 1 FROM bumped)
+			RETURNING id
+		)
+		SELECT id FROM bumped
+		UNION ALL
+		SELECT id FROM inserted
+		`
+
 func scanNotificationRow(row rowScanner) (domain.Notification, error) {
 	var (
+		n                                domain.Notification
 		id, userID                       uuid.UUID
 		notifType                        int
 		severity                         string
-		titleKey, bodyKey                string
 		i18nParams                       []byte
 		activityID, segmentID, extAcctID *uuid.UUID
 		workerName                       *string
-		dedupKey                         string
-		coalesceCount                    int
-		read                             bool
-		readAt                           *time.Time
-		createdAt, updatedAt             time.Time
 	)
 	if err := row.Scan(
 		&id, &userID, &notifType, &severity,
-		&titleKey, &bodyKey, &i18nParams,
+		&n.TitleI18nKey, &n.BodyI18nKey, &i18nParams,
 		&activityID, &segmentID, &extAcctID, &workerName,
-		&dedupKey, &coalesceCount,
-		&read, &readAt,
-		&createdAt, &updatedAt,
+		&n.DedupKey, &n.CoalesceCount,
+		&n.Read, &n.ReadAt,
+		&n.CreatedAt, &n.UpdatedAt,
 	); err != nil {
 		return domain.Notification{}, err
 	}
 
-	n := domain.Notification{
-		ID:            domain.NotificationID(id),
-		UserID:        domain.UserID(userID),
-		Type:          domain.NotificationType(notifType),
-		Severity:      domain.NotificationSeverity(severity),
-		TitleI18nKey:  titleKey,
-		BodyI18nKey:   bodyKey,
-		DedupKey:      dedupKey,
-		CoalesceCount: coalesceCount,
-		Read:          read,
-		ReadAt:        readAt,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
-	}
+	n.ID = domain.NotificationID(id)
+	n.UserID = domain.UserID(userID)
+	n.Type = domain.NotificationType(notifType)
+	n.Severity = domain.NotificationSeverity(severity)
 	if len(i18nParams) > 0 {
 		var parsed map[string]string
 		if err := json.Unmarshal(i18nParams, &parsed); err == nil {

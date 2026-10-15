@@ -11,15 +11,15 @@ func seqID() func() string {
 	return func() string { n++; return fmt.Sprintf("new-%d", n) }
 }
 
-func decisionFor(p Plan, sid string) (Decision, bool) {
+func decisionFor(p Plan, sid string) Decision {
 	for _, d := range p.Decisions {
 		for _, s := range d.SourceIDs {
 			if s == sid {
-				return d, true
+				return d
 			}
 		}
 	}
-	return Decision{}, false
+	return Decision{}
 }
 
 // Stable identity: a new source joining an existing single-source activity
@@ -61,8 +61,8 @@ func TestReconcile_Split(t *testing.T) {
 	existing := map[string]string{"s1": "act-A", "s2": "act-A", "s3": "act-A"}
 	p := Reconcile(clusters, existing, seqID())
 
-	dBig, _ := decisionFor(p, "s1")
-	dSmall, _ := decisionFor(p, "s3")
+	dBig := decisionFor(p, "s1")
+	dSmall := decisionFor(p, "s3")
 	if dBig.ActivityID != "act-A" || !dBig.Inherited {
 		t.Errorf("larger piece should keep act-A, got %+v", dBig)
 	}

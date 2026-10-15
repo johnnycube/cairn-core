@@ -25,9 +25,9 @@ import (
 type RecomputeActivityFromSources struct {
 	activities    port.ActivityRepo
 	settings      port.UserSettingsRepo
-	athlete       port.AthleteProfileRepo            // optional; nil → TSS uses engine defaults
-	overrides     port.FieldOverrideRepo             // optional; nil → no manual field pins
-	classOverride port.ClassificationOverrideRepo    // optional; nil → no user classification overlay
+	athlete       port.AthleteProfileRepo         // optional; nil → TSS uses engine defaults
+	overrides     port.FieldOverrideRepo          // optional; nil → no manual field pins
+	classOverride port.ClassificationOverrideRepo // optional; nil → no user classification overlay
 	tx            port.TxManager
 	now           func() time.Time
 }
@@ -97,108 +97,133 @@ func (uc *RecomputeActivityFromSources) Execute(
 	var result RecomputeResult
 
 	err := uc.tx.InTx(ctx, func(ctx context.Context) error {
-		// Step 1: snapshot the previous state.
-		prev, err := uc.activities.GetActivity(ctx, id)
-		prevExists := err == nil
-		if err != nil && !errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("get prior activity: %w", err)
-		}
-
-		sources, err := uc.activities.ListSourcesForActivity(ctx, id)
-		if err != nil {
-			return fmt.Errorf("list sources: %w", err)
-		}
-
-		// Step 2: zero sources — soft-delete the activity.
-		if len(sources) == 0 {
-			if !prevExists {
-				// Nothing to delete; treat as a no-op success. Common
-				// during failed initial ingest cleanup.
-				return nil
-			}
-			if err := uc.activities.SoftDeleteActivity(ctx, id, uc.now()); err != nil {
-				return fmt.Errorf("soft delete: %w", err)
-			}
-			result.SoftDeleted = true
-			return nil
-		}
-
-		// Step 3: merge, applying any manual per-field source pins (re-read each
-		// run so they survive recompute).
-		userID := sources[0].UserID
-		resolver := uc.buildResolver(ctx, userID)
-
-		var overrides map[domain.FieldGroup]domain.SourceID
-		if uc.overrides != nil {
-			pins, err := uc.overrides.ListForActivity(ctx, id)
-			if err != nil {
-				return fmt.Errorf("load field overrides: %w", err)
-			}
-			if len(pins) > 0 {
-				overrides = make(map[domain.FieldGroup]domain.SourceID, len(pins))
-				for _, p := range pins {
-					overrides[p.FieldKey] = p.SourceID
-				}
-			}
-		}
-
-		merged, err := domain.MergeWithOverrides(id, sources, resolver, overrides, uc.now())
-		if err != nil {
-			return fmt.Errorf("merge: %w", err)
-		}
-
-		if prevExists {
-			preserveUserEdits(&merged, prev)
-		}
-
-		// Apply the user's classification overlay (type/discipline/flags) on top
-		// of the merge, so a manual correction survives re-derivation. Loaded
-		// each run; an empty/absent overlay is a no-op.
-		if uc.classOverride != nil {
-			co, err := uc.classOverride.Get(ctx, id)
-			if err != nil {
-				return fmt.Errorf("load classification override: %w", err)
-			}
-			co.ApplyTo(&merged)
-			// An override can change Type independently of Discipline; drop a
-			// now-incompatible discipline so the result stays valid.
-			if !merged.Discipline.CompatibleWith(merged.Type) {
-				merged.Discipline = domain.DisciplineNone
-			}
-		}
-
-		// Derive a training-stress score when no source provided one, so the
-		// training-load curves have per-activity TSS to integrate. A provider-
-		// supplied TSS always wins; this only fills the (common) gap. Thresholds
-		// (FTP / LTHR) are resolved from the athlete's profile AS OF the
-		// activity's date, so re-computing an old activity uses the values that
-		// were true back then.
-		if merged.Summary.TSS == nil {
-			th := uc.thresholdsAt(ctx, merged.UserID, merged.StartTime)
-			if tss, if_, ok := domain.EstimateTSS(merged.Summary, merged.MovingDuration, th); ok {
-				merged.Summary.TSS = &tss
-				if merged.Summary.IntensityFactor == nil {
-					merged.Summary.IntensityFactor = &if_
-				}
-			}
-		}
-
-		if err := merged.Validate(); err != nil {
-			return fmt.Errorf("merge produced invalid activity: %w", err)
-		}
-
-		// Step 4: persist.
-		if err := uc.activities.SaveActivity(ctx, merged); err != nil {
-			return fmt.Errorf("save activity: %w", err)
-		}
-
-		result.Activity = merged
-		result.SourceIDs = collectSourceIDs(sources)
-		result.Created = !prevExists
-		return nil
+		return uc.recomputeInTx(ctx, id, &result)
 	})
 
 	return result, err
+}
+
+func (uc *RecomputeActivityFromSources) recomputeInTx(ctx context.Context, id domain.ActivityID, result *RecomputeResult) error {
+	// Step 1: snapshot the previous state.
+	prev, err := uc.activities.GetActivity(ctx, id)
+	prevExists := err == nil
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("get prior activity: %w", err)
+	}
+
+	sources, err := uc.activities.ListSourcesForActivity(ctx, id)
+	if err != nil {
+		return fmt.Errorf("list sources: %w", err)
+	}
+
+	// Step 2: zero sources — soft-delete the activity.
+	if len(sources) == 0 {
+		if !prevExists {
+			// Nothing to delete; treat as a no-op success. Common
+			// during failed initial ingest cleanup.
+			return nil
+		}
+		if err := uc.activities.SoftDeleteActivity(ctx, id, uc.now()); err != nil {
+			return fmt.Errorf("soft delete: %w", err)
+		}
+		result.SoftDeleted = true
+		return nil
+	}
+
+	// Step 3: merge, applying any manual per-field source pins (re-read each
+	// run so they survive recompute).
+	userID := sources[0].UserID
+	resolver := uc.buildResolver(ctx, userID)
+
+	overrides, err := uc.loadFieldOverrides(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	merged, err := domain.MergeWithOverrides(id, sources, resolver, overrides, uc.now())
+	if err != nil {
+		return fmt.Errorf("merge: %w", err)
+	}
+
+	if prevExists {
+		preserveUserEdits(&merged, prev)
+	}
+
+	if err := uc.applyClassificationOverride(ctx, id, &merged); err != nil {
+		return err
+	}
+	uc.fillEstimatedTSS(ctx, &merged)
+
+	if err := merged.Validate(); err != nil {
+		return fmt.Errorf("merge produced invalid activity: %w", err)
+	}
+
+	// Step 4: persist.
+	if err := uc.activities.SaveActivity(ctx, merged); err != nil {
+		return fmt.Errorf("save activity: %w", err)
+	}
+
+	result.Activity = merged
+	result.SourceIDs = collectSourceIDs(sources)
+	result.Created = !prevExists
+	return nil
+}
+
+// loadFieldOverrides returns the manual per-field source pins (nil when none).
+func (uc *RecomputeActivityFromSources) loadFieldOverrides(ctx context.Context, id domain.ActivityID) (map[domain.FieldGroup]domain.SourceID, error) {
+	if uc.overrides == nil {
+		return nil, nil
+	}
+	pins, err := uc.overrides.ListForActivity(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("load field overrides: %w", err)
+	}
+	if len(pins) == 0 {
+		return nil, nil
+	}
+	overrides := make(map[domain.FieldGroup]domain.SourceID, len(pins))
+	for _, p := range pins {
+		overrides[p.FieldKey] = p.SourceID
+	}
+	return overrides, nil
+}
+
+// applyClassificationOverride applies the user's classification overlay
+// (type/discipline/flags) on top of the merge, so a manual correction survives
+// re-derivation. Loaded each run; an empty/absent overlay is a no-op.
+func (uc *RecomputeActivityFromSources) applyClassificationOverride(ctx context.Context, id domain.ActivityID, merged *domain.Activity) error {
+	if uc.classOverride == nil {
+		return nil
+	}
+	co, err := uc.classOverride.Get(ctx, id)
+	if err != nil {
+		return fmt.Errorf("load classification override: %w", err)
+	}
+	co.ApplyTo(merged)
+	// An override can change Type independently of Discipline; drop a
+	// now-incompatible discipline so the result stays valid.
+	if !merged.Discipline.CompatibleWith(merged.Type) {
+		merged.Discipline = domain.DisciplineNone
+	}
+	return nil
+}
+
+// fillEstimatedTSS derives a training-stress score when no source provided one,
+// so the training-load curves have per-activity TSS to integrate. A provider-
+// supplied TSS always wins; this only fills the (common) gap. Thresholds
+// (FTP / LTHR) are resolved from the athlete's profile AS OF the activity's
+// date, so re-computing an old activity uses the values that were true back then.
+func (uc *RecomputeActivityFromSources) fillEstimatedTSS(ctx context.Context, merged *domain.Activity) {
+	if merged.Summary.TSS != nil {
+		return
+	}
+	th := uc.thresholdsAt(ctx, merged.UserID, merged.StartTime)
+	if tss, if_, ok := domain.EstimateTSS(merged.Summary, merged.MovingDuration, th); ok {
+		merged.Summary.TSS = &tss
+		if merged.Summary.IntensityFactor == nil {
+			merged.Summary.IntensityFactor = &if_
+		}
+	}
 }
 
 // thresholdsAt resolves the athlete's FTP / threshold-HR as of the given date.

@@ -32,7 +32,7 @@ func (r *NotificationDeliveryRepo) Record(ctx context.Context, d domain.Notifica
 		emailParam = d.EmailAddress
 	}
 	if d.HTTPStatusCode != 0 {
-		codeParam = int16(d.HTTPStatusCode)
+		codeParam = pgClampInt16(d.HTTPStatusCode)
 	}
 	if d.ErrorMessage != "" {
 		errParam = d.ErrorMessage
@@ -101,39 +101,48 @@ func (r *NotificationDeliveryRepo) ListDueRetries(ctx context.Context, now time.
 
 	var out []domain.NotificationDelivery
 	for rows.Next() {
-		var (
-			d                domain.NotificationDelivery
-			id, eventID, uid uuid.UUID
-			whID             *uuid.UUID
-			email            *string
-			code             *int16
-			errMsg           *string
-			channel          string
-		)
-		if err := rows.Scan(&id, &eventID, &uid, &channel, &whID, &email, &code, &errMsg, &d.Attempt); err != nil {
+		d, err := scanDueRetryRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan due retry: %w", err)
-		}
-		d.ID = domain.NotificationDeliveryID(id)
-		d.EventID = domain.NotificationID(eventID)
-		d.UserID = domain.UserID(uid)
-		d.Channel = domain.NotificationChannel(channel)
-		d.Status = domain.DeliveryStatusFailedRetryable
-		if whID != nil {
-			w := domain.WebhookEndpointID(*whID)
-			d.WebhookEndpoint = &w
-		}
-		if email != nil {
-			d.EmailAddress = *email
-		}
-		if code != nil {
-			d.HTTPStatusCode = int(*code)
-		}
-		if errMsg != nil {
-			d.ErrorMessage = *errMsg
 		}
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// scanDueRetryRow scans one ListDueRetries RETURNING row.
+func scanDueRetryRow(row rowScanner) (domain.NotificationDelivery, error) {
+	var (
+		d                domain.NotificationDelivery
+		id, eventID, uid uuid.UUID
+		whID             *uuid.UUID
+		email            *string
+		code             *int16
+		errMsg           *string
+		channel          string
+	)
+	if err := row.Scan(&id, &eventID, &uid, &channel, &whID, &email, &code, &errMsg, &d.Attempt); err != nil {
+		return domain.NotificationDelivery{}, err
+	}
+	d.ID = domain.NotificationDeliveryID(id)
+	d.EventID = domain.NotificationID(eventID)
+	d.UserID = domain.UserID(uid)
+	d.Channel = domain.NotificationChannel(channel)
+	d.Status = domain.DeliveryStatusFailedRetryable
+	if whID != nil {
+		w := domain.WebhookEndpointID(*whID)
+		d.WebhookEndpoint = &w
+	}
+	if email != nil {
+		d.EmailAddress = *email
+	}
+	if code != nil {
+		d.HTTPStatusCode = int(*code)
+	}
+	if errMsg != nil {
+		d.ErrorMessage = *errMsg
+	}
+	return d, nil
 }
 
 // UpdateOutcome rewrites one delivery row after a retry attempt.
@@ -150,7 +159,7 @@ func (r *NotificationDeliveryRepo) UpdateOutcome(
 	db := dbtx(ctx, r.pool)
 	var codeParam, errParam, nextParam any
 	if httpStatusCode != 0 {
-		codeParam = int16(httpStatusCode)
+		codeParam = pgClampInt16(httpStatusCode)
 	}
 	if errorMessage != "" {
 		errParam = errorMessage

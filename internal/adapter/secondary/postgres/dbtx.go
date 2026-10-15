@@ -24,6 +24,8 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -68,4 +70,31 @@ func withTx(parent context.Context, tx pgx.Tx) context.Context {
 func txFromCtx(ctx context.Context) (pgx.Tx, bool) {
 	tx, ok := ctx.Value(txCtxKey).(pgx.Tx)
 	return tx, ok
+}
+
+// pgClampInt16 converts v to int16, saturating at the type bounds.
+func pgClampInt16(v int) int16 {
+	return int16(max(math.MinInt16, min(v, math.MaxInt16)))
+}
+
+// pgClampInt32 converts v to int32, saturating at the type bounds.
+func pgClampInt32(v int) int32 {
+	return int32(max(math.MinInt32, min(v, math.MaxInt32)))
+}
+
+// pgCollectRows scans every row with scan and closes rows; error texts are prefixed with scanMsg / iterMsg.
+func pgCollectRows[T any](rows pgx.Rows, scan func(rowScanner) (T, error), scanMsg, iterMsg string) ([]T, error) {
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", scanMsg, err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", iterMsg, err)
+	}
+	return out, nil
 }

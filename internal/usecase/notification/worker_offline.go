@@ -36,18 +36,7 @@ func NewNotifyWorkerOffline(
 	now func() time.Time,
 	newID func() uuid.UUID,
 ) *NotifyWorkerOffline {
-	if now == nil {
-		now = func() time.Time { return time.Now().UTC() }
-	}
-	if newID == nil {
-		newID = func() uuid.UUID {
-			id, err := uuid.NewV7()
-			if err != nil {
-				return uuid.New()
-			}
-			return id
-		}
-	}
+	now, newID = notificationClockDefaults(now, newID)
 	return &NotifyWorkerOffline{
 		users:         users,
 		notifications: notifications,

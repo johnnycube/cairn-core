@@ -479,6 +479,37 @@ func slidingWindowMax(values []float64, windowSec int) (avg float64, startIdx in
 	return best, bestS, found
 }
 
+// paceDistancePoint is one sample that carries cumulative distance.
+type paceDistancePoint struct {
+	idx  int
+	dist float64
+	ts   time.Time
+}
+
+// paceDistancePoints is the compact view of samples that carry distance.
+func paceDistancePoints(samples []domain.StreamSample) []paceDistancePoint {
+	pts := make([]paceDistancePoint, 0, len(samples))
+	for i, s := range samples {
+		if s.DistanceM == nil {
+			continue
+		}
+		pts = append(pts, paceDistancePoint{idx: i, dist: *s.DistanceM, ts: s.Timestamp})
+	}
+	return pts
+}
+
+// paceAdvanceEnd advances end until the window from start covers windowDistanceM.
+// end is monotone across outer steps — never reset.
+func paceAdvanceEnd(pts []paceDistancePoint, start, end int, windowDistanceM float64) int {
+	if end < start {
+		end = start
+	}
+	for end < len(pts) && pts[end].dist-pts[start].dist < windowDistanceM {
+		end++
+	}
+	return end
+}
+
 // slidingWindowMinPace finds the fastest cumulative-distance window of
 // at least windowDistanceM metres. Returns the pace in seconds per km
 // over the window, the original-array start/end indices, the actual
@@ -500,19 +531,7 @@ func slidingWindowMinPace(samples []domain.StreamSample, windowDistanceM float64
 		return 0, 0, 0, 0, false
 	}
 
-	// Compact view of samples that carry distance.
-	type point struct {
-		idx  int
-		dist float64
-		ts   time.Time
-	}
-	pts := make([]point, 0, len(samples))
-	for i, s := range samples {
-		if s.DistanceM == nil {
-			continue
-		}
-		pts = append(pts, point{idx: i, dist: *s.DistanceM, ts: s.Timestamp})
-	}
+	pts := paceDistancePoints(samples)
 	if len(pts) < 2 {
 		return 0, 0, 0, 0, false
 	}
@@ -529,14 +548,7 @@ func slidingWindowMinPace(samples []domain.StreamSample, windowDistanceM float64
 	)
 	end := 0
 	for start := 0; start < len(pts); start++ {
-		// Advance end until the window covers the target distance.
-		// Don't reset `end` per outer step — it's monotone.
-		if end < start {
-			end = start
-		}
-		for end < len(pts) && pts[end].dist-pts[start].dist < windowDistanceM {
-			end++
-		}
+		end = paceAdvanceEnd(pts, start, end, windowDistanceM)
 		if end >= len(pts) {
 			break // no further windows can cover the distance
 		}

@@ -110,51 +110,10 @@ func encodePayload(p domain.ActivitySourcePayload) ([]byte, error) {
 		ElapsedDurationS: int64(p.ElapsedDuration / time.Second),
 		MovingDurationS:  int64(p.MovingDuration / time.Second),
 		Timezone:         p.Timezone,
-		Summary: summaryJSON{
-			DistanceM:        p.Summary.DistanceM,
-			ElevationGainM:   p.Summary.ElevationGainM,
-			ElevationLossM:   p.Summary.ElevationLossM,
-			MinElevationM:    p.Summary.MinElevationM,
-			MaxElevationM:    p.Summary.MaxElevationM,
-			AvgSpeedMps:      p.Summary.AvgSpeedMps,
-			MaxSpeedMps:      p.Summary.MaxSpeedMps,
-			AvgHeartRateBpm:  p.Summary.AvgHeartRateBpm,
-			MaxHeartRateBpm:  p.Summary.MaxHeartRateBpm,
-			AvgPowerW:        p.Summary.AvgPowerW,
-			MaxPowerW:        p.Summary.MaxPowerW,
-			NormalizedPowerW: p.Summary.NormalizedPowerW,
-			AvgCadence:       p.Summary.AvgCadence,
-			MaxCadence:       p.Summary.MaxCadence,
-			AvgTemperatureC:  p.Summary.AvgTemperatureC,
-			MinTemperatureC:  p.Summary.MinTemperatureC,
-			MaxTemperatureC:  p.Summary.MaxTemperatureC,
-			CaloriesKcal:     p.Summary.CaloriesKcal,
-			TSS:              p.Summary.TSS,
-			IntensityFactor:  p.Summary.IntensityFactor,
-			PoolLengthM:      p.Summary.PoolLengthM,
-			TotalStrokes:     p.Summary.TotalStrokes,
-		},
-		HasStream: p.HasStream,
+		Summary:          payloadSummaryToJSON(p.Summary),
+		HasStream:        p.HasStream,
 	}
-	if len(p.Laps) > 0 {
-		w.Laps = make([]lapJSON, len(p.Laps))
-		for i, l := range p.Laps {
-			w.Laps[i] = lapJSON{
-				Index:            l.Index,
-				Label:            l.Label,
-				StartOffsetS:     int64(l.StartOffset / time.Second),
-				ElapsedDurationS: int64(l.ElapsedDuration / time.Second),
-				MovingDurationS:  int64(l.MovingDuration / time.Second),
-				DistanceM:        l.DistanceM,
-				AvgSpeedMps:      l.AvgSpeedMps,
-				AvgHeartRateBpm:  l.AvgHeartRateBpm,
-				AvgPowerW:        l.AvgPowerW,
-				AvgCadence:       l.AvgCadence,
-				ElevationGainM:   l.ElevationGainM,
-				ElevationLossM:   l.ElevationLossM,
-			}
-		}
-	}
+	w.Laps = payloadLapsToJSON(p.Laps)
 	return json.Marshal(w)
 }
 
@@ -186,36 +145,101 @@ func decodePayload(b []byte) (domain.ActivitySourcePayload, error) {
 		ElapsedDuration: time.Duration(w.ElapsedDurationS) * time.Second,
 		MovingDuration:  time.Duration(w.MovingDurationS) * time.Second,
 		Timezone:        w.Timezone,
-		Summary: domain.ActivitySummary{
-			DistanceM:        w.Summary.DistanceM,
-			ElevationGainM:   w.Summary.ElevationGainM,
-			ElevationLossM:   w.Summary.ElevationLossM,
-			MinElevationM:    w.Summary.MinElevationM,
-			MaxElevationM:    w.Summary.MaxElevationM,
-			AvgSpeedMps:      w.Summary.AvgSpeedMps,
-			MaxSpeedMps:      w.Summary.MaxSpeedMps,
-			AvgHeartRateBpm:  w.Summary.AvgHeartRateBpm,
-			MaxHeartRateBpm:  w.Summary.MaxHeartRateBpm,
-			AvgPowerW:        w.Summary.AvgPowerW,
-			MaxPowerW:        w.Summary.MaxPowerW,
-			NormalizedPowerW: w.Summary.NormalizedPowerW,
-			AvgCadence:       w.Summary.AvgCadence,
-			MaxCadence:       w.Summary.MaxCadence,
-			AvgTemperatureC:  w.Summary.AvgTemperatureC,
-			MinTemperatureC:  w.Summary.MinTemperatureC,
-			MaxTemperatureC:  w.Summary.MaxTemperatureC,
-			CaloriesKcal:     w.Summary.CaloriesKcal,
-			TSS:              w.Summary.TSS,
-			IntensityFactor:  w.Summary.IntensityFactor,
-			PoolLengthM:      w.Summary.PoolLengthM,
-			TotalStrokes:     w.Summary.TotalStrokes,
-		},
-		HasStream: w.HasStream,
+		Summary:         payloadSummaryFromJSON(w.Summary),
+		HasStream:       w.HasStream,
 	}
-	if len(w.Laps) > 0 {
-		p.Laps = make([]domain.ActivityLap, len(w.Laps))
-		for i, l := range w.Laps {
-			p.Laps[i] = domain.ActivityLap{
+	p.Laps = payloadLapsFromJSON(w.Laps)
+	return p, nil
+}
+
+// payloadSummaryToJSON maps a domain summary onto its wire shape.
+func payloadSummaryToJSON(s domain.ActivitySummary) summaryJSON {
+	return summaryJSON{
+		DistanceM:        s.DistanceM,
+		ElevationGainM:   s.ElevationGainM,
+		ElevationLossM:   s.ElevationLossM,
+		MinElevationM:    s.MinElevationM,
+		MaxElevationM:    s.MaxElevationM,
+		AvgSpeedMps:      s.AvgSpeedMps,
+		MaxSpeedMps:      s.MaxSpeedMps,
+		AvgHeartRateBpm:  s.AvgHeartRateBpm,
+		MaxHeartRateBpm:  s.MaxHeartRateBpm,
+		AvgPowerW:        s.AvgPowerW,
+		MaxPowerW:        s.MaxPowerW,
+		NormalizedPowerW: s.NormalizedPowerW,
+		AvgCadence:       s.AvgCadence,
+		MaxCadence:       s.MaxCadence,
+		AvgTemperatureC:  s.AvgTemperatureC,
+		MinTemperatureC:  s.MinTemperatureC,
+		MaxTemperatureC:  s.MaxTemperatureC,
+		CaloriesKcal:     s.CaloriesKcal,
+		TSS:              s.TSS,
+		IntensityFactor:  s.IntensityFactor,
+		PoolLengthM:      s.PoolLengthM,
+		TotalStrokes:     s.TotalStrokes,
+	}
+}
+
+// payloadSummaryFromJSON maps a wire summary onto the domain shape.
+func payloadSummaryFromJSON(s summaryJSON) domain.ActivitySummary {
+	return domain.ActivitySummary{
+		DistanceM:        s.DistanceM,
+		ElevationGainM:   s.ElevationGainM,
+		ElevationLossM:   s.ElevationLossM,
+		MinElevationM:    s.MinElevationM,
+		MaxElevationM:    s.MaxElevationM,
+		AvgSpeedMps:      s.AvgSpeedMps,
+		MaxSpeedMps:      s.MaxSpeedMps,
+		AvgHeartRateBpm:  s.AvgHeartRateBpm,
+		MaxHeartRateBpm:  s.MaxHeartRateBpm,
+		AvgPowerW:        s.AvgPowerW,
+		MaxPowerW:        s.MaxPowerW,
+		NormalizedPowerW: s.NormalizedPowerW,
+		AvgCadence:       s.AvgCadence,
+		MaxCadence:       s.MaxCadence,
+		AvgTemperatureC:  s.AvgTemperatureC,
+		MinTemperatureC:  s.MinTemperatureC,
+		MaxTemperatureC:  s.MaxTemperatureC,
+		CaloriesKcal:     s.CaloriesKcal,
+		TSS:              s.TSS,
+		IntensityFactor:  s.IntensityFactor,
+		PoolLengthM:      s.PoolLengthM,
+		TotalStrokes:     s.TotalStrokes,
+	}
+}
+
+// payloadLapsToJSON maps domain laps onto their wire shape; nil when empty.
+func payloadLapsToJSON(laps []domain.ActivityLap) []lapJSON {
+	var out []lapJSON
+	if len(laps) > 0 {
+		out = make([]lapJSON, len(laps))
+		for i, l := range laps {
+			out[i] = lapJSON{
+				Index:            l.Index,
+				Label:            l.Label,
+				StartOffsetS:     int64(l.StartOffset / time.Second),
+				ElapsedDurationS: int64(l.ElapsedDuration / time.Second),
+				MovingDurationS:  int64(l.MovingDuration / time.Second),
+				DistanceM:        l.DistanceM,
+				AvgSpeedMps:      l.AvgSpeedMps,
+				AvgHeartRateBpm:  l.AvgHeartRateBpm,
+				AvgPowerW:        l.AvgPowerW,
+				AvgCadence:       l.AvgCadence,
+				ElevationGainM:   l.ElevationGainM,
+				ElevationLossM:   l.ElevationLossM,
+			}
+		}
+	}
+	return out
+}
+
+// payloadLapsFromJSON maps wire laps onto the domain shape; nil when empty.
+func payloadLapsFromJSON(laps []lapJSON) []domain.ActivityLap {
+	var out []domain.ActivityLap
+	if len(laps) > 0 {
+		out = make([]domain.ActivityLap, len(laps))
+		for i, l := range laps {
+			out[i] = domain.ActivityLap{
 				Index:           l.Index,
 				Label:           l.Label,
 				StartOffset:     time.Duration(l.StartOffsetS) * time.Second,
@@ -231,7 +255,7 @@ func decodePayload(b []byte) (domain.ActivitySourcePayload, error) {
 			}
 		}
 	}
-	return p, nil
+	return out
 }
 
 // ---------------------------------------------------------------------------

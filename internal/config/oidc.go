@@ -47,49 +47,58 @@ func LoadOIDCProviders(getenv func(string) string) ([]domain.OIDCProvider, []str
 		}
 		seen[id] = true
 
-		key := func(suffix string) string {
-			return "CAIRN_OIDC_" + strings.ToUpper(id) + "_" + suffix
-		}
-		get := func(suffix string) string { return strings.TrimSpace(getenv(key(suffix))) }
-
-		issuer := get("ISSUER_URL")
-		clientID := get("CLIENT_ID")
-		clientSecret := get("CLIENT_SECRET")
-		if issuer == "" || clientID == "" || clientSecret == "" {
-			warnings = append(warnings, fmt.Sprintf(
-				"oidc provider %q skipped: %s_ISSUER_URL, _CLIENT_ID and _CLIENT_SECRET are all required",
-				id, "CAIRN_OIDC_"+strings.ToUpper(id)))
+		p, warn := oidcLoadProvider(getenv, id)
+		if warn != "" {
+			warnings = append(warnings, warn)
 			continue
 		}
-
-		name := get("NAME")
-		if name == "" {
-			name = id
-		}
-		scopes := splitCSV(get("SCOPES"))
-		if len(scopes) == 0 {
-			scopes = []string{"openid", "email", "profile"}
-		}
-		role := domain.UserRole(strings.ToLower(get("AUTO_PROVISION_ROLE")))
-		if role != domain.UserRoleAdmin {
-			role = domain.UserRoleUser
-		}
-
-		providers = append(providers, domain.OIDCProvider{
-			ID:                id,
-			Name:              name,
-			IssuerURL:         issuer,
-			ClientID:          clientID,
-			ClientSecret:      clientSecret,
-			Scopes:            scopes,
-			Audience:          get("AUDIENCE"),
-			SkipAudienceCheck: parseBoolDefault(get("SKIP_AUDIENCE_CHECK"), false),
-			UsePKCE:           parseBoolDefault(get("USE_PKCE"), true),
-			AutoProvision:     parseBoolDefault(get("AUTO_PROVISION"), true),
-			AutoProvisionRole: role,
-		})
+		providers = append(providers, p)
 	}
 	return providers, warnings
+}
+
+// oidcLoadProvider reads one provider's env block; a non-empty warning means it was skipped.
+func oidcLoadProvider(getenv func(string) string, id string) (domain.OIDCProvider, string) {
+	key := func(suffix string) string {
+		return "CAIRN_OIDC_" + strings.ToUpper(id) + "_" + suffix
+	}
+	get := func(suffix string) string { return strings.TrimSpace(getenv(key(suffix))) }
+
+	issuer := get("ISSUER_URL")
+	clientID := get("CLIENT_ID")
+	clientSecret := get("CLIENT_SECRET")
+	if issuer == "" || clientID == "" || clientSecret == "" {
+		return domain.OIDCProvider{}, fmt.Sprintf(
+			"oidc provider %q skipped: %s_ISSUER_URL, _CLIENT_ID and _CLIENT_SECRET are all required",
+			id, "CAIRN_OIDC_"+strings.ToUpper(id))
+	}
+
+	name := get("NAME")
+	if name == "" {
+		name = id
+	}
+	scopes := splitCSV(get("SCOPES"))
+	if len(scopes) == 0 {
+		scopes = []string{"openid", "email", "profile"}
+	}
+	role := domain.UserRole(strings.ToLower(get("AUTO_PROVISION_ROLE")))
+	if role != domain.UserRoleAdmin {
+		role = domain.UserRoleUser
+	}
+
+	return domain.OIDCProvider{
+		ID:                id,
+		Name:              name,
+		IssuerURL:         issuer,
+		ClientID:          clientID,
+		ClientSecret:      clientSecret,
+		Scopes:            scopes,
+		Audience:          get("AUDIENCE"),
+		SkipAudienceCheck: parseBoolDefault(get("SKIP_AUDIENCE_CHECK"), false),
+		UsePKCE:           parseBoolDefault(get("USE_PKCE"), true),
+		AutoProvision:     parseBoolDefault(get("AUTO_PROVISION"), true),
+		AutoProvisionRole: role,
+	}, ""
 }
 
 func splitCSV(s string) []string {

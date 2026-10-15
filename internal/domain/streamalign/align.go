@@ -62,41 +62,12 @@ func Build(streams map[domain.SourceID]domain.Stream, winners map[domain.StreamC
 		return out
 	}
 
-	// Per-source clock-offset shift (align starts to a global origin).
-	shift := map[domain.SourceID]time.Duration{}
-	var globalStart time.Time
-	for _, s := range streams {
-		if len(s.Samples) == 0 {
-			continue
-		}
-		first := s.Samples[0].Timestamp
-		if globalStart.IsZero() || first.Before(globalStart) {
-			globalStart = first
-		}
-	}
-	if opt.AlignStarts {
-		for id, s := range streams {
-			if len(s.Samples) == 0 {
-				continue
-			}
-			shift[id] = globalStart.Sub(s.Samples[0].Timestamp) // add to each ts
-		}
-	}
+	shift, globalStart := alignShifts(streams, opt.AlignStarts)
 
 	// Grid step = finest median interval across sources, clamped.
 	step := finestStep(streams, opt)
 
-	// Grid span = [globalStart, globalEnd] over shifted timestamps.
-	var globalEnd time.Time
-	for id, s := range streams {
-		if len(s.Samples) == 0 {
-			continue
-		}
-		last := s.Samples[len(s.Samples)-1].Timestamp.Add(shift[id])
-		if last.After(globalEnd) {
-			globalEnd = last
-		}
-	}
+	globalEnd := alignGlobalEnd(streams, shift)
 	if !globalEnd.After(globalStart) {
 		return out
 	}
@@ -108,22 +79,69 @@ func Build(streams map[domain.SourceID]domain.Stream, winners map[domain.StreamC
 	}
 
 	for _, ch := range continuousChannels {
-		srcID, ok := winners[ch]
-		if !ok {
-			continue
+		if srcID, vals, ok := alignChannel(streams, winners, shift, ch, grid, opt.GapCap); ok {
+			out.Channels[ch] = vals
+			out.Provenance[ch] = srcID
 		}
-		s, ok := streams[srcID]
-		if !ok {
-			continue
-		}
-		pts := extractChannel(s.Samples, ch, shift[srcID])
-		if len(pts) == 0 {
-			continue
-		}
-		out.Channels[ch] = resample(pts, grid, opt.GapCap)
-		out.Provenance[ch] = srcID
 	}
 	return out
+}
+
+// alignShifts returns the earliest sample time and, when alignStarts, the
+// per-source clock-offset shift (add to each ts) that aligns starts to it.
+func alignShifts(streams map[domain.SourceID]domain.Stream, alignStarts bool) (map[domain.SourceID]time.Duration, time.Time) {
+	shift := map[domain.SourceID]time.Duration{}
+	var globalStart time.Time
+	for _, s := range streams {
+		if len(s.Samples) == 0 {
+			continue
+		}
+		first := s.Samples[0].Timestamp
+		if globalStart.IsZero() || first.Before(globalStart) {
+			globalStart = first
+		}
+	}
+	if alignStarts {
+		for id, s := range streams {
+			if len(s.Samples) == 0 {
+				continue
+			}
+			shift[id] = globalStart.Sub(s.Samples[0].Timestamp)
+		}
+	}
+	return shift, globalStart
+}
+
+// alignGlobalEnd returns the latest shifted sample time across sources.
+func alignGlobalEnd(streams map[domain.SourceID]domain.Stream, shift map[domain.SourceID]time.Duration) time.Time {
+	var globalEnd time.Time
+	for id, s := range streams {
+		if len(s.Samples) == 0 {
+			continue
+		}
+		last := s.Samples[len(s.Samples)-1].Timestamp.Add(shift[id])
+		if last.After(globalEnd) {
+			globalEnd = last
+		}
+	}
+	return globalEnd
+}
+
+// alignChannel resamples channel ch from its winning source; ok is false when it has no data.
+func alignChannel(streams map[domain.SourceID]domain.Stream, winners map[domain.StreamChannel]domain.SourceID, shift map[domain.SourceID]time.Duration, ch domain.StreamChannel, grid []time.Time, gapCap time.Duration) (domain.SourceID, []*float64, bool) {
+	srcID, ok := winners[ch]
+	if !ok {
+		return srcID, nil, false
+	}
+	s, ok := streams[srcID]
+	if !ok {
+		return srcID, nil, false
+	}
+	pts := extractChannel(s.Samples, ch, shift[srcID])
+	if len(pts) == 0 {
+		return srcID, nil, false
+	}
+	return srcID, resample(pts, grid, gapCap), true
 }
 
 // point is a (time, value) sample for one channel.

@@ -72,23 +72,13 @@ func (s *SMTPSender) Send(ctx context.Context, msg port.EmailMessage) error {
 	}
 	c, err := smtp.NewClient(conn, s.host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("email: smtp client: %w", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
-	if s.startTLS {
-		if ok, _ := c.Extension("STARTTLS"); ok {
-			if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
-				return fmt.Errorf("email: starttls: %w", err)
-			}
-		}
-	}
-	if s.username != "" {
-		auth := smtp.PlainAuth("", s.username, s.password, s.host)
-		if err := c.Auth(auth); err != nil {
-			return fmt.Errorf("email: auth: %w", err)
-		}
+	if err := s.smtpNegotiate(c); err != nil {
+		return err
 	}
 	if err := c.Mail(s.fromAddr); err != nil {
 		return fmt.Errorf("email: MAIL FROM: %w", err)
@@ -107,6 +97,24 @@ func (s *SMTPSender) Send(ctx context.Context, msg port.EmailMessage) error {
 		return fmt.Errorf("email: close body: %w", err)
 	}
 	return c.Quit()
+}
+
+// smtpNegotiate runs the optional STARTTLS upgrade and authentication.
+func (s *SMTPSender) smtpNegotiate(c *smtp.Client) error {
+	if s.startTLS {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
+				return fmt.Errorf("email: starttls: %w", err)
+			}
+		}
+	}
+	if s.username != "" {
+		auth := smtp.PlainAuth("", s.username, s.password, s.host)
+		if err := c.Auth(auth); err != nil {
+			return fmt.Errorf("email: auth: %w", err)
+		}
+	}
+	return nil
 }
 
 // buildMessage renders the RFC5322 message. multipart/alternative when an HTML

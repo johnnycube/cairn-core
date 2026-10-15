@@ -152,6 +152,28 @@ func (r *ClassificationOverrideRepo) Set(ctx context.Context, o domain.Classific
 		}
 		return nil
 	}
+	_, err := db.Exec(ctx,
+		`INSERT INTO activity_classification_overrides
+		   (activity_id, type, discipline, is_virtual, is_ebike, is_commute, is_race, custom_subtype,
+		    distance_m, elevation_gain_m, moving_duration_s, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+		 ON CONFLICT (activity_id) DO UPDATE SET
+		   type = EXCLUDED.type, discipline = EXCLUDED.discipline,
+		   is_virtual = EXCLUDED.is_virtual, is_ebike = EXCLUDED.is_ebike,
+		   is_commute = EXCLUDED.is_commute, is_race = EXCLUDED.is_race,
+		   custom_subtype = EXCLUDED.custom_subtype,
+		   distance_m = EXCLUDED.distance_m, elevation_gain_m = EXCLUDED.elevation_gain_m,
+		   moving_duration_s = EXCLUDED.moving_duration_s, updated_at = now()`,
+		overrideSetArgs(o)...,
+	)
+	if err != nil {
+		return fmt.Errorf("set classification override: %w", err)
+	}
+	return nil
+}
+
+// overrideSetArgs builds the upsert bind parameters; nil pointers bind as NULL.
+func overrideSetArgs(o domain.ClassificationOverride) []any {
 	var typ, disc, sub any
 	if o.Type != nil {
 		typ = string(*o.Type)
@@ -185,24 +207,7 @@ func (r *ClassificationOverrideRepo) Set(ctx context.Context, o domain.Classific
 	if o.MovingDuration != nil {
 		movingS = int64(o.MovingDuration.Seconds())
 	}
-	_, err := db.Exec(ctx,
-		`INSERT INTO activity_classification_overrides
-		   (activity_id, type, discipline, is_virtual, is_ebike, is_commute, is_race, custom_subtype,
-		    distance_m, elevation_gain_m, moving_duration_s, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
-		 ON CONFLICT (activity_id) DO UPDATE SET
-		   type = EXCLUDED.type, discipline = EXCLUDED.discipline,
-		   is_virtual = EXCLUDED.is_virtual, is_ebike = EXCLUDED.is_ebike,
-		   is_commute = EXCLUDED.is_commute, is_race = EXCLUDED.is_race,
-		   custom_subtype = EXCLUDED.custom_subtype,
-		   distance_m = EXCLUDED.distance_m, elevation_gain_m = EXCLUDED.elevation_gain_m,
-		   moving_duration_s = EXCLUDED.moving_duration_s, updated_at = now()`,
-		o.ActivityID.UUID(), typ, disc, virt, ebike, comm, race, sub, dist, elev, movingS,
-	)
-	if err != nil {
-		return fmt.Errorf("set classification override: %w", err)
-	}
-	return nil
+	return []any{o.ActivityID.UUID(), typ, disc, virt, ebike, comm, race, sub, dist, elev, movingS}
 }
 
 // SourceDenylistRepo implements port.SourceDenylistRepo over source_match_denylist.

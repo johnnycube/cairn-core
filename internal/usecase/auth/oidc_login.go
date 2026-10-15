@@ -204,40 +204,9 @@ func (uc *OIDCLogin) CompleteLogin(ctx context.Context, in CompleteLoginInput) (
 		return CompleteLoginOutput{}, ErrProviderNotFound
 	}
 
-	prov, err := uc.verifier(ctx, p.IssuerURL)
+	idToken, err := uc.oidcExchangeAndVerify(ctx, p, in)
 	if err != nil {
-		return CompleteLoginOutput{}, fmt.Errorf("oidc provider discovery: %w", err)
-	}
-
-	cfg := uc.oauth2Config(p, prov.Endpoint())
-	exchangeOpts := []oauth2.AuthCodeOption{}
-	if p.UsePKCE && in.CodeVerifier != "" {
-		exchangeOpts = append(exchangeOpts, oauth2.SetAuthURLParam("code_verifier", in.CodeVerifier))
-	}
-
-	token, err := cfg.Exchange(ctx, in.Code, exchangeOpts...)
-	if err != nil {
-		return CompleteLoginOutput{}, fmt.Errorf("%w: %v", ErrCodeExchangeFailed, err)
-	}
-
-	rawIDToken, _ := token.Extra("id_token").(string)
-	if rawIDToken == "" {
-		return CompleteLoginOutput{}, fmt.Errorf("%w: no id_token in response", ErrIDTokenVerifyFailed)
-	}
-
-	idTokenVerifier := prov.Verifier(&oidc.Config{
-		ClientID:          p.EffectiveAudience(),
-		SkipClientIDCheck: p.SkipAudienceCheck,
-	})
-	idToken, err := idTokenVerifier.Verify(ctx, rawIDToken)
-	if err != nil {
-		return CompleteLoginOutput{}, fmt.Errorf("%w: %v", ErrIDTokenVerifyFailed, err)
-	}
-	// The nonce is mandatory: StartLogin always sets one, so an empty expected
-	// nonce here means a forged/replayed flow — fail closed rather than skip the
-	// id-token replay check.
-	if in.ExpectedNonce == "" || idToken.Nonce != in.ExpectedNonce {
-		return CompleteLoginOutput{}, fmt.Errorf("%w: nonce mismatch", ErrIDTokenVerifyFailed)
+		return CompleteLoginOutput{}, err
 	}
 
 	var claims map[string]any
@@ -260,27 +229,72 @@ func (uc *OIDCLogin) CompleteLogin(ctx context.Context, in CompleteLoginInput) (
 		return uc.issueSession(ctx, linked.UserID, in, false)
 
 	case errors.Is(err, domain.ErrNotFound):
-		if !p.AutoProvision {
-			return CompleteLoginOutput{}, ErrAutoProvisionDenied
-		}
-		user, isNew, err := uc.resolveUserForNewIdentity(ctx, p, claims)
-		if err != nil {
-			return CompleteLoginOutput{}, err
-		}
-		if _, err := uc.Identities.Create(ctx, domain.LinkedIdentity{
-			UserID:     user.ID,
-			Provider:   p.ID,
-			Subject:    subject,
-			Email:      stringClaim(claims, domain.ClaimEmail),
-			LastClaims: claims,
-		}); err != nil {
-			return CompleteLoginOutput{}, fmt.Errorf("link identity: %w", err)
-		}
-		return uc.issueSession(ctx, user.ID, in, isNew)
+		return uc.oidcProvisionAndLink(ctx, p, in, subject, claims)
 
 	default:
 		return CompleteLoginOutput{}, fmt.Errorf("find linked identity: %w", err)
 	}
+}
+
+// oidcExchangeAndVerify redeems the auth code and verifies the id_token incl. nonce.
+func (uc *OIDCLogin) oidcExchangeAndVerify(ctx context.Context, p domain.OIDCProvider, in CompleteLoginInput) (*oidc.IDToken, error) {
+	prov, err := uc.verifier(ctx, p.IssuerURL)
+	if err != nil {
+		return nil, fmt.Errorf("oidc provider discovery: %w", err)
+	}
+
+	cfg := uc.oauth2Config(p, prov.Endpoint())
+	exchangeOpts := []oauth2.AuthCodeOption{}
+	if p.UsePKCE && in.CodeVerifier != "" {
+		exchangeOpts = append(exchangeOpts, oauth2.SetAuthURLParam("code_verifier", in.CodeVerifier))
+	}
+
+	token, err := cfg.Exchange(ctx, in.Code, exchangeOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrCodeExchangeFailed, err)
+	}
+
+	rawIDToken, _ := token.Extra("id_token").(string)
+	if rawIDToken == "" {
+		return nil, fmt.Errorf("%w: no id_token in response", ErrIDTokenVerifyFailed)
+	}
+
+	idTokenVerifier := prov.Verifier(&oidc.Config{
+		ClientID:          p.EffectiveAudience(),
+		SkipClientIDCheck: p.SkipAudienceCheck,
+	})
+	idToken, err := idTokenVerifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrIDTokenVerifyFailed, err)
+	}
+	// The nonce is mandatory: StartLogin always sets one, so an empty expected
+	// nonce here means a forged/replayed flow — fail closed rather than skip the
+	// id-token replay check.
+	if in.ExpectedNonce == "" || idToken.Nonce != in.ExpectedNonce {
+		return nil, fmt.Errorf("%w: nonce mismatch", ErrIDTokenVerifyFailed)
+	}
+	return idToken, nil
+}
+
+// oidcProvisionAndLink handles a first login: resolve/create the user, link the identity, issue a session.
+func (uc *OIDCLogin) oidcProvisionAndLink(ctx context.Context, p domain.OIDCProvider, in CompleteLoginInput, subject string, claims map[string]any) (CompleteLoginOutput, error) {
+	if !p.AutoProvision {
+		return CompleteLoginOutput{}, ErrAutoProvisionDenied
+	}
+	user, isNew, err := uc.resolveUserForNewIdentity(ctx, p, claims)
+	if err != nil {
+		return CompleteLoginOutput{}, err
+	}
+	if _, err := uc.Identities.Create(ctx, domain.LinkedIdentity{
+		UserID:     user.ID,
+		Provider:   p.ID,
+		Subject:    subject,
+		Email:      stringClaim(claims, domain.ClaimEmail),
+		LastClaims: claims,
+	}); err != nil {
+		return CompleteLoginOutput{}, fmt.Errorf("link identity: %w", err)
+	}
+	return uc.issueSession(ctx, user.ID, in, isNew)
 }
 
 // ---------------------------------------------------------------------------

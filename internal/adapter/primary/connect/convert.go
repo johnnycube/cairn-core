@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"math"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -116,11 +117,16 @@ func summaryToProto(s domain.ActivitySummary) *v1.ActivitySummary {
 	return out
 }
 
+// connectClampInt32 converts v to int32, saturating at the type bounds.
+func connectClampInt32(v int) int32 {
+	return int32(max(math.MinInt32, min(v, math.MaxInt32)))
+}
+
 func intPtrToInt32(v *int) *int32 {
 	if v == nil {
 		return nil
 	}
-	cast := int32(*v)
+	cast := connectClampInt32(*v)
 	return &cast
 }
 
@@ -379,82 +385,91 @@ func reimportStatusToProto(s domain.ReimportStatus) v1.ReimportStatus {
 func streamToProto(s domain.Stream) *v1.ActivityStream {
 	out := &v1.ActivityStream{
 		ActivitySourceId: s.ActivitySourceID.String(),
-		SampleCount:      int32(len(s.Samples)),
+		SampleCount:      connectClampInt32(len(s.Samples)),
 		ResolutionHz:     resolutionHz(s.Resolution),
 	}
 	if len(s.Samples) == 0 {
 		return out
 	}
 
-	n := len(s.Samples)
-	base := s.Samples[0].Timestamp
-
-	timeS := make([]float64, n)
-	var (
-		lat, lon, alt, dist, speed []float64
-		hr, power, cadence         []int32
-		temp, grade                []float64
-	)
-
-	for i, sample := range s.Samples {
-		timeS[i] = sample.Timestamp.Sub(base).Seconds()
-		lat = appendFloat(lat, sample.Latitude, n, i)
-		lon = appendFloat(lon, sample.Longitude, n, i)
-		alt = appendFloat(alt, sample.AltitudeM, n, i)
-		dist = appendFloat(dist, sample.DistanceM, n, i)
-		speed = appendFloat(speed, sample.SpeedMps, n, i)
-		hr = appendInt16(hr, sample.HeartRateBpm, n, i)
-		power = appendInt16(power, sample.PowerW, n, i)
-		cadence = appendInt16(cadence, sample.Cadence, n, i)
-		temp = appendFloat32(temp, sample.TemperatureC, n, i)
-		grade = appendFloat32(grade, sample.Grade, n, i)
-	}
-
-	out.TimeS = timeS
+	c := streamProtoColumnsFrom(s.Samples)
+	out.TimeS = c.timeS
 	out.Channels = []v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_TIME}
+	c.attach(out)
+	return out
+}
 
-	if lat != nil {
-		out.Latitude = lat
+// streamProtoColumns holds the per-channel columns of a stream; nil means the channel is absent.
+type streamProtoColumns struct {
+	timeS                      []float64
+	lat, lon, alt, dist, speed []float64
+	hr, power, cadence         []int32
+	temp, grade                []float64
+}
+
+// streamProtoColumnsFrom splits samples (non-empty) into columns relative to the first timestamp.
+func streamProtoColumnsFrom(samples []domain.StreamSample) streamProtoColumns {
+	n := len(samples)
+	base := samples[0].Timestamp
+	c := streamProtoColumns{timeS: make([]float64, n)}
+	for i, sample := range samples {
+		c.timeS[i] = sample.Timestamp.Sub(base).Seconds()
+		c.lat = appendFloat(c.lat, sample.Latitude, n, i)
+		c.lon = appendFloat(c.lon, sample.Longitude, n, i)
+		c.alt = appendFloat(c.alt, sample.AltitudeM, n, i)
+		c.dist = appendFloat(c.dist, sample.DistanceM, n, i)
+		c.speed = appendFloat(c.speed, sample.SpeedMps, n, i)
+		c.hr = appendInt16(c.hr, sample.HeartRateBpm, n, i)
+		c.power = appendInt16(c.power, sample.PowerW, n, i)
+		c.cadence = appendInt16(c.cadence, sample.Cadence, n, i)
+		c.temp = appendFloat32(c.temp, sample.TemperatureC, n, i)
+		c.grade = appendFloat32(c.grade, sample.Grade, n, i)
+	}
+	return c
+}
+
+// attach copies every present column onto out and lists it in out.Channels.
+func (c streamProtoColumns) attach(out *v1.ActivityStream) {
+	if c.lat != nil {
+		out.Latitude = c.lat
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_LATITUDE)
 	}
-	if lon != nil {
-		out.Longitude = lon
+	if c.lon != nil {
+		out.Longitude = c.lon
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_LONGITUDE)
 	}
-	if alt != nil {
-		out.AltitudeM = alt
+	if c.alt != nil {
+		out.AltitudeM = c.alt
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_ALTITUDE)
 	}
-	if dist != nil {
-		out.DistanceM = dist
+	if c.dist != nil {
+		out.DistanceM = c.dist
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_DISTANCE)
 	}
-	if speed != nil {
-		out.SpeedMps = speed
+	if c.speed != nil {
+		out.SpeedMps = c.speed
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_SPEED)
 	}
-	if hr != nil {
-		out.HeartRateBpm = hr
+	if c.hr != nil {
+		out.HeartRateBpm = c.hr
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_HEART_RATE)
 	}
-	if power != nil {
-		out.PowerW = power
+	if c.power != nil {
+		out.PowerW = c.power
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_POWER)
 	}
-	if cadence != nil {
-		out.Cadence = cadence
+	if c.cadence != nil {
+		out.Cadence = c.cadence
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_CADENCE)
 	}
-	if temp != nil {
-		out.TemperatureC = temp
+	if c.temp != nil {
+		out.TemperatureC = c.temp
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_TEMPERATURE)
 	}
-	if grade != nil {
-		out.Grade = grade
+	if c.grade != nil {
+		out.Grade = c.grade
 		out.Channels = append(out.Channels, v1.StreamChannel_STREAM_CHANNEL_GRADE)
 	}
-
-	return out
 }
 
 // appendFloat lazily allocates the column on first non-nil value, then
@@ -542,9 +557,9 @@ func bestEffortToProto(b domain.BestEffort) *v1.BestEffort {
 		Discipline:       disciplineToProto(b.Discipline),
 		Metric:           bestEffortMetricToProto(b.Metric),
 		WindowKind:       bestEffortWindowKindToProto(b.WindowKind),
-		WindowValue:      int32(b.WindowValue),
+		WindowValue:      connectClampInt32(b.WindowValue),
 		AchievedValue:    b.AchievedValue,
-		StartOffset:      int32(b.StartOffset),
+		StartOffset:      connectClampInt32(b.StartOffset),
 		Duration:         durationpb.New(time.Duration(b.DurationS * float64(time.Second))),
 		Ts:               timestamppb.New(b.Timestamp),
 		ActivitySourceId: b.ActivitySourceID.String(),
@@ -619,7 +634,7 @@ func notificationToProto(n domain.Notification) *v1.NotificationEvent {
 		BodyI18NKey:   n.BodyI18nKey,
 		I18NParams:    n.I18nParams,
 		DedupKey:      n.DedupKey,
-		CoalesceCount: int32(n.CoalesceCount),
+		CoalesceCount: connectClampInt32(n.CoalesceCount),
 		Read:          n.Read,
 		CreatedAt:     timestamppb.New(n.CreatedAt),
 		UpdatedAt:     timestamppb.New(n.UpdatedAt),

@@ -78,7 +78,7 @@ func scanWebhookRow(row pgx.Row) (domain.WebhookEndpoint, error) {
 func eventTypesToInt32(types []domain.NotificationType) []int32 {
 	out := make([]int32, 0, len(types))
 	for _, t := range types {
-		out = append(out, int32(t))
+		out = append(out, pgClampInt32(int(t)))
 	}
 	return out
 }
@@ -244,7 +244,7 @@ func (r *WebhookEndpointRepo) RecordDeliveryResult(ctx context.Context, id domai
 	success := deliveryErr == "" && statusCode >= 200 && statusCode < 300
 	var codeParam any
 	if statusCode != 0 {
-		codeParam = int16(statusCode)
+		codeParam = pgClampInt16(statusCode)
 	}
 	var errParam any
 	if deliveryErr != "" {

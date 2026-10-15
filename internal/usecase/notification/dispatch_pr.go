@@ -50,6 +50,19 @@ func NewDispatchPRNotifications(
 	now func() time.Time,
 	newID func() uuid.UUID,
 ) *DispatchPRNotifications {
+	now, newID = notificationClockDefaults(now, newID)
+	return &DispatchPRNotifications{
+		segments:      segments,
+		notifications: notifications,
+		tx:            tx,
+		deliver:       deliver,
+		now:           now,
+		newID:         newID,
+	}
+}
+
+// notificationClockDefaults fills nil clock / ID generators with UTC now and UUIDv7.
+func notificationClockDefaults(now func() time.Time, newID func() uuid.UUID) (func() time.Time, func() uuid.UUID) {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
@@ -62,14 +75,7 @@ func NewDispatchPRNotifications(
 			return id
 		}
 	}
-	return &DispatchPRNotifications{
-		segments:      segments,
-		notifications: notifications,
-		tx:            tx,
-		deliver:       deliver,
-		now:           now,
-		newID:         newID,
-	}
+	return now, newID
 }
 
 // Input identifies the activity and the source whose efforts the

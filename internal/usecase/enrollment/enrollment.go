@@ -340,49 +340,9 @@ func (uc *ProcessAuthCallout) Execute(
 ) (AuthCalloutResult, error) {
 	now := uc.now()
 
-	// (1) hash the token; the auth-callout receives plaintext.
-	if in.EnrollmentToken == "" {
-		return AuthCalloutResult{}, &AuthRejection{
-			Reason: "no_token",
-			Detail: "enrollment token missing from CONNECT options",
-		}
-	}
-	hash := hashEnrollmentToken(in.EnrollmentToken)
-
-	enroll, err := uc.enrollments.FindEnrollmentByTokenHash(ctx, hash)
-	if errors.Is(err, domain.ErrEnrollmentNotFound) || errors.Is(err, domain.ErrNotFound) {
-		// Constant-time dummy compare to avoid a timing oracle that
-		// distinguishes "token unknown" from "token known but invalid".
-		_ = subtle.ConstantTimeCompare(hash, hash)
-		return AuthCalloutResult{}, &AuthRejection{
-			Reason: "unknown_token",
-			Detail: "token hash not found",
-		}
-	}
+	enroll, err := uc.authCalloutEnrollment(ctx, in.EnrollmentToken, now)
 	if err != nil {
-		return AuthCalloutResult{}, &AuthRejection{
-			Reason: "internal",
-			Detail: "enrollment lookup failed",
-			Cause:  err,
-		}
-	}
-
-	// (2) validate enrollment lifecycle.
-	if err := enroll.IsValidAt(now); err != nil {
-		reason := "invalid"
-		switch {
-		case errors.Is(err, domain.ErrEnrollmentRevoked):
-			reason = "revoked"
-		case errors.Is(err, domain.ErrEnrollmentExpired):
-			reason = "expired"
-		case errors.Is(err, domain.ErrEnrollmentExhausted):
-			reason = "exhausted"
-		}
-		return AuthCalloutResult{}, &AuthRejection{
-			Reason: reason,
-			Detail: "enrollment failed lifecycle check",
-			Cause:  err,
-		}
+		return AuthCalloutResult{}, err
 	}
 
 	// (3) worker name pattern match.
@@ -420,40 +380,9 @@ func (uc *ProcessAuthCallout) Execute(
 		}
 	}
 
-	// (6) atomic: enrollment.uses++ and create grant row.
-	grantID := domain.WorkerCredentialGrantID(uc.newID())
-	instanceID := in.WorkerInstanceID
-	if instanceID == "" {
-		instanceID = uc.newID().String()
-	}
-
-	grant := domain.WorkerCredentialGrant{
-		ID:               grantID,
-		EnrollmentID:     enroll.ID,
-		UserNKeyPublic:   in.UserNKeyPublic,
-		WorkerName:       in.WorkerName,
-		WorkerInstanceID: instanceID,
-		WorkerVersion:    in.WorkerVersion,
-		ClientHost:       in.ClientHost,
-		IssuedAt:         now,
-		ExpiresAt:        credOut.ExpiresAt,
-	}
-
-	err = uc.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := uc.enrollments.IncrementUses(ctx, enroll.ID); err != nil {
-			return fmt.Errorf("increment uses: %w", err)
-		}
-		if _, err := uc.enrollments.CreateGrant(ctx, grant); err != nil {
-			return fmt.Errorf("create grant: %w", err)
-		}
-		return nil
-	})
+	grantID, err := uc.authCalloutPersistGrant(ctx, in, enroll.ID, now, credOut.ExpiresAt)
 	if err != nil {
-		return AuthCalloutResult{}, &AuthRejection{
-			Reason: "internal",
-			Detail: "audit-trail persistence failed",
-			Cause:  err,
-		}
+		return AuthCalloutResult{}, err
 	}
 
 	return AuthCalloutResult{
@@ -463,6 +392,102 @@ func (uc *ProcessAuthCallout) Execute(
 		ExpiresAt:        credOut.ExpiresAt,
 		AccountPublicKey: credOut.AccountPublicKey,
 	}, nil
+}
+
+// authCalloutPersistGrant runs step 6 and returns the new grant id.
+func (uc *ProcessAuthCallout) authCalloutPersistGrant(
+	ctx context.Context,
+	in AuthCalloutInput,
+	enrollmentID domain.WorkerEnrollmentID,
+	now, expiresAt time.Time,
+) (domain.WorkerCredentialGrantID, error) {
+	// (6) atomic: enrollment.uses++ and create grant row.
+	grantID := domain.WorkerCredentialGrantID(uc.newID())
+	instanceID := in.WorkerInstanceID
+	if instanceID == "" {
+		instanceID = uc.newID().String()
+	}
+
+	grant := domain.WorkerCredentialGrant{
+		ID:               grantID,
+		EnrollmentID:     enrollmentID,
+		UserNKeyPublic:   in.UserNKeyPublic,
+		WorkerName:       in.WorkerName,
+		WorkerInstanceID: instanceID,
+		WorkerVersion:    in.WorkerVersion,
+		ClientHost:       in.ClientHost,
+		IssuedAt:         now,
+		ExpiresAt:        expiresAt,
+	}
+
+	err := uc.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := uc.enrollments.IncrementUses(ctx, enrollmentID); err != nil {
+			return fmt.Errorf("increment uses: %w", err)
+		}
+		if _, err := uc.enrollments.CreateGrant(ctx, grant); err != nil {
+			return fmt.Errorf("create grant: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return domain.WorkerCredentialGrantID{}, &AuthRejection{
+			Reason: "internal",
+			Detail: "audit-trail persistence failed",
+			Cause:  err,
+		}
+	}
+
+	return grantID, nil
+}
+
+// authCalloutEnrollment runs steps 1–2: token lookup and lifecycle validation.
+func (uc *ProcessAuthCallout) authCalloutEnrollment(ctx context.Context, token string, now time.Time) (domain.WorkerEnrollment, error) {
+	// (1) hash the token; the auth-callout receives plaintext.
+	if token == "" {
+		return domain.WorkerEnrollment{}, &AuthRejection{
+			Reason: "no_token",
+			Detail: "enrollment token missing from CONNECT options",
+		}
+	}
+	hash := hashEnrollmentToken(token)
+
+	enroll, err := uc.enrollments.FindEnrollmentByTokenHash(ctx, hash)
+	if errors.Is(err, domain.ErrEnrollmentNotFound) || errors.Is(err, domain.ErrNotFound) {
+		// Constant-time dummy compare to avoid a timing oracle that
+		// distinguishes "token unknown" from "token known but invalid".
+		_ = subtle.ConstantTimeCompare(hash, hash)
+		return domain.WorkerEnrollment{}, &AuthRejection{
+			Reason: "unknown_token",
+			Detail: "token hash not found",
+		}
+	}
+	if err != nil {
+		return domain.WorkerEnrollment{}, &AuthRejection{
+			Reason: "internal",
+			Detail: "enrollment lookup failed",
+			Cause:  err,
+		}
+	}
+
+	// (2) validate enrollment lifecycle.
+	if err := enroll.IsValidAt(now); err != nil {
+		reason := "invalid"
+		switch {
+		case errors.Is(err, domain.ErrEnrollmentRevoked):
+			reason = "revoked"
+		case errors.Is(err, domain.ErrEnrollmentExpired):
+			reason = "expired"
+		case errors.Is(err, domain.ErrEnrollmentExhausted):
+			reason = "exhausted"
+		}
+		return domain.WorkerEnrollment{}, &AuthRejection{
+			Reason: reason,
+			Detail: "enrollment failed lifecycle check",
+			Cause:  err,
+		}
+	}
+
+	return enroll, nil
 }
 
 // hashEnrollmentToken is the canonical token-to-hash function. Used both

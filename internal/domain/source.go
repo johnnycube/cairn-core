@@ -266,50 +266,58 @@ func (p *ActivitySourcePayload) ApplyTo(g FieldGroup, target *Activity) {
 		target.ElapsedDuration = p.ElapsedDuration
 		target.MovingDuration = p.MovingDuration
 
-	case FieldGroupDistance:
-		target.Summary.DistanceM = p.Summary.DistanceM
-
-	case FieldGroupElevation:
-		target.Summary.ElevationGainM = p.Summary.ElevationGainM
-		target.Summary.ElevationLossM = p.Summary.ElevationLossM
-		target.Summary.MinElevationM = p.Summary.MinElevationM
-		target.Summary.MaxElevationM = p.Summary.MaxElevationM
-
-	case FieldGroupSpeed:
-		target.Summary.AvgSpeedMps = p.Summary.AvgSpeedMps
-		target.Summary.MaxSpeedMps = p.Summary.MaxSpeedMps
-
-	case FieldGroupHeartRate:
-		target.Summary.AvgHeartRateBpm = p.Summary.AvgHeartRateBpm
-		target.Summary.MaxHeartRateBpm = p.Summary.MaxHeartRateBpm
-
-	case FieldGroupPower:
-		target.Summary.AvgPowerW = p.Summary.AvgPowerW
-		target.Summary.MaxPowerW = p.Summary.MaxPowerW
-		target.Summary.NormalizedPowerW = p.Summary.NormalizedPowerW
-
-	case FieldGroupCadence:
-		target.Summary.AvgCadence = p.Summary.AvgCadence
-		target.Summary.MaxCadence = p.Summary.MaxCadence
-
-	case FieldGroupTemperature:
-		target.Summary.AvgTemperatureC = p.Summary.AvgTemperatureC
-		target.Summary.MinTemperatureC = p.Summary.MinTemperatureC
-		target.Summary.MaxTemperatureC = p.Summary.MaxTemperatureC
-
-	case FieldGroupCalories:
-		target.Summary.CaloriesKcal = p.Summary.CaloriesKcal
-
-	case FieldGroupTrainingLoad:
-		target.Summary.TSS = p.Summary.TSS
-		target.Summary.IntensityFactor = p.Summary.IntensityFactor
-
-	case FieldGroupSwim:
-		target.Summary.PoolLengthM = p.Summary.PoolLengthM
-		target.Summary.TotalStrokes = p.Summary.TotalStrokes
+	default:
+		p.applySummaryTo(g, &target.Summary)
 
 		// FieldGroupGPSTrack and FieldGroupLaps don't write fields directly on
 		// the Activity — they pick the PrimaryStreamSourceID (handled in the
 		// merge engine) and influence which source's laps render.
+	}
+}
+
+// applySummaryTo copies the summary-metric field groups; other groups are no-ops.
+func (p *ActivitySourcePayload) applySummaryTo(g FieldGroup, sum *ActivitySummary) {
+	switch g {
+	case FieldGroupDistance:
+		sum.DistanceM = p.Summary.DistanceM
+
+	case FieldGroupElevation:
+		sum.ElevationGainM = p.Summary.ElevationGainM
+		sum.ElevationLossM = p.Summary.ElevationLossM
+		sum.MinElevationM = p.Summary.MinElevationM
+		sum.MaxElevationM = p.Summary.MaxElevationM
+
+	case FieldGroupSpeed:
+		sum.AvgSpeedMps = p.Summary.AvgSpeedMps
+		sum.MaxSpeedMps = p.Summary.MaxSpeedMps
+
+	case FieldGroupHeartRate:
+		sum.AvgHeartRateBpm = p.Summary.AvgHeartRateBpm
+		sum.MaxHeartRateBpm = p.Summary.MaxHeartRateBpm
+
+	case FieldGroupPower:
+		sum.AvgPowerW = p.Summary.AvgPowerW
+		sum.MaxPowerW = p.Summary.MaxPowerW
+		sum.NormalizedPowerW = p.Summary.NormalizedPowerW
+
+	case FieldGroupCadence:
+		sum.AvgCadence = p.Summary.AvgCadence
+		sum.MaxCadence = p.Summary.MaxCadence
+
+	case FieldGroupTemperature:
+		sum.AvgTemperatureC = p.Summary.AvgTemperatureC
+		sum.MinTemperatureC = p.Summary.MinTemperatureC
+		sum.MaxTemperatureC = p.Summary.MaxTemperatureC
+
+	case FieldGroupCalories:
+		sum.CaloriesKcal = p.Summary.CaloriesKcal
+
+	case FieldGroupTrainingLoad:
+		sum.TSS = p.Summary.TSS
+		sum.IntensityFactor = p.Summary.IntensityFactor
+
+	case FieldGroupSwim:
+		sum.PoolLengthM = p.Summary.PoolLengthM
+		sum.TotalStrokes = p.Summary.TotalStrokes
 	}
 }

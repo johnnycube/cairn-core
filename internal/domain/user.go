@@ -183,7 +183,7 @@ func NormaliseEmail(in string) (string, error) {
 		return "", ErrEmailRequired
 	}
 	if _, err := mail.ParseAddress(e); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrEmailInvalid, err)
+		return "", fmt.Errorf("%w: %w", ErrEmailInvalid, err)
 	}
 	return e, nil
 }

@@ -107,6 +107,9 @@ func BucketSeconds(bands []ZoneBand, reference float64, vals, dts []float64) []f
 		return out
 	}
 	for i, v := range vals {
+		if i >= len(dts) {
+			break
+		}
 		if v <= 0 {
 			continue
 		}
@@ -117,7 +120,7 @@ func BucketSeconds(bands []ZoneBand, reference float64, vals, dts []float64) []f
 				idx = b
 			}
 		}
-		out[idx] += dts[i]
+		out[idx] += dts[i] //nolint:gosec // G602: i < len(dts) checked above
 	}
 	return out
 }

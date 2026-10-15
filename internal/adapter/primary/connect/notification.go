@@ -40,7 +40,7 @@ func (s *NotificationServer) ListNotifications(
 	ctx context.Context,
 	req *connectrpc.Request[v1.ListNotificationsRequest],
 ) (*connectrpc.Response[v1.ListNotificationsResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *NotificationServer) MarkNotificationRead(
 	ctx context.Context,
 	req *connectrpc.Request[v1.MarkNotificationReadRequest],
 ) (*connectrpc.Response[v1.MarkNotificationReadResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (s *NotificationServer) MarkAllNotificationsRead(
 	ctx context.Context,
 	req *connectrpc.Request[v1.MarkAllNotificationsReadRequest],
 ) (*connectrpc.Response[v1.MarkAllNotificationsReadResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +126,6 @@ func (s *NotificationServer) MarkAllNotificationsRead(
 			fmt.Errorf("mark all notifications read: %w", err))
 	}
 	return connectrpc.NewResponse(&v1.MarkAllNotificationsReadResponse{
-		MarkedCount: int32(n),
+		MarkedCount: connectClampInt32(n),
 	}), nil
 }

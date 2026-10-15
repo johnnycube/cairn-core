@@ -136,24 +136,14 @@ func (uc *MatchSegmentsForActivity) Execute(ctx context.Context, in Input) (Resu
 	if len(stream.Samples) == 0 {
 		// Wipe any prior efforts — a reimport that lost its stream should
 		// not leave dangling efforts.
-		if err := uc.tx.InTx(ctx, func(ctx context.Context) error {
-			return uc.segments.DeleteEffortsForSource(ctx, in.ActivitySourceID)
-		}); err != nil {
-			return Result{}, fmt.Errorf("clear efforts: %w", err)
-		}
-		return Result{NoStream: true}, nil
+		return uc.matchClearEfforts(ctx, in.ActivitySourceID, Result{NoStream: true})
 	}
 
 	minLat, maxLat, minLon, maxLon, ok := domain.SampleBoundingBox(stream.Samples)
 	if !ok {
 		// Stream has no GPS-bearing samples (e.g. an indoor trainer ride
 		// with power+HR but no GPS). Wipe any prior efforts and return.
-		if err := uc.tx.InTx(ctx, func(ctx context.Context) error {
-			return uc.segments.DeleteEffortsForSource(ctx, in.ActivitySourceID)
-		}); err != nil {
-			return Result{}, fmt.Errorf("clear efforts: %w", err)
-		}
-		return Result{NoGPS: true}, nil
+		return uc.matchClearEfforts(ctx, in.ActivitySourceID, Result{NoGPS: true})
 	}
 
 	minLat, maxLat, minLon, maxLon = domain.ExpandBoundingBox(minLat, maxLat, minLon, maxLon, uc.bboxBufferMeters)
@@ -169,24 +159,7 @@ func (uc *MatchSegmentsForActivity) Execute(ctx context.Context, in Input) (Resu
 	// (the bbox filter is selective on a well-tuned PostGIS GIST index)
 	// and the algorithm itself is O(N·M) where N is stream length and
 	// M is segment-polyline vertex count — both small.
-	var efforts []domain.SegmentEffort
-	touchedSegments := make(map[domain.SegmentID]struct{})
-	for _, seg := range candidates {
-		polyline, err := seg.DecodedPolyline()
-		if err != nil {
-			uc.logger.Warn("skipping segment with undecodable polyline",
-				"segment_id", seg.ID, "error", err)
-			continue
-		}
-		effTol := seg.EffectiveTolerances(uc.tol)
-		matches := domain.MatchSegment(stream.Samples, polyline, effTol)
-		for _, m := range matches {
-			efforts = append(efforts, uc.buildEffort(act, src, seg, stream.Samples, m))
-		}
-		if len(matches) > 0 {
-			touchedSegments[seg.ID] = struct{}{}
-		}
-	}
+	efforts, touchedSegments := uc.matchCandidates(act, src, candidates, stream.Samples)
 
 	// Persist atomically.
 	err = uc.tx.InTx(ctx, func(ctx context.Context) error {
@@ -204,30 +177,74 @@ func (uc *MatchSegmentsForActivity) Execute(ctx context.Context, in Input) (Resu
 		return Result{}, fmt.Errorf("persist segment efforts: %w", err)
 	}
 
-	// Refresh rank denormalizations as a separate follow-up — outside
-	// the effort-write transaction so a hiccup in rank recompute can't
-	// roll back the discovered efforts. Failures log and continue;
-	// operators can re-run via /admin/segments/{id}/compute-ranks.
-	if uc.recomputeRanks != nil && len(touchedSegments) > 0 {
-		ids := make([]domain.SegmentID, 0, len(touchedSegments))
-		for id := range touchedSegments {
-			ids = append(ids, id)
-		}
-		if processed, rerr := uc.recomputeRanks.ExecuteMany(ctx, ids); rerr != nil {
-			uc.logger.Warn("rank refresh partially failed after match",
-				"source_id", in.ActivitySourceID,
-				"segments_processed", processed,
-				"segments_total", len(ids),
-				"error", rerr,
-			)
-		}
-	}
+	// Refresh ranks outside the effort-write transaction.
+	uc.matchRefreshRanks(ctx, in.ActivitySourceID, touchedSegments)
 
 	return Result{
 		CandidatesEvaluated: len(candidates),
 		EffortsWritten:      len(efforts),
 		SegmentsRanked:      len(touchedSegments),
 	}, nil
+}
+
+// matchClearEfforts wipes prior efforts for the source and returns res.
+func (uc *MatchSegmentsForActivity) matchClearEfforts(ctx context.Context, sourceID domain.SourceID, res Result) (Result, error) {
+	if err := uc.tx.InTx(ctx, func(ctx context.Context) error {
+		return uc.segments.DeleteEffortsForSource(ctx, sourceID)
+	}); err != nil {
+		return Result{}, fmt.Errorf("clear efforts: %w", err)
+	}
+	return res, nil
+}
+
+// matchCandidates runs the matcher per candidate segment.
+func (uc *MatchSegmentsForActivity) matchCandidates(
+	act domain.Activity,
+	src domain.ActivitySource,
+	candidates []domain.Segment,
+	samples []domain.StreamSample,
+) ([]domain.SegmentEffort, map[domain.SegmentID]struct{}) {
+	var efforts []domain.SegmentEffort
+	touchedSegments := make(map[domain.SegmentID]struct{})
+	for _, seg := range candidates {
+		polyline, err := seg.DecodedPolyline()
+		if err != nil {
+			uc.logger.Warn("skipping segment with undecodable polyline",
+				"segment_id", seg.ID, "error", err)
+			continue
+		}
+		effTol := seg.EffectiveTolerances(uc.tol)
+		matches := domain.MatchSegment(samples, polyline, effTol)
+		for _, m := range matches {
+			efforts = append(efforts, uc.buildEffort(act, src, seg, samples, m))
+		}
+		if len(matches) > 0 {
+			touchedSegments[seg.ID] = struct{}{}
+		}
+	}
+	return efforts, touchedSegments
+}
+
+// matchRefreshRanks refreshes rank denormalizations as a separate follow-up —
+// outside the effort-write transaction so a hiccup in rank recompute can't
+// roll back the discovered efforts. Failures log and continue; operators can
+// re-run via /admin/segments/{id}/compute-ranks.
+func (uc *MatchSegmentsForActivity) matchRefreshRanks(ctx context.Context, sourceID domain.SourceID, touchedSegments map[domain.SegmentID]struct{}) {
+	if uc.recomputeRanks == nil || len(touchedSegments) == 0 {
+		return
+	}
+	ids := make([]domain.SegmentID, 0, len(touchedSegments))
+	for id := range touchedSegments {
+		ids = append(ids, id)
+	}
+	if processed, rerr := uc.recomputeRanks.ExecuteMany(ctx, ids); rerr != nil {
+		uc.logger.Warn("rank refresh partially failed after match",
+			"source_id", sourceID,
+			"segments_processed", processed,
+			"segments_total", len(ids),
+			"error", rerr,
+		)
+	}
 }
 
 // buildEffort assembles a SegmentEffort from the activity / source / segment

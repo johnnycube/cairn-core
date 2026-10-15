@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/tormoder/fit"
 
@@ -45,39 +46,55 @@ func FIT(a domain.Activity, s domain.Stream) ([]byte, error) {
 	var firstLat, firstLng *float64
 	for i := range s.Samples {
 		p := &s.Samples[i]
-		r := fit.NewRecordMsg()
-		r.Timestamp = p.Timestamp
-		if p.Latitude != nil && p.Longitude != nil {
-			r.PositionLat = fit.NewLatitudeDegrees(*p.Latitude)
-			r.PositionLong = fit.NewLongitudeDegrees(*p.Longitude)
-			if firstLat == nil {
-				firstLat, firstLng = p.Latitude, p.Longitude
-			}
+		if p.Latitude != nil && p.Longitude != nil && firstLat == nil {
+			firstLat, firstLng = p.Latitude, p.Longitude
 		}
-		if p.AltitudeM != nil {
-			r.Altitude = scaleAltitude(*p.AltitudeM)
-		}
-		if p.DistanceM != nil {
-			r.Distance = uint32(*p.DistanceM * 100)
-		}
-		if p.SpeedMps != nil {
-			r.Speed = clampU16(*p.SpeedMps * 1000)
-		}
-		if p.HeartRateBpm != nil && *p.HeartRateBpm > 0 {
-			r.HeartRate = clampU8(float64(*p.HeartRateBpm))
-		}
-		if p.Cadence != nil && *p.Cadence >= 0 {
-			r.Cadence = clampU8(float64(*p.Cadence))
-		}
-		if p.PowerW != nil && *p.PowerW >= 0 {
-			r.Power = clampU16(float64(*p.PowerW))
-		}
-		if p.TemperatureC != nil {
-			r.Temperature = clampI8(float64(*p.TemperatureC))
-		}
-		act.Records = append(act.Records, r)
+		act.Records = append(act.Records, fitRecordFromSample(p))
 	}
 
+	fitAppendSummary(act, a, start, end, firstLat, firstLng)
+
+	var buf bytes.Buffer
+	if err := fit.Encode(&buf, f, binary.LittleEndian); err != nil {
+		return nil, fmt.Errorf("fit encode: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// fitRecordFromSample maps one stream sample to a FIT Record message.
+func fitRecordFromSample(p *domain.StreamSample) *fit.RecordMsg {
+	r := fit.NewRecordMsg()
+	r.Timestamp = p.Timestamp
+	if p.Latitude != nil && p.Longitude != nil {
+		r.PositionLat = fit.NewLatitudeDegrees(*p.Latitude)
+		r.PositionLong = fit.NewLongitudeDegrees(*p.Longitude)
+	}
+	if p.AltitudeM != nil {
+		r.Altitude = scaleAltitude(*p.AltitudeM)
+	}
+	if p.DistanceM != nil {
+		r.Distance = uint32(*p.DistanceM * 100)
+	}
+	if p.SpeedMps != nil {
+		r.Speed = clampU16(*p.SpeedMps * 1000)
+	}
+	if p.HeartRateBpm != nil && *p.HeartRateBpm > 0 {
+		r.HeartRate = clampU8(float64(*p.HeartRateBpm))
+	}
+	if p.Cadence != nil && *p.Cadence >= 0 {
+		r.Cadence = clampU8(float64(*p.Cadence))
+	}
+	if p.PowerW != nil && *p.PowerW >= 0 {
+		r.Power = clampU16(float64(*p.PowerW))
+	}
+	if p.TemperatureC != nil {
+		r.Temperature = clampI8(float64(*p.TemperatureC))
+	}
+	return r
+}
+
+// fitAppendSummary adds the single Lap, Session and Activity messages.
+func fitAppendSummary(act *fit.ActivityFile, a domain.Activity, start, end time.Time, firstLat, firstLng *float64) {
 	elapsed := uint32(a.ElapsedDuration.Seconds() * 1000)
 	timer := uint32(a.MovingDuration.Seconds() * 1000)
 	var dist uint32
@@ -116,12 +133,6 @@ func FIT(a domain.Activity, s domain.Stream) ([]byte, error) {
 	am.Event = fit.EventActivity
 	am.EventType = fit.EventTypeStop
 	act.Activity = am
-
-	var buf bytes.Buffer
-	if err := fit.Encode(&buf, f, binary.LittleEndian); err != nil {
-		return nil, fmt.Errorf("fit encode: %w", err)
-	}
-	return buf.Bytes(), nil
 }
 
 // scaleAltitude converts metres to the FIT altitude raw uint16 (scale 5,

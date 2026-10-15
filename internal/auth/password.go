@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -130,7 +131,7 @@ func (h *PasswordHasher) Verify(password, encoded string) (bool, error) {
 		params.Time,
 		params.Memory,
 		params.Threads,
-		uint32(len(want)),
+		params.KeyLen,
 	)
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
@@ -201,12 +202,16 @@ func decodeArgon2id(encoded string) (PasswordParams, []byte, []byte, error) {
 	if err != nil {
 		return PasswordParams{}, nil, nil, fmt.Errorf("malformed argon2id hash: key b64: %w", err)
 	}
+	keyLen, saltLen := len(key), len(salt)
+	if keyLen > math.MaxUint32 || saltLen > math.MaxUint32 {
+		return PasswordParams{}, nil, nil, errors.New("malformed argon2id hash: oversized salt or key")
+	}
 
 	return PasswordParams{
 		Time:    time,
 		Memory:  memory,
 		Threads: threads,
-		KeyLen:  uint32(len(key)),
-		SaltLen: uint32(len(salt)),
+		KeyLen:  uint32(keyLen),
+		SaltLen: uint32(saltLen),
 	}, salt, key, nil
 }

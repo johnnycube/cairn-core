@@ -142,14 +142,9 @@ func (uc *CreateUser) Execute(ctx context.Context, in CreateUserInput) (CreateUs
 		return CreateUserResult{}, err
 	}
 
-	var cred domain.Credentials
-	cred.UserID = u.ID
-	if in.Password != "" {
-		hash, err := uc.hasher.Hash(in.Password)
-		if err != nil {
-			return CreateUserResult{}, fmt.Errorf("hash password: %w", err)
-		}
-		cred.PasswordHash = hash
+	cred, err := uc.createUserCredentials(u.ID, in.Password)
+	if err != nil {
+		return CreateUserResult{}, err
 	}
 
 	if err := uc.users.CreateUser(ctx, u, cred); err != nil {
@@ -162,6 +157,20 @@ func (uc *CreateUser) Execute(ctx context.Context, in CreateUserInput) (CreateUs
 	}
 
 	return CreateUserResult{User: u}, nil
+}
+
+// createUserCredentials hashes the password when one is given.
+func (uc *CreateUser) createUserCredentials(id domain.UserID, password string) (domain.Credentials, error) {
+	var cred domain.Credentials
+	cred.UserID = id
+	if password != "" {
+		hash, err := uc.hasher.Hash(password)
+		if err != nil {
+			return domain.Credentials{}, fmt.Errorf("hash password: %w", err)
+		}
+		cred.PasswordHash = hash
+	}
+	return cred, nil
 }
 
 func defaultIfEmpty(s, def string) string {

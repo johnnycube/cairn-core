@@ -83,6 +83,15 @@ func (r *ActivityRepo) SaveActivity(ctx context.Context, a domain.Activity) erro
 		return fmt.Errorf("encode merge_provenance: %w", err)
 	}
 
+	_, err = db.Exec(ctx, activitySaveSQL, activitySaveArgs(a, provenanceJSON)...)
+	if err != nil {
+		return fmt.Errorf("save activity %s: %w", a.ID, err)
+	}
+	return nil
+}
+
+// activitySaveArgs builds the activitySaveSQL bind parameters.
+func activitySaveArgs(a domain.Activity, provenanceJSON []byte) []any {
 	var disciplineParam any
 	if a.Discipline != "" && a.Discipline != domain.DisciplineNone {
 		disciplineParam = string(a.Discipline)
@@ -103,7 +112,37 @@ func (r *ActivityRepo) SaveActivity(ctx context.Context, a domain.Activity) erro
 		deletedAtParam = *a.DeletedAt
 	}
 
-	const q = `
+	// activities.tags is NOT NULL. A nil Go slice binds as SQL NULL and
+	// violates the constraint — the column DEFAULT '{}' does not apply when
+	// the INSERT supplies the column explicitly. Coalesce to an empty array.
+	tags := a.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
+	return []any{
+		a.ID.UUID(), a.UserID.UUID(),
+		string(a.Type), disciplineParam, a.IsVirtual, a.IsEbike, a.IsCommute, a.IsRace, a.CustomSubtype,
+		a.Title, a.Description,
+		a.StartTime, a.EndTime, int64(a.ElapsedDuration / time.Second), int64(a.MovingDuration / time.Second), a.Timezone,
+		a.Summary.DistanceM, a.Summary.ElevationGainM, a.Summary.ElevationLossM, a.Summary.MinElevationM, a.Summary.MaxElevationM,
+		a.Summary.AvgSpeedMps, a.Summary.MaxSpeedMps,
+		a.Summary.AvgHeartRateBpm, a.Summary.MaxHeartRateBpm,
+		a.Summary.AvgPowerW, a.Summary.MaxPowerW, a.Summary.NormalizedPowerW,
+		a.Summary.AvgCadence, a.Summary.MaxCadence,
+		a.Summary.AvgTemperatureC, a.Summary.MinTemperatureC, a.Summary.MaxTemperatureC,
+		a.Summary.CaloriesKcal, a.Summary.TSS, a.Summary.IntensityFactor,
+		a.Summary.PoolLengthM, a.Summary.TotalStrokes,
+		provenanceJSON,
+		primaryStreamParam,
+		a.MergedAt,
+		gearParam, tags, string(a.Privacy),
+		nullableTime(a.CreatedAt), deletedAtParam,
+	}
+}
+
+// activitySaveSQL upserts one activities row by id.
+const activitySaveSQL = `
 		INSERT INTO activities (
 			id, user_id,
 			type, discipline, is_virtual, is_ebike, is_commute, is_race, custom_subtype,
@@ -188,39 +227,6 @@ func (r *ActivityRepo) SaveActivity(ctx context.Context, a domain.Activity) erro
 			updated_at = now(),
 			deleted_at = EXCLUDED.deleted_at
 	`
-
-	// activities.tags is NOT NULL. A nil Go slice binds as SQL NULL and
-	// violates the constraint — the column DEFAULT '{}' does not apply when
-	// the INSERT supplies the column explicitly. Coalesce to an empty array.
-	tags := a.Tags
-	if tags == nil {
-		tags = []string{}
-	}
-
-	_, err = db.Exec(ctx, q,
-		a.ID.UUID(), a.UserID.UUID(),
-		string(a.Type), disciplineParam, a.IsVirtual, a.IsEbike, a.IsCommute, a.IsRace, a.CustomSubtype,
-		a.Title, a.Description,
-		a.StartTime, a.EndTime, int64(a.ElapsedDuration/time.Second), int64(a.MovingDuration/time.Second), a.Timezone,
-		a.Summary.DistanceM, a.Summary.ElevationGainM, a.Summary.ElevationLossM, a.Summary.MinElevationM, a.Summary.MaxElevationM,
-		a.Summary.AvgSpeedMps, a.Summary.MaxSpeedMps,
-		a.Summary.AvgHeartRateBpm, a.Summary.MaxHeartRateBpm,
-		a.Summary.AvgPowerW, a.Summary.MaxPowerW, a.Summary.NormalizedPowerW,
-		a.Summary.AvgCadence, a.Summary.MaxCadence,
-		a.Summary.AvgTemperatureC, a.Summary.MinTemperatureC, a.Summary.MaxTemperatureC,
-		a.Summary.CaloriesKcal, a.Summary.TSS, a.Summary.IntensityFactor,
-		a.Summary.PoolLengthM, a.Summary.TotalStrokes,
-		provenanceJSON,
-		primaryStreamParam,
-		a.MergedAt,
-		gearParam, tags, string(a.Privacy),
-		nullableTime(a.CreatedAt), deletedAtParam,
-	)
-	if err != nil {
-		return fmt.Errorf("save activity %s: %w", a.ID, err)
-	}
-	return nil
-}
 
 // SoftDeleteActivity sets activities.deleted_at.
 func (r *ActivityRepo) SoftDeleteActivity(ctx context.Context, id domain.ActivityID, at time.Time) error {
@@ -402,20 +408,7 @@ func (r *ActivityRepo) ListSourcesForActivity(ctx context.Context, id domain.Act
 	if err != nil {
 		return nil, fmt.Errorf("list sources for activity %s: %w", id, err)
 	}
-	defer rows.Close()
-
-	var out []domain.ActivitySource
-	for rows.Next() {
-		s, err := scanSourceRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan source row: %w", err)
-		}
-		out = append(out, s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate source rows: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanSourceRow, "scan source row", "iterate source rows")
 }
 
 // ListAllSourcesForActivity returns every source on the activity INCLUDING
@@ -433,20 +426,7 @@ func (r *ActivityRepo) ListAllSourcesForActivity(ctx context.Context, id domain.
 	if err != nil {
 		return nil, fmt.Errorf("list all sources for activity %s: %w", id, err)
 	}
-	defer rows.Close()
-
-	var out []domain.ActivitySource
-	for rows.Next() {
-		s, err := scanSourceRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan source row: %w", err)
-		}
-		out = append(out, s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate source rows: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanSourceRow, "scan source row", "iterate source rows")
 }
 
 // SaveSource upserts an activity_sources row by ID.
@@ -458,6 +438,15 @@ func (r *ActivityRepo) SaveSource(ctx context.Context, s domain.ActivitySource) 
 		return fmt.Errorf("encode parsed: %w", err)
 	}
 
+	_, err = db.Exec(ctx, sourceSaveSQL, sourceSaveArgs(s, parsedJSON)...)
+	if err != nil {
+		return fmt.Errorf("save source %s: %w", s.ID, err)
+	}
+	return nil
+}
+
+// sourceSaveArgs builds the sourceSaveSQL bind parameters.
+func sourceSaveArgs(s domain.ActivitySource, parsedJSON []byte) []any {
 	var externalAccountParam any
 	if s.ExternalAccountID != nil {
 		externalAccountParam = s.ExternalAccountID.UUID()
@@ -473,7 +462,21 @@ func (r *ActivityRepo) SaveSource(ctx context.Context, s domain.ActivitySource) 
 	// every save so they can never drift from the raw payload.
 	mf := sourceMatchFeatures(s)
 
-	const q = `
+	return []any{
+		s.ID.UUID(), s.ActivityID.UUID(), s.UserID.UUID(),
+		s.Provider, externalAccountParam, s.ExternalID,
+		s.SourceWorkerName, s.SourceWorkerVersion, s.SourceWorkerPackage,
+		s.RawBlobID, s.RawContentType, s.RawSizeBytes,
+		parsedJSON,
+		string(s.Status), s.StatusReason,
+		string(s.ReimportStatus), s.ReimportStatusReason,
+		nullableTime(s.ImportedAt), lastReimportedParam,
+		mf.sportClass, nullableTime(mf.startUTC), mf.distanceM, mf.movingS, mf.elapsedS, mf.startLat, mf.startLng,
+	}
+}
+
+// sourceSaveSQL upserts one activity_sources row by id.
+const sourceSaveSQL = `
 		INSERT INTO activity_sources (
 			id, activity_id, user_id,
 			provider, external_account_id, external_id,
@@ -519,23 +522,6 @@ func (r *ActivityRepo) SaveSource(ctx context.Context, s domain.ActivitySource) 
 			start_lat = COALESCE(EXCLUDED.start_lat, activity_sources.start_lat),
 			start_lng = COALESCE(EXCLUDED.start_lng, activity_sources.start_lng)
 	`
-
-	_, err = db.Exec(ctx, q,
-		s.ID.UUID(), s.ActivityID.UUID(), s.UserID.UUID(),
-		s.Provider, externalAccountParam, s.ExternalID,
-		s.SourceWorkerName, s.SourceWorkerVersion, s.SourceWorkerPackage,
-		s.RawBlobID, s.RawContentType, s.RawSizeBytes,
-		parsedJSON,
-		string(s.Status), s.StatusReason,
-		string(s.ReimportStatus), s.ReimportStatusReason,
-		nullableTime(s.ImportedAt), lastReimportedParam,
-		mf.sportClass, nullableTime(mf.startUTC), mf.distanceM, mf.movingS, mf.elapsedS, mf.startLat, mf.startLng,
-	)
-	if err != nil {
-		return fmt.Errorf("save source %s: %w", s.ID, err)
-	}
-	return nil
-}
 
 // sourceMF is the derived match-feature projection written alongside a source.
 type sourceMF struct {
@@ -586,51 +572,47 @@ func (r *ActivityRepo) ListSourceRecordsInBucket(ctx context.Context, userID dom
 	if err != nil {
 		return nil, fmt.Errorf("list source records in bucket: %w", err)
 	}
-	defer rows.Close()
+	return pgCollectRows(rows, scanSourceMatchRecord, "scan match record", "iterate match records")
+}
 
-	var out []domain.SourceMatchRecord
-	for rows.Next() {
-		var (
-			id, activityID, uid uuid.UUID
-			extAcct             *uuid.UUID
-			provider, extID     string
-			sport               string
-			startUTC            time.Time
-			distanceM           *float64
-			movingS, elapsedS   int64
-			startLat, startLng  *float64
-			status              string
-		)
-		if err := rows.Scan(&id, &activityID, &uid, &provider, &extAcct, &extID,
-			&sport, &startUTC, &distanceM, &movingS, &elapsedS,
-			&startLat, &startLng, &status); err != nil {
-			return nil, fmt.Errorf("scan match record: %w", err)
-		}
-		rec := domain.SourceMatchRecord{
-			SourceID:   domain.SourceID(id),
-			ActivityID: domain.ActivityID(activityID),
-			UserID:     domain.UserID(uid),
-			Provider:   provider,
-			ExternalID: extID,
-			SportClass: sport,
-			StartUTC:   startUTC,
-			DistanceM:  distanceM,
-			MovingS:    movingS,
-			ElapsedS:   elapsedS,
-			StartLat:   startLat,
-			StartLng:   startLng,
-			Status:     domain.SourceStatus(status),
-		}
-		if extAcct != nil {
-			ea := domain.ExternalAccountID(*extAcct)
-			rec.ExternalAccountID = &ea
-		}
-		out = append(out, rec)
+// scanSourceMatchRecord scans one ListSourceRecordsInBucket row.
+func scanSourceMatchRecord(row rowScanner) (domain.SourceMatchRecord, error) {
+	var (
+		id, activityID, uid uuid.UUID
+		extAcct             *uuid.UUID
+		provider, extID     string
+		sport               string
+		startUTC            time.Time
+		distanceM           *float64
+		movingS, elapsedS   int64
+		startLat, startLng  *float64
+		status              string
+	)
+	if err := row.Scan(&id, &activityID, &uid, &provider, &extAcct, &extID,
+		&sport, &startUTC, &distanceM, &movingS, &elapsedS,
+		&startLat, &startLng, &status); err != nil {
+		return domain.SourceMatchRecord{}, err
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate match records: %w", err)
+	rec := domain.SourceMatchRecord{
+		SourceID:   domain.SourceID(id),
+		ActivityID: domain.ActivityID(activityID),
+		UserID:     domain.UserID(uid),
+		Provider:   provider,
+		ExternalID: extID,
+		SportClass: sport,
+		StartUTC:   startUTC,
+		DistanceM:  distanceM,
+		MovingS:    movingS,
+		ElapsedS:   elapsedS,
+		StartLat:   startLat,
+		StartLng:   startLng,
+		Status:     domain.SourceStatus(status),
 	}
-	return out, nil
+	if extAcct != nil {
+		ea := domain.ExternalAccountID(*extAcct)
+		rec.ExternalAccountID = &ea
+	}
+	return rec, nil
 }
 
 // ReassignSource moves a source to a different logical activity.
@@ -932,20 +914,7 @@ func (r *ActivityRepo) ListActivitiesForUser(
 	if err != nil {
 		return nil, fmt.Errorf("list activities for %s: %w", userID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.Activity
-	for rows.Next() {
-		a, err := scanActivityRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan activity row: %w", err)
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate user activities: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanActivityRow, "scan activity row", "iterate user activities")
 }
 
 // ListRecentActivitiesForUser returns the user's newest `limit` activities
@@ -972,20 +941,7 @@ func (r *ActivityRepo) ListRecentActivitiesForUser(
 	if err != nil {
 		return nil, fmt.Errorf("list recent activities for %s: %w", userID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.Activity
-	for rows.Next() {
-		a, err := scanActivityRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan activity row: %w", err)
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate recent activities: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanActivityRow, "scan activity row", "iterate recent activities")
 }
 
 // ListPublicActivitiesForUser returns a user's public, non-hidden activities
@@ -1330,162 +1286,101 @@ type rowScanner interface {
 
 func scanActivityRow(row rowScanner) (domain.Activity, error) {
 	var (
-		id, userID                              uuid.UUID
-		typ                                     string
-		discipline                              *string
-		isVirtual, isEbike, isCommute, isRace   bool
-		customSubtype, title, description       string
-		startTime, endTime                      time.Time
-		elapsedS, movingS                       int64
-		timezone                                string
-		distanceM, elevationGainM               *float64
-		elevationLossM, minElevationM, maxElevM *float64
-		avgSpeed, maxSpeed                      *float64
-		avgHR, maxHR                            *int
-		avgPower, maxPower, normPower           *int
-		avgCadence, maxCadence                  *int
-		avgTemp, minTemp, maxTemp               *float64
-		calories                                *int
-		tss, intensityFactor                    *float64
-		poolLength, totalStrokes                *int
-		provenanceRaw                           []byte
-		primaryStreamSourceID                   *uuid.UUID
-		mergedAt                                time.Time
-		gearID                                  *uuid.UUID
-		tags                                    []string
-		privacy                                 string
-		createdAt, updatedAt                    time.Time
-		deletedAt                               *time.Time
-		startLat, startLng                      *float64
-		startPlace                              *string
-		hiddenByAdmin                           bool
+		a  domain.Activity
+		x  activityScanExtras
+		sm = &a.Summary
 	)
-
 	err := row.Scan(
-		&id, &userID,
-		&typ, &discipline, &isVirtual, &isEbike, &isCommute, &isRace, &customSubtype,
-		&title, &description,
-		&startTime, &endTime, &elapsedS, &movingS, &timezone,
-		&distanceM, &elevationGainM, &elevationLossM, &minElevationM, &maxElevM,
-		&avgSpeed, &maxSpeed,
-		&avgHR, &maxHR,
-		&avgPower, &maxPower, &normPower,
-		&avgCadence, &maxCadence,
-		&avgTemp, &minTemp, &maxTemp,
-		&calories, &tss, &intensityFactor,
-		&poolLength, &totalStrokes,
-		&provenanceRaw,
-		&primaryStreamSourceID,
-		&mergedAt,
-		&gearID, &tags, &privacy,
-		&createdAt, &updatedAt, &deletedAt,
-		&startLat, &startLng, &startPlace,
-		&hiddenByAdmin,
+		&x.id, &x.userID,
+		&x.typ, &x.discipline, &a.IsVirtual, &a.IsEbike, &a.IsCommute, &a.IsRace, &a.CustomSubtype,
+		&a.Title, &a.Description,
+		&a.StartTime, &a.EndTime, &x.elapsedS, &x.movingS, &a.Timezone,
+		&sm.DistanceM, &sm.ElevationGainM, &sm.ElevationLossM, &sm.MinElevationM, &sm.MaxElevationM,
+		&sm.AvgSpeedMps, &sm.MaxSpeedMps,
+		&sm.AvgHeartRateBpm, &sm.MaxHeartRateBpm,
+		&sm.AvgPowerW, &sm.MaxPowerW, &sm.NormalizedPowerW,
+		&sm.AvgCadence, &sm.MaxCadence,
+		&sm.AvgTemperatureC, &sm.MinTemperatureC, &sm.MaxTemperatureC,
+		&sm.CaloriesKcal, &sm.TSS, &sm.IntensityFactor,
+		&sm.PoolLengthM, &sm.TotalStrokes,
+		&x.provenanceRaw,
+		&x.primaryStreamSourceID,
+		&a.MergedAt,
+		&x.gearID, &a.Tags, &x.privacy,
+		&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt,
+		&a.StartLat, &a.StartLng, &x.startPlace,
+		&a.HiddenByAdmin,
 	)
 	if err != nil {
 		return domain.Activity{}, err
 	}
-
-	prov, err := decodeProvenance(provenanceRaw)
-	if err != nil {
+	if err := x.apply(&a); err != nil {
 		return domain.Activity{}, err
-	}
-
-	a := domain.Activity{
-		ID:              domain.ActivityID(id),
-		UserID:          domain.UserID(userID),
-		Type:            domain.ActivityType(typ),
-		IsVirtual:       isVirtual,
-		IsEbike:         isEbike,
-		IsCommute:       isCommute,
-		IsRace:          isRace,
-		CustomSubtype:   customSubtype,
-		Title:           title,
-		Description:     description,
-		StartTime:       startTime,
-		EndTime:         endTime,
-		ElapsedDuration: time.Duration(elapsedS) * time.Second,
-		MovingDuration:  time.Duration(movingS) * time.Second,
-		Timezone:        timezone,
-		Summary: domain.ActivitySummary{
-			DistanceM:        distanceM,
-			ElevationGainM:   elevationGainM,
-			ElevationLossM:   elevationLossM,
-			MinElevationM:    minElevationM,
-			MaxElevationM:    maxElevM,
-			AvgSpeedMps:      avgSpeed,
-			MaxSpeedMps:      maxSpeed,
-			AvgHeartRateBpm:  avgHR,
-			MaxHeartRateBpm:  maxHR,
-			AvgPowerW:        avgPower,
-			MaxPowerW:        maxPower,
-			NormalizedPowerW: normPower,
-			AvgCadence:       avgCadence,
-			MaxCadence:       maxCadence,
-			AvgTemperatureC:  avgTemp,
-			MinTemperatureC:  minTemp,
-			MaxTemperatureC:  maxTemp,
-			CaloriesKcal:     calories,
-			TSS:              tss,
-			IntensityFactor:  intensityFactor,
-			PoolLengthM:      poolLength,
-			TotalStrokes:     totalStrokes,
-		},
-		MergeProvenance: prov,
-		MergedAt:        mergedAt,
-		Tags:            tags,
-		Privacy:         domain.ActivityPrivacy(privacy),
-		CreatedAt:       createdAt,
-		UpdatedAt:       updatedAt,
-		DeletedAt:       deletedAt,
-	}
-	a.StartLat = startLat
-	a.StartLng = startLng
-	a.HiddenByAdmin = hiddenByAdmin
-	if startPlace != nil {
-		a.StartPlace = *startPlace
-	}
-	if discipline != nil {
-		a.Discipline = domain.Discipline(*discipline)
-	}
-	if primaryStreamSourceID != nil {
-		sid := domain.SourceID(*primaryStreamSourceID)
-		a.PrimaryStreamSourceID = &sid
-	}
-	if gearID != nil {
-		gid := domain.GearID(*gearID)
-		a.GearID = &gid
 	}
 	return a, nil
 }
 
+// activityScanExtras holds activity columns that need conversion after Scan.
+type activityScanExtras struct {
+	id, userID            uuid.UUID
+	typ                   string
+	discipline            *string
+	elapsedS, movingS     int64
+	provenanceRaw         []byte
+	primaryStreamSourceID *uuid.UUID
+	gearID                *uuid.UUID
+	privacy               string
+	startPlace            *string
+}
+
+// apply converts the scanned extras onto a.
+func (x *activityScanExtras) apply(a *domain.Activity) error {
+	prov, err := decodeProvenance(x.provenanceRaw)
+	if err != nil {
+		return err
+	}
+	a.ID = domain.ActivityID(x.id)
+	a.UserID = domain.UserID(x.userID)
+	a.Type = domain.ActivityType(x.typ)
+	a.ElapsedDuration = time.Duration(x.elapsedS) * time.Second
+	a.MovingDuration = time.Duration(x.movingS) * time.Second
+	a.MergeProvenance = prov
+	a.Privacy = domain.ActivityPrivacy(x.privacy)
+	if x.startPlace != nil {
+		a.StartPlace = *x.startPlace
+	}
+	if x.discipline != nil {
+		a.Discipline = domain.Discipline(*x.discipline)
+	}
+	if x.primaryStreamSourceID != nil {
+		sid := domain.SourceID(*x.primaryStreamSourceID)
+		a.PrimaryStreamSourceID = &sid
+	}
+	if x.gearID != nil {
+		gid := domain.GearID(*x.gearID)
+		a.GearID = &gid
+	}
+	return nil
+}
+
 func scanSourceRow(row rowScanner) (domain.ActivitySource, error) {
 	var (
+		s                      domain.ActivitySource
 		id, activityID, userID uuid.UUID
-		provider               string
 		externalAccountID      *uuid.UUID
-		externalID             string
-		workerName, workerVer  string
-		workerPackage          string
-		rawBlobID, rawContent  string
-		rawSize                int64
 		parsedRaw              []byte
-		status, statusReason   string
-		reimport, reimportReas string
-		importedAt             time.Time
-		lastReimportedAt       *time.Time
-		updatedAt              time.Time
+		status, reimport       string
 	)
 
 	err := row.Scan(
 		&id, &activityID, &userID,
-		&provider, &externalAccountID, &externalID,
-		&workerName, &workerVer, &workerPackage,
-		&rawBlobID, &rawContent, &rawSize,
+		&s.Provider, &externalAccountID, &s.ExternalID,
+		&s.SourceWorkerName, &s.SourceWorkerVersion, &s.SourceWorkerPackage,
+		&s.RawBlobID, &s.RawContentType, &s.RawSizeBytes,
 		&parsedRaw,
-		&status, &statusReason,
-		&reimport, &reimportReas,
-		&importedAt, &lastReimportedAt, &updatedAt,
+		&status, &s.StatusReason,
+		&reimport, &s.ReimportStatusReason,
+		&s.ImportedAt, &s.LastReimportedAt, &s.UpdatedAt,
 	)
 	if err != nil {
 		return domain.ActivitySource{}, err
@@ -1496,27 +1391,12 @@ func scanSourceRow(row rowScanner) (domain.ActivitySource, error) {
 		return domain.ActivitySource{}, err
 	}
 
-	s := domain.ActivitySource{
-		ID:                   domain.SourceID(id),
-		ActivityID:           domain.ActivityID(activityID),
-		UserID:               domain.UserID(userID),
-		Provider:             provider,
-		ExternalID:           externalID,
-		SourceWorkerName:     workerName,
-		SourceWorkerVersion:  workerVer,
-		SourceWorkerPackage:  workerPackage,
-		RawBlobID:            rawBlobID,
-		RawContentType:       rawContent,
-		RawSizeBytes:         rawSize,
-		Parsed:               parsed,
-		Status:               domain.SourceStatus(status),
-		StatusReason:         statusReason,
-		ReimportStatus:       domain.ReimportStatus(reimport),
-		ReimportStatusReason: reimportReas,
-		ImportedAt:           importedAt,
-		LastReimportedAt:     lastReimportedAt,
-		UpdatedAt:            updatedAt,
-	}
+	s.ID = domain.SourceID(id)
+	s.ActivityID = domain.ActivityID(activityID)
+	s.UserID = domain.UserID(userID)
+	s.Parsed = parsed
+	s.Status = domain.SourceStatus(status)
+	s.ReimportStatus = domain.ReimportStatus(reimport)
 	if externalAccountID != nil {
 		eaID := domain.ExternalAccountID(*externalAccountID)
 		s.ExternalAccountID = &eaID

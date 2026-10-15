@@ -123,27 +123,32 @@ func activityLapsFromProto(laps []*cairnv1.ActivityLap, activityStart time.Time)
 		if ts := l.GetStartTime(); ts != nil && !activityStart.IsZero() {
 			lap.StartOffset = ts.AsTime().Sub(activityStart)
 		}
-		if l.DistanceM != nil {
-			lap.DistanceM = domain.Ptr(l.GetDistanceM())
-		}
-		if l.AvgSpeedMps != nil {
-			lap.AvgSpeedMps = domain.Ptr(l.GetAvgSpeedMps())
-		}
-		if l.AvgHeartRateBpm != nil {
-			lap.AvgHeartRateBpm = domain.Ptr(int(l.GetAvgHeartRateBpm()))
-		}
-		if l.AvgPowerW != nil {
-			lap.AvgPowerW = domain.Ptr(int(l.GetAvgPowerW()))
-		}
-		if l.AvgCadence != nil {
-			lap.AvgCadence = domain.Ptr(int(l.GetAvgCadence()))
-		}
-		if l.ElevationGainM != nil {
-			lap.ElevationGainM = domain.Ptr(l.GetElevationGainM())
-		}
+		activityLapMetricsFromProto(l, &lap)
 		out = append(out, lap)
 	}
 	return out
+}
+
+// activityLapMetricsFromProto copies the optional per-lap metrics.
+func activityLapMetricsFromProto(l *cairnv1.ActivityLap, lap *domain.ActivityLap) {
+	if l.DistanceM != nil {
+		lap.DistanceM = domain.Ptr(l.GetDistanceM())
+	}
+	if l.AvgSpeedMps != nil {
+		lap.AvgSpeedMps = domain.Ptr(l.GetAvgSpeedMps())
+	}
+	if l.AvgHeartRateBpm != nil {
+		lap.AvgHeartRateBpm = domain.Ptr(int(l.GetAvgHeartRateBpm()))
+	}
+	if l.AvgPowerW != nil {
+		lap.AvgPowerW = domain.Ptr(int(l.GetAvgPowerW()))
+	}
+	if l.AvgCadence != nil {
+		lap.AvgCadence = domain.Ptr(int(l.GetAvgCadence()))
+	}
+	if l.ElevationGainM != nil {
+		lap.ElevationGainM = domain.Ptr(l.GetElevationGainM())
+	}
 }
 
 func activitySummaryFromProto(s *cairnv1.ActivitySummary) domain.ActivitySummary {
@@ -246,6 +251,6 @@ func i32At16(col []int32, i int) *int16 {
 	if i >= len(col) {
 		return nil
 	}
-	v := int16(col[i])
+	v := int16(min(max(col[i], math.MinInt16), math.MaxInt16))
 	return &v
 }

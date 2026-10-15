@@ -16,8 +16,6 @@ import (
 // produced MergedAt values are reproducible.
 var fixedNow = time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 
-func now() time.Time { return fixedNow }
-
 // makeUserID and makeSourceID generate deterministic UUIDs from a string
 // seed so tests can assert specific ID values in the provenance map.
 func makeUserID(seed string) UserID {
@@ -72,13 +70,8 @@ func makeStravaRide(idSeed string, userID UserID, activityID ActivityID, importO
 }
 
 // makeGarminRide returns a Garmin ride source with high-fidelity power data.
-// distanceOverride lets the caller produce sources that disagree on distance
-// (testing the per-field-group winner picker).
-func makeGarminRide(idSeed string, userID UserID, activityID ActivityID, importOffset time.Duration, distanceOverride *float64) ActivitySource {
+func makeGarminRide(idSeed string, userID UserID, activityID ActivityID, importOffset time.Duration) ActivitySource {
 	dist := 30050.0 // slight disagreement with Strava — Garmin's GPS is more granular
-	if distanceOverride != nil {
-		dist = *distanceOverride
-	}
 	return ActivitySource{
 		ID:         makeSourceID(idSeed),
 		ActivityID: activityID,
@@ -128,7 +121,7 @@ func TestMerge_RideGarminWinsPower_StravaWinsTitle(t *testing.T) {
 	// Strava imported 1 hour earlier than Garmin (recency does NOT decide
 	// the per-field-group winner — the policy does).
 	strava := makeStravaRide("s1", user, actID, -1*time.Hour)
-	garmin := makeGarminRide("g1", user, actID, 0, nil)
+	garmin := makeGarminRide("g1", user, actID, 0)
 
 	resolver := func(t ActivityType) MergePolicy {
 		return testMergePolicyFor(t)
@@ -180,7 +173,7 @@ func TestMerge_AnyProvider_PicksUnnamedSource(t *testing.T) {
 	user := makeUserID("alice")
 	actID := makeActivityID("ride2")
 
-	garmin := makeGarminRide("g1", user, actID, -2*time.Hour, nil)
+	garmin := makeGarminRide("g1", user, actID, -2*time.Hour)
 	// Garmin's Power is nilled out — simulates Garmin source w/o power meter.
 	garmin.Parsed.Summary.AvgPowerW = nil
 	garmin.Parsed.Summary.MaxPowerW = nil
@@ -228,7 +221,7 @@ func TestMerge_Idempotent(t *testing.T) {
 	user := makeUserID("alice")
 	actID := makeActivityID("ride3")
 	strava := makeStravaRide("s1", user, actID, -1*time.Hour)
-	garmin := makeGarminRide("g1", user, actID, 0, nil)
+	garmin := makeGarminRide("g1", user, actID, 0)
 	resolver := func(t ActivityType) MergePolicy { return testMergePolicyFor(t) }
 
 	first, err := Merge(actID, []ActivitySource{strava, garmin}, resolver, fixedNow)
@@ -266,7 +259,7 @@ func TestMerge_InputOrderIndependent(t *testing.T) {
 	user := makeUserID("alice")
 	actID := makeActivityID("ride4")
 	strava := makeStravaRide("s1", user, actID, -1*time.Hour)
-	garmin := makeGarminRide("g1", user, actID, 0, nil)
+	garmin := makeGarminRide("g1", user, actID, 0)
 	resolver := func(t ActivityType) MergePolicy { return testMergePolicyFor(t) }
 
 	a, err := Merge(actID, []ActivitySource{strava, garmin}, resolver, fixedNow)
@@ -333,7 +326,7 @@ func TestMerge_DerivesEndTimeWhenMissing(t *testing.T) {
 	// (set EndTime to zero) — the merge engine should derive it.
 	user := makeUserID("alice")
 	actID := makeActivityID("ride7")
-	src := makeGarminRide("g1", user, actID, 0, nil)
+	src := makeGarminRide("g1", user, actID, 0)
 	src.Parsed.EndTime = time.Time{} // not provided
 
 	resolver := func(t ActivityType) MergePolicy { return testMergePolicyFor(t) }
@@ -354,7 +347,7 @@ func TestMerge_PrimaryStreamSourceIDIsWinner(t *testing.T) {
 	user := makeUserID("alice")
 	actID := makeActivityID("ride8")
 
-	garmin := makeGarminRide("g1", user, actID, 0, nil)
+	garmin := makeGarminRide("g1", user, actID, 0)
 	garmin.Parsed.HasStream = true
 	strava := makeStravaRide("s1", user, actID, 0)
 	strava.Parsed.HasStream = true

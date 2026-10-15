@@ -51,7 +51,7 @@ func mergePolicyJSONFrom(p domain.MergePolicy) mergePolicyJSON {
 	return j
 }
 
-func policiesToJSON(policies map[domain.ActivityType]domain.MergePolicy) (map[string]mergePolicyJSON, error) {
+func policiesToJSON(policies map[domain.ActivityType]domain.MergePolicy) map[string]mergePolicyJSON {
 	out := make(map[string]mergePolicyJSON, len(policies))
 	for t, p := range policies {
 		if len(p.DefaultPriority) == 0 && len(p.Overrides) == 0 {
@@ -59,7 +59,7 @@ func policiesToJSON(policies map[domain.ActivityType]domain.MergePolicy) (map[st
 		}
 		out[string(t)] = mergePolicyJSONFrom(p)
 	}
-	return out, nil
+	return out
 }
 
 func policiesFromJSON(raw []byte) (map[domain.ActivityType]domain.MergePolicy, error) {
@@ -159,7 +159,7 @@ func (r *UserSettingsRepo) GetAllMergePolicies(ctx context.Context, userID domai
 // SetMergePolicies replaces the user's full per-type policy map (upsert).
 func (r *UserSettingsRepo) SetMergePolicies(ctx context.Context, userID domain.UserID, policies map[domain.ActivityType]domain.MergePolicy) error {
 	db := dbtx(ctx, r.pool)
-	j, _ := policiesToJSON(policies)
+	j := policiesToJSON(policies)
 	raw, err := json.Marshal(j)
 	if err != nil {
 		return fmt.Errorf("marshal merge policies: %w", err)
@@ -193,7 +193,7 @@ func (r *UserSettingsRepo) GetInstanceMergeDefaults(ctx context.Context) (map[do
 // SetInstanceMergeDefaults replaces the instance-wide defaults.
 func (r *UserSettingsRepo) SetInstanceMergeDefaults(ctx context.Context, policies map[domain.ActivityType]domain.MergePolicy) error {
 	db := dbtx(ctx, r.pool)
-	j, _ := policiesToJSON(policies)
+	j := policiesToJSON(policies)
 	raw, err := json.Marshal(j)
 	if err != nil {
 		return fmt.Errorf("marshal instance merge defaults: %w", err)

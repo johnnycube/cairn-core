@@ -22,21 +22,21 @@ func mkSamples(points []GeoPoint) []StreamSample {
 	return out
 }
 
-// northTrack returns n points heading due north from (lat, lon), stepM
+// northTrack returns n points heading due north from (47, 8), stepM
 // meters apart. 1° latitude ≈ 111,320 m.
-func northTrack(lat, lon float64, n int, stepM float64) []GeoPoint {
+func northTrack(n int, stepM float64) []GeoPoint {
 	const mPerDegLat = 111320.0
 	out := make([]GeoPoint, n)
 	for i := range out {
-		out[i] = GeoPoint{Lat: lat + float64(i)*stepM/mPerDegLat, Lon: lon}
+		out[i] = GeoPoint{Lat: 47.0 + float64(i)*stepM/mPerDegLat, Lon: 8.0}
 	}
 	return out
 }
 
 func TestMatchSegment_DensePolyline(t *testing.T) {
 	// 500 m straight segment with a vertex every 25 m; stream samples every 20 m.
-	poly := northTrack(47.0, 8.0, 21, 25)
-	samples := mkSamples(northTrack(47.0, 8.0, 26, 20))
+	poly := northTrack(21, 25)
+	samples := mkSamples(northTrack(26, 20))
 
 	matches := MatchSegment(samples, poly, DefaultMatchTolerances())
 	if len(matches) != 1 {
@@ -52,7 +52,7 @@ func TestMatchSegment_SparsePolyline_MidEdgeSamplesStayInCorridor(t *testing.T) 
 	// >200 m from both vertices but exactly ON the segment. Vertex-distance
 	// corridor logic would abort this; edge-distance must match it.
 	poly := []GeoPoint{{Lat: 47.0, Lon: 8.0}, {Lat: 47.0 + 500.0/111320.0, Lon: 8.0}}
-	samples := mkSamples(northTrack(47.0, 8.0, 26, 20))
+	samples := mkSamples(northTrack(26, 20))
 
 	matches := MatchSegment(samples, poly, DefaultMatchTolerances())
 	if len(matches) != 1 {
@@ -63,11 +63,11 @@ func TestMatchSegment_SparsePolyline_MidEdgeSamplesStayInCorridor(t *testing.T) 
 func TestMatchSegment_VeersOffCorridor_NoMatch(t *testing.T) {
 	// Stream starts on the segment but veers 90° east after 100 m; the
 	// sustained off-corridor drift must abort the match.
-	poly := northTrack(47.0, 8.0, 21, 25)
+	poly := northTrack(21, 25)
 	const mPerDegLat = 111320.0
 	mPerDegLon := mPerDegLat * math.Cos(47.0*math.Pi/180)
 
-	pts := northTrack(47.0, 8.0, 6, 20) // first 100 m on-segment
+	pts := northTrack(6, 20) // first 100 m on-segment
 	last := pts[len(pts)-1]
 	for i := 1; i <= 20; i++ { // then due east, 20 m steps
 		pts = append(pts, GeoPoint{Lat: last.Lat, Lon: last.Lon + float64(i)*20/mPerDegLon})
@@ -81,8 +81,8 @@ func TestMatchSegment_VeersOffCorridor_NoMatch(t *testing.T) {
 func TestMatchSegment_StopsShortOfEnd_NoMatch(t *testing.T) {
 	// Stream covers only the first 300 m of a 500 m segment — never reaches
 	// the end vertex, so no effort may be emitted.
-	poly := northTrack(47.0, 8.0, 21, 25)
-	samples := mkSamples(northTrack(47.0, 8.0, 16, 20)) // 300 m
+	poly := northTrack(21, 25)
+	samples := mkSamples(northTrack(16, 20)) // 300 m
 
 	matches := MatchSegment(samples, poly, DefaultMatchTolerances())
 	if len(matches) != 0 {
@@ -93,11 +93,11 @@ func TestMatchSegment_StopsShortOfEnd_NoMatch(t *testing.T) {
 func TestMatchSegment_RepeatTraversals(t *testing.T) {
 	// Hill repeats: ride the segment, loop back far off-corridor, ride it
 	// again → two distinct efforts.
-	poly := northTrack(47.0, 8.0, 21, 25)
+	poly := northTrack(21, 25)
 	const mPerDegLat = 111320.0
 	mPerDegLon := mPerDegLat * math.Cos(47.0*math.Pi/180)
 
-	up := northTrack(47.0, 8.0, 26, 20)
+	up := northTrack(26, 20)
 	var back []GeoPoint
 	for i := 25; i >= 0; i-- { // return leg 100 m east of the segment
 		back = append(back, GeoPoint{Lat: up[i].Lat, Lon: up[i].Lon + 100/mPerDegLon})
