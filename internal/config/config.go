@@ -26,7 +26,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/sethvargo/go-envconfig"
+	"github.com/sethvargo/go-envconfig/v2"
 )
 
 // EnvPrefix is the shared prefix for every Cairn environment variable.
