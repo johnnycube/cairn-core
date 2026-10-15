@@ -6,6 +6,10 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-15
+
+Supersedes v0.2.7, which was withdrawn; its changes are included here.
+
 ### Changed
 - The Go server moved to connect-go v2 (`connectrpc.com/connect/v2`). The wire
   protocol is unchanged, so the web app and other Connect, gRPC and gRPC-Web
@@ -20,18 +24,6 @@ All notable changes to Cairn are documented here. The format follows
   `$app/tsconfig`; the `$lib` and `$proto` aliases are replaced by the
   `#lib/*` subpath import in `web/package.json` (proto stubs are imported
   from `#lib/proto/...`). The embedded SPA and the dev workflow are unchanged.
-
-### Fixed
-- The worker permission template now matches the provider contract, so
-  workers under NATS auth are no longer refused: fetch_source consumers use
-  the exact `cairn.jobs.fetch_source.<provider>` subject core publishes (the
-  `.>` filter matched nothing), and the template adds `import_metrics` jobs and
-  results, account-suffixed reconcile results, `fetch_source` sub-job
-  enqueues, `cairn.creds.<provider>.get` and serving `cairn.discover.<provider>`.
-
-## [0.2.7] — 2026-10-15
-
-### Changed
 - **Breaking:** configuration is read only from `CAIRN_`-prefixed variables.
   Previously a missing `CAIRN_*` variable fell back to the bare name, so host
   variables such as `URL`, `USERNAME`, `PASSWORD` or `SESSION_SECRET` could
@@ -77,6 +69,12 @@ All notable changes to Cairn are documented here. The format follows
   turned into an off-site redirect (`/\evil.com`, `/<TAB>/evil.com`).
 
 ### Fixed
+- The worker permission template now matches the provider contract, so
+  workers under NATS auth are no longer refused: fetch_source consumers use
+  the exact `cairn.jobs.fetch_source.<provider>` subject core publishes (the
+  `.>` filter matched nothing), and the template adds `import_metrics` jobs and
+  results, account-suffixed reconcile results, `fetch_source` sub-job
+  enqueues, `cairn.creds.<provider>.get` and serving `cairn.discover.<provider>`.
 - Publishing to a subject outside any JetStream stream that has a core NATS
   subscriber no longer waits five seconds for an ack and delivers the message
   twice on retry. The bus looks up whether a stream covers the subject,
@@ -307,7 +305,7 @@ workers ([cairn-provider-strava], [cairn-provider-garmin]).
 
 Initial development (internal pre-release iterations v0.1.0–v0.1.12).
 
-[0.2.7]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.7
+[0.3.0]: https://github.com/johnnycube/cairn-core/releases/tag/v0.3.0
 [0.2.6]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.6
 [0.2.5]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.5
 [0.2.4]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.4
