@@ -67,7 +67,7 @@ ARG COMMIT=
 # Static, stripped, CGO-free → runs on distroless/static. -tags embedweb makes
 # the one binary serve the SPA too.
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -tags embedweb \
+    -trimpath -tags embedweb \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o /out/cairn ./cmd/server
 
@@ -76,7 +76,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # user (uid 65532) and NO shell/package manager — minimal attack surface.
 # (tzdata is also embedded via time/tzdata, so quiet-hours parsing works even
 # on a scratch-like base.)
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 COPY --from=build /out/cairn /usr/local/bin/cairn
 
