@@ -46,7 +46,7 @@ FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595
 #   NODE_VERSION              matches web/.nvmrc
 #   *_SHA256                  linux-amd64 artifact checksums; bump together with the version
 #   PROTOC_GEN_GO             = google.golang.org/protobuf in go.mod
-#   PROTOC_GEN_CONNECT_GO     = connectrpc.com/connect in go.mod
+#   PROTOC_GEN_CONNECT_GO     = connectrpc.com/connect/v2 in go.mod (v2 plugin lives in the /v2 module)
 #   PROTOC_GEN_OPENAPIV2      = grpc-ecosystem/grpc-gateway (verify/pin)
 #   PROTOC_GEN_ES             ~ @bufbuild/protobuf in web/package.json
 #   PROTOC_VERSION            protoc → "Protobuf Python Version: 7.35.1" (matches committed pb2 stubs)
@@ -58,7 +58,7 @@ ARG BUF_SHA256=8f2986298ad08f0cc1bf999b9797b7c383adf32d7edf0f73d6f1e1a701baeac1
 ARG NODE_VERSION=24.21.0
 ARG NODE_SHA256=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
 ARG PROTOC_GEN_GO=v1.36.12
-ARG PROTOC_GEN_CONNECT_GO=v1.21.0
+ARG PROTOC_GEN_CONNECT_GO=v2.0.1
 ARG PROTOC_GEN_OPENAPIV2=v2.31.0
 ARG PROTOC_GEN_ES=2.12.0
 ARG PROTOC_VERSION=35.1
@@ -111,7 +111,7 @@ RUN curl -fsSL \
 #     api/proto/buf.gen.yaml — buf finds them on PATH) -----------------------
 # Go: message types, Connect-Go handlers/clients, OpenAPI v3
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO} \
- && go install connectrpc.com/connect/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO} \
+ && go install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO} \
  && go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@${PROTOC_GEN_OPENAPIV2} \
  && go clean -cache -modcache
 # The plugin binaries land in /go/bin (kept); the module + build caches that
