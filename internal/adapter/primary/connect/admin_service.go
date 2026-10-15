@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
 	"github.com/johnnycube/cairn-core/gen/proto/cairn/v1/cairnv1connect"
@@ -45,11 +45,11 @@ func NewAdminServer(users port.UserRepo, providers []domain.OIDCProvider) *Admin
 
 func (s *AdminServer) ListUsers(
 	ctx context.Context,
-	req *connectrpc.Request[v1.ListUsersRequest],
-) (*connectrpc.Response[v1.ListUsersResponse], error) {
-	limit, _ := pageFrom(req.Msg.GetPage())
+	req *v1.ListUsersRequest,
+) (*v1.ListUsersResponse, error) {
+	limit, _ := pageFrom(req.GetPage())
 	cursor := ""
-	if p := req.Msg.GetPage(); p != nil {
+	if p := req.GetPage(); p != nil {
 		cursor = p.GetCursor()
 	}
 
@@ -58,7 +58,7 @@ func (s *AdminServer) ListUsers(
 		PageSize: limit,
 	})
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list users: %w", err))
 	}
 
@@ -73,7 +73,7 @@ func (s *AdminServer) ListUsers(
 		// allows it.
 		out.Users = append(out.Users, &v1.AdminUserSummary{User: userToProto(u)})
 	}
-	return connectrpc.NewResponse(out), nil
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -82,13 +82,13 @@ func (s *AdminServer) ListUsers(
 
 func (s *AdminServer) ListOIDCClients(
 	ctx context.Context,
-	req *connectrpc.Request[v1.ListOIDCClientsRequest],
-) (*connectrpc.Response[v1.ListOIDCClientsResponse], error) {
+	req *v1.ListOIDCClientsRequest,
+) (*v1.ListOIDCClientsResponse, error) {
 	out := &v1.ListOIDCClientsResponse{}
 	for _, p := range s.OIDCProviders {
 		out.Clients = append(out.Clients, oidcProviderToProto(p))
 	}
-	return connectrpc.NewResponse(out), nil
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------

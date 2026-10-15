@@ -22,20 +22,11 @@
 package cairnv1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// MetricsServiceName is the fully-qualified name of the MetricsService service.
@@ -44,416 +35,475 @@ const (
 	SettingsServiceName = "cairn.v1.SettingsService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MetricsServiceListMetricsProcedure is the fully-qualified name of the MetricsService's
-	// ListMetrics RPC.
+	// MetricsServiceListMetricsProcedure is the procedure name of the MetricsService's ListMetrics RPC.
 	MetricsServiceListMetricsProcedure = "/cairn.v1.MetricsService/ListMetrics"
-	// MetricsServiceGetLatestMetricsProcedure is the fully-qualified name of the MetricsService's
+	// MetricsServiceGetLatestMetricsProcedure is the procedure name of the MetricsService's
 	// GetLatestMetrics RPC.
 	MetricsServiceGetLatestMetricsProcedure = "/cairn.v1.MetricsService/GetLatestMetrics"
-	// MetricsServiceQueryMetricSeriesProcedure is the fully-qualified name of the MetricsService's
+	// MetricsServiceQueryMetricSeriesProcedure is the procedure name of the MetricsService's
 	// QueryMetricSeries RPC.
 	MetricsServiceQueryMetricSeriesProcedure = "/cairn.v1.MetricsService/QueryMetricSeries"
-	// MetricsServiceUpsertMetricProcedure is the fully-qualified name of the MetricsService's
-	// UpsertMetric RPC.
+	// MetricsServiceUpsertMetricProcedure is the procedure name of the MetricsService's UpsertMetric
+	// RPC.
 	MetricsServiceUpsertMetricProcedure = "/cairn.v1.MetricsService/UpsertMetric"
-	// MetricsServiceDeleteMetricProcedure is the fully-qualified name of the MetricsService's
-	// DeleteMetric RPC.
+	// MetricsServiceDeleteMetricProcedure is the procedure name of the MetricsService's DeleteMetric
+	// RPC.
 	MetricsServiceDeleteMetricProcedure = "/cairn.v1.MetricsService/DeleteMetric"
-	// MetricsServiceBulkUpsertMetricsProcedure is the fully-qualified name of the MetricsService's
+	// MetricsServiceBulkUpsertMetricsProcedure is the procedure name of the MetricsService's
 	// BulkUpsertMetrics RPC.
 	MetricsServiceBulkUpsertMetricsProcedure = "/cairn.v1.MetricsService/BulkUpsertMetrics"
-	// MetricsServiceGetUserContextProcedure is the fully-qualified name of the MetricsService's
+	// MetricsServiceGetUserContextProcedure is the procedure name of the MetricsService's
 	// GetUserContext RPC.
 	MetricsServiceGetUserContextProcedure = "/cairn.v1.MetricsService/GetUserContext"
-	// SettingsServiceGetSettingsProcedure is the fully-qualified name of the SettingsService's
-	// GetSettings RPC.
+	// SettingsServiceGetSettingsProcedure is the procedure name of the SettingsService's GetSettings
+	// RPC.
 	SettingsServiceGetSettingsProcedure = "/cairn.v1.SettingsService/GetSettings"
-	// SettingsServiceUpdateSettingsProcedure is the fully-qualified name of the SettingsService's
+	// SettingsServiceUpdateSettingsProcedure is the procedure name of the SettingsService's
 	// UpdateSettings RPC.
 	SettingsServiceUpdateSettingsProcedure = "/cairn.v1.SettingsService/UpdateSettings"
-	// SettingsServiceResetSettingsSectionProcedure is the fully-qualified name of the SettingsService's
+	// SettingsServiceResetSettingsSectionProcedure is the procedure name of the SettingsService's
 	// ResetSettingsSection RPC.
 	SettingsServiceResetSettingsSectionProcedure = "/cairn.v1.SettingsService/ResetSettingsSection"
+)
+
+var (
+	metricsServiceListMetricsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("ListMetrics"),
+			Procedure:  MetricsServiceListMetricsProcedure,
+		}
+	})
+	metricsServiceGetLatestMetricsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("GetLatestMetrics"),
+			Procedure:  MetricsServiceGetLatestMetricsProcedure,
+		}
+	})
+	metricsServiceQueryMetricSeriesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("QueryMetricSeries"),
+			Procedure:  MetricsServiceQueryMetricSeriesProcedure,
+		}
+	})
+	metricsServiceUpsertMetricSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("UpsertMetric"),
+			Procedure:  MetricsServiceUpsertMetricProcedure,
+		}
+	})
+	metricsServiceDeleteMetricSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("DeleteMetric"),
+			Procedure:  MetricsServiceDeleteMetricProcedure,
+		}
+	})
+	metricsServiceBulkUpsertMetricsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("BulkUpsertMetrics"),
+			Procedure:  MetricsServiceBulkUpsertMetricsProcedure,
+		}
+	})
+	metricsServiceGetUserContextSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods().ByName("GetUserContext"),
+			Procedure:  MetricsServiceGetUserContextProcedure,
+		}
+	})
 )
 
 // MetricsServiceClient is a client for the cairn.v1.MetricsService service.
 type MetricsServiceClient interface {
 	// List metrics with filtering. Default sort newest first.
-	ListMetrics(context.Context, *connect.Request[v1.ListMetricsRequest]) (*connect.Response[v1.ListMetricsResponse], error)
+	ListMetrics(context.Context, *v1.ListMetricsRequest) (*v1.ListMetricsResponse, error)
 	// Get the latest value for each requested key. Optimized for the
 	// dashboard ("current weight: 78.3 kg, last measured 2 days ago").
-	GetLatestMetrics(context.Context, *connect.Request[v1.GetLatestMetricsRequest]) (*connect.Response[v1.GetLatestMetricsResponse], error)
+	GetLatestMetrics(context.Context, *v1.GetLatestMetricsRequest) (*v1.GetLatestMetricsResponse, error)
 	// Time-series query for charting. Server applies downsampling for long
 	// ranges; clients indicate desired bucket size.
-	QueryMetricSeries(context.Context, *connect.Request[v1.QueryMetricSeriesRequest]) (*connect.Response[v1.QueryMetricSeriesResponse], error)
+	QueryMetricSeries(context.Context, *v1.QueryMetricSeriesRequest) (*v1.QueryMetricSeriesResponse, error)
 	// Manual entry / edit.
-	UpsertMetric(context.Context, *connect.Request[v1.UpsertMetricRequest]) (*connect.Response[v1.UpsertMetricResponse], error)
-	DeleteMetric(context.Context, *connect.Request[v1.DeleteMetricRequest]) (*connect.Response[v1.DeleteMetricResponse], error)
+	UpsertMetric(context.Context, *v1.UpsertMetricRequest) (*v1.UpsertMetricResponse, error)
+	DeleteMetric(context.Context, *v1.DeleteMetricRequest) (*v1.DeleteMetricResponse, error)
 	// Bulk manual entry (CSV import etc).
-	BulkUpsertMetrics(context.Context, *connect.Request[v1.BulkUpsertMetricsRequest]) (*connect.Response[v1.BulkUpsertMetricsResponse], error)
+	BulkUpsertMetrics(context.Context, *v1.BulkUpsertMetricsRequest) (*v1.BulkUpsertMetricsResponse, error)
 	// Get the current training-context the domain assembles for the user:
 	// settings + latest metric values needed for TSS/CTL/ATL/TSB computation.
-	GetUserContext(context.Context, *connect.Request[v1.GetUserContextRequest]) (*connect.Response[v1.GetUserContextResponse], error)
+	GetUserContext(context.Context, *v1.GetUserContextRequest) (*v1.GetUserContextResponse, error)
 }
 
-// NewMetricsServiceClient constructs a client for the cairn.v1.MetricsService service. By default,
-// it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and
-// sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC()
-// or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewMetricsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MetricsServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	metricsServiceMethods := v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods()
-	return &metricsServiceClient{
-		listMetrics: connect.NewClient[v1.ListMetricsRequest, v1.ListMetricsResponse](
-			httpClient,
-			baseURL+MetricsServiceListMetricsProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("ListMetrics")),
-			connect.WithClientOptions(opts...),
-		),
-		getLatestMetrics: connect.NewClient[v1.GetLatestMetricsRequest, v1.GetLatestMetricsResponse](
-			httpClient,
-			baseURL+MetricsServiceGetLatestMetricsProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("GetLatestMetrics")),
-			connect.WithClientOptions(opts...),
-		),
-		queryMetricSeries: connect.NewClient[v1.QueryMetricSeriesRequest, v1.QueryMetricSeriesResponse](
-			httpClient,
-			baseURL+MetricsServiceQueryMetricSeriesProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("QueryMetricSeries")),
-			connect.WithClientOptions(opts...),
-		),
-		upsertMetric: connect.NewClient[v1.UpsertMetricRequest, v1.UpsertMetricResponse](
-			httpClient,
-			baseURL+MetricsServiceUpsertMetricProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("UpsertMetric")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteMetric: connect.NewClient[v1.DeleteMetricRequest, v1.DeleteMetricResponse](
-			httpClient,
-			baseURL+MetricsServiceDeleteMetricProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("DeleteMetric")),
-			connect.WithClientOptions(opts...),
-		),
-		bulkUpsertMetrics: connect.NewClient[v1.BulkUpsertMetricsRequest, v1.BulkUpsertMetricsResponse](
-			httpClient,
-			baseURL+MetricsServiceBulkUpsertMetricsProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("BulkUpsertMetrics")),
-			connect.WithClientOptions(opts...),
-		),
-		getUserContext: connect.NewClient[v1.GetUserContextRequest, v1.GetUserContextResponse](
-			httpClient,
-			baseURL+MetricsServiceGetUserContextProcedure,
-			connect.WithSchema(metricsServiceMethods.ByName("GetUserContext")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// metricsServiceClient implements MetricsServiceClient.
-type metricsServiceClient struct {
-	listMetrics       *connect.Client[v1.ListMetricsRequest, v1.ListMetricsResponse]
-	getLatestMetrics  *connect.Client[v1.GetLatestMetricsRequest, v1.GetLatestMetricsResponse]
-	queryMetricSeries *connect.Client[v1.QueryMetricSeriesRequest, v1.QueryMetricSeriesResponse]
-	upsertMetric      *connect.Client[v1.UpsertMetricRequest, v1.UpsertMetricResponse]
-	deleteMetric      *connect.Client[v1.DeleteMetricRequest, v1.DeleteMetricResponse]
-	bulkUpsertMetrics *connect.Client[v1.BulkUpsertMetricsRequest, v1.BulkUpsertMetricsResponse]
-	getUserContext    *connect.Client[v1.GetUserContextRequest, v1.GetUserContextResponse]
-}
-
-// ListMetrics calls cairn.v1.MetricsService.ListMetrics.
-func (c *metricsServiceClient) ListMetrics(ctx context.Context, req *connect.Request[v1.ListMetricsRequest]) (*connect.Response[v1.ListMetricsResponse], error) {
-	return c.listMetrics.CallUnary(ctx, req)
-}
-
-// GetLatestMetrics calls cairn.v1.MetricsService.GetLatestMetrics.
-func (c *metricsServiceClient) GetLatestMetrics(ctx context.Context, req *connect.Request[v1.GetLatestMetricsRequest]) (*connect.Response[v1.GetLatestMetricsResponse], error) {
-	return c.getLatestMetrics.CallUnary(ctx, req)
-}
-
-// QueryMetricSeries calls cairn.v1.MetricsService.QueryMetricSeries.
-func (c *metricsServiceClient) QueryMetricSeries(ctx context.Context, req *connect.Request[v1.QueryMetricSeriesRequest]) (*connect.Response[v1.QueryMetricSeriesResponse], error) {
-	return c.queryMetricSeries.CallUnary(ctx, req)
-}
-
-// UpsertMetric calls cairn.v1.MetricsService.UpsertMetric.
-func (c *metricsServiceClient) UpsertMetric(ctx context.Context, req *connect.Request[v1.UpsertMetricRequest]) (*connect.Response[v1.UpsertMetricResponse], error) {
-	return c.upsertMetric.CallUnary(ctx, req)
-}
-
-// DeleteMetric calls cairn.v1.MetricsService.DeleteMetric.
-func (c *metricsServiceClient) DeleteMetric(ctx context.Context, req *connect.Request[v1.DeleteMetricRequest]) (*connect.Response[v1.DeleteMetricResponse], error) {
-	return c.deleteMetric.CallUnary(ctx, req)
-}
-
-// BulkUpsertMetrics calls cairn.v1.MetricsService.BulkUpsertMetrics.
-func (c *metricsServiceClient) BulkUpsertMetrics(ctx context.Context, req *connect.Request[v1.BulkUpsertMetricsRequest]) (*connect.Response[v1.BulkUpsertMetricsResponse], error) {
-	return c.bulkUpsertMetrics.CallUnary(ctx, req)
-}
-
-// GetUserContext calls cairn.v1.MetricsService.GetUserContext.
-func (c *metricsServiceClient) GetUserContext(ctx context.Context, req *connect.Request[v1.GetUserContextRequest]) (*connect.Response[v1.GetUserContextResponse], error) {
-	return c.getUserContext.CallUnary(ctx, req)
+// NewMetricsServiceClient constructs a client for the cairn.v1.MetricsService service. Multiple
+// service clients may share a single connect.Client.
+func NewMetricsServiceClient(client *connect.Client) MetricsServiceClient {
+	return &metricsServiceClient{client: client}
 }
 
 // MetricsServiceHandler is an implementation of the cairn.v1.MetricsService service.
 type MetricsServiceHandler interface {
 	// List metrics with filtering. Default sort newest first.
-	ListMetrics(context.Context, *connect.Request[v1.ListMetricsRequest]) (*connect.Response[v1.ListMetricsResponse], error)
+	ListMetrics(context.Context, *v1.ListMetricsRequest) (*v1.ListMetricsResponse, error)
 	// Get the latest value for each requested key. Optimized for the
 	// dashboard ("current weight: 78.3 kg, last measured 2 days ago").
-	GetLatestMetrics(context.Context, *connect.Request[v1.GetLatestMetricsRequest]) (*connect.Response[v1.GetLatestMetricsResponse], error)
+	GetLatestMetrics(context.Context, *v1.GetLatestMetricsRequest) (*v1.GetLatestMetricsResponse, error)
 	// Time-series query for charting. Server applies downsampling for long
 	// ranges; clients indicate desired bucket size.
-	QueryMetricSeries(context.Context, *connect.Request[v1.QueryMetricSeriesRequest]) (*connect.Response[v1.QueryMetricSeriesResponse], error)
+	QueryMetricSeries(context.Context, *v1.QueryMetricSeriesRequest) (*v1.QueryMetricSeriesResponse, error)
 	// Manual entry / edit.
-	UpsertMetric(context.Context, *connect.Request[v1.UpsertMetricRequest]) (*connect.Response[v1.UpsertMetricResponse], error)
-	DeleteMetric(context.Context, *connect.Request[v1.DeleteMetricRequest]) (*connect.Response[v1.DeleteMetricResponse], error)
+	UpsertMetric(context.Context, *v1.UpsertMetricRequest) (*v1.UpsertMetricResponse, error)
+	DeleteMetric(context.Context, *v1.DeleteMetricRequest) (*v1.DeleteMetricResponse, error)
 	// Bulk manual entry (CSV import etc).
-	BulkUpsertMetrics(context.Context, *connect.Request[v1.BulkUpsertMetricsRequest]) (*connect.Response[v1.BulkUpsertMetricsResponse], error)
+	BulkUpsertMetrics(context.Context, *v1.BulkUpsertMetricsRequest) (*v1.BulkUpsertMetricsResponse, error)
 	// Get the current training-context the domain assembles for the user:
 	// settings + latest metric values needed for TSS/CTL/ATL/TSB computation.
-	GetUserContext(context.Context, *connect.Request[v1.GetUserContextRequest]) (*connect.Response[v1.GetUserContextResponse], error)
+	GetUserContext(context.Context, *v1.GetUserContextRequest) (*v1.GetUserContextResponse, error)
 }
 
-// NewMetricsServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewMetricsServiceHandler(svc MetricsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	metricsServiceMethods := v1.File_cairn_v1_metrics_proto.Services().ByName("MetricsService").Methods()
-	metricsServiceListMetricsHandler := connect.NewUnaryHandler(
-		MetricsServiceListMetricsProcedure,
-		svc.ListMetrics,
-		connect.WithSchema(metricsServiceMethods.ByName("ListMetrics")),
-		connect.WithHandlerOptions(opts...),
+// RegisterMetricsServiceHandler registers svc as the cairn.v1.MetricsService implementation on
+// server.
+func RegisterMetricsServiceHandler(server *connect.Server, svc MetricsServiceHandler) {
+	adapter := metricsServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: metricsServiceListMetricsSpec(), Handler: adapter.listMetrics},
+		connect.Method{Spec: metricsServiceGetLatestMetricsSpec(), Handler: adapter.getLatestMetrics},
+		connect.Method{Spec: metricsServiceQueryMetricSeriesSpec(), Handler: adapter.queryMetricSeries},
+		connect.Method{Spec: metricsServiceUpsertMetricSpec(), Handler: adapter.upsertMetric},
+		connect.Method{Spec: metricsServiceDeleteMetricSpec(), Handler: adapter.deleteMetric},
+		connect.Method{Spec: metricsServiceBulkUpsertMetricsSpec(), Handler: adapter.bulkUpsertMetrics},
+		connect.Method{Spec: metricsServiceGetUserContextSpec(), Handler: adapter.getUserContext},
 	)
-	metricsServiceGetLatestMetricsHandler := connect.NewUnaryHandler(
-		MetricsServiceGetLatestMetricsProcedure,
-		svc.GetLatestMetrics,
-		connect.WithSchema(metricsServiceMethods.ByName("GetLatestMetrics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	metricsServiceQueryMetricSeriesHandler := connect.NewUnaryHandler(
-		MetricsServiceQueryMetricSeriesProcedure,
-		svc.QueryMetricSeries,
-		connect.WithSchema(metricsServiceMethods.ByName("QueryMetricSeries")),
-		connect.WithHandlerOptions(opts...),
-	)
-	metricsServiceUpsertMetricHandler := connect.NewUnaryHandler(
-		MetricsServiceUpsertMetricProcedure,
-		svc.UpsertMetric,
-		connect.WithSchema(metricsServiceMethods.ByName("UpsertMetric")),
-		connect.WithHandlerOptions(opts...),
-	)
-	metricsServiceDeleteMetricHandler := connect.NewUnaryHandler(
-		MetricsServiceDeleteMetricProcedure,
-		svc.DeleteMetric,
-		connect.WithSchema(metricsServiceMethods.ByName("DeleteMetric")),
-		connect.WithHandlerOptions(opts...),
-	)
-	metricsServiceBulkUpsertMetricsHandler := connect.NewUnaryHandler(
-		MetricsServiceBulkUpsertMetricsProcedure,
-		svc.BulkUpsertMetrics,
-		connect.WithSchema(metricsServiceMethods.ByName("BulkUpsertMetrics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	metricsServiceGetUserContextHandler := connect.NewUnaryHandler(
-		MetricsServiceGetUserContextProcedure,
-		svc.GetUserContext,
-		connect.WithSchema(metricsServiceMethods.ByName("GetUserContext")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/cairn.v1.MetricsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case MetricsServiceListMetricsProcedure:
-			metricsServiceListMetricsHandler.ServeHTTP(w, r)
-		case MetricsServiceGetLatestMetricsProcedure:
-			metricsServiceGetLatestMetricsHandler.ServeHTTP(w, r)
-		case MetricsServiceQueryMetricSeriesProcedure:
-			metricsServiceQueryMetricSeriesHandler.ServeHTTP(w, r)
-		case MetricsServiceUpsertMetricProcedure:
-			metricsServiceUpsertMetricHandler.ServeHTTP(w, r)
-		case MetricsServiceDeleteMetricProcedure:
-			metricsServiceDeleteMetricHandler.ServeHTTP(w, r)
-		case MetricsServiceBulkUpsertMetricsProcedure:
-			metricsServiceBulkUpsertMetricsHandler.ServeHTTP(w, r)
-		case MetricsServiceGetUserContextProcedure:
-			metricsServiceGetUserContextHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedMetricsServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMetricsServiceHandler struct{}
 
-func (UnimplementedMetricsServiceHandler) ListMetrics(context.Context, *connect.Request[v1.ListMetricsRequest]) (*connect.Response[v1.ListMetricsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.ListMetrics is not implemented"))
+func (UnimplementedMetricsServiceHandler) ListMetrics(context.Context, *v1.ListMetricsRequest) (*v1.ListMetricsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.ListMetrics is not implemented")
 }
 
-func (UnimplementedMetricsServiceHandler) GetLatestMetrics(context.Context, *connect.Request[v1.GetLatestMetricsRequest]) (*connect.Response[v1.GetLatestMetricsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.GetLatestMetrics is not implemented"))
+func (UnimplementedMetricsServiceHandler) GetLatestMetrics(context.Context, *v1.GetLatestMetricsRequest) (*v1.GetLatestMetricsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.GetLatestMetrics is not implemented")
 }
 
-func (UnimplementedMetricsServiceHandler) QueryMetricSeries(context.Context, *connect.Request[v1.QueryMetricSeriesRequest]) (*connect.Response[v1.QueryMetricSeriesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.QueryMetricSeries is not implemented"))
+func (UnimplementedMetricsServiceHandler) QueryMetricSeries(context.Context, *v1.QueryMetricSeriesRequest) (*v1.QueryMetricSeriesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.QueryMetricSeries is not implemented")
 }
 
-func (UnimplementedMetricsServiceHandler) UpsertMetric(context.Context, *connect.Request[v1.UpsertMetricRequest]) (*connect.Response[v1.UpsertMetricResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.UpsertMetric is not implemented"))
+func (UnimplementedMetricsServiceHandler) UpsertMetric(context.Context, *v1.UpsertMetricRequest) (*v1.UpsertMetricResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.UpsertMetric is not implemented")
 }
 
-func (UnimplementedMetricsServiceHandler) DeleteMetric(context.Context, *connect.Request[v1.DeleteMetricRequest]) (*connect.Response[v1.DeleteMetricResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.DeleteMetric is not implemented"))
+func (UnimplementedMetricsServiceHandler) DeleteMetric(context.Context, *v1.DeleteMetricRequest) (*v1.DeleteMetricResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.DeleteMetric is not implemented")
 }
 
-func (UnimplementedMetricsServiceHandler) BulkUpsertMetrics(context.Context, *connect.Request[v1.BulkUpsertMetricsRequest]) (*connect.Response[v1.BulkUpsertMetricsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.BulkUpsertMetrics is not implemented"))
+func (UnimplementedMetricsServiceHandler) BulkUpsertMetrics(context.Context, *v1.BulkUpsertMetricsRequest) (*v1.BulkUpsertMetricsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.BulkUpsertMetrics is not implemented")
 }
 
-func (UnimplementedMetricsServiceHandler) GetUserContext(context.Context, *connect.Request[v1.GetUserContextRequest]) (*connect.Response[v1.GetUserContextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.MetricsService.GetUserContext is not implemented"))
+func (UnimplementedMetricsServiceHandler) GetUserContext(context.Context, *v1.GetUserContextRequest) (*v1.GetUserContextResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.MetricsService.GetUserContext is not implemented")
 }
+
+type metricsServiceClient struct {
+	client *connect.Client
+}
+
+func (c *metricsServiceClient) ListMetrics(ctx context.Context, req *v1.ListMetricsRequest) (*v1.ListMetricsResponse, error) {
+	var res v1.ListMetricsResponse
+	if err := c.client.CallUnary(ctx, metricsServiceListMetricsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *metricsServiceClient) GetLatestMetrics(ctx context.Context, req *v1.GetLatestMetricsRequest) (*v1.GetLatestMetricsResponse, error) {
+	var res v1.GetLatestMetricsResponse
+	if err := c.client.CallUnary(ctx, metricsServiceGetLatestMetricsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *metricsServiceClient) QueryMetricSeries(ctx context.Context, req *v1.QueryMetricSeriesRequest) (*v1.QueryMetricSeriesResponse, error) {
+	var res v1.QueryMetricSeriesResponse
+	if err := c.client.CallUnary(ctx, metricsServiceQueryMetricSeriesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *metricsServiceClient) UpsertMetric(ctx context.Context, req *v1.UpsertMetricRequest) (*v1.UpsertMetricResponse, error) {
+	var res v1.UpsertMetricResponse
+	if err := c.client.CallUnary(ctx, metricsServiceUpsertMetricSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *metricsServiceClient) DeleteMetric(ctx context.Context, req *v1.DeleteMetricRequest) (*v1.DeleteMetricResponse, error) {
+	var res v1.DeleteMetricResponse
+	if err := c.client.CallUnary(ctx, metricsServiceDeleteMetricSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *metricsServiceClient) BulkUpsertMetrics(ctx context.Context, req *v1.BulkUpsertMetricsRequest) (*v1.BulkUpsertMetricsResponse, error) {
+	var res v1.BulkUpsertMetricsResponse
+	if err := c.client.CallUnary(ctx, metricsServiceBulkUpsertMetricsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *metricsServiceClient) GetUserContext(ctx context.Context, req *v1.GetUserContextRequest) (*v1.GetUserContextResponse, error) {
+	var res v1.GetUserContextResponse
+	if err := c.client.CallUnary(ctx, metricsServiceGetUserContextSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type metricsServiceHandler struct{ svc MetricsServiceHandler }
+
+func (h metricsServiceHandler) listMetrics(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListMetricsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListMetrics(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h metricsServiceHandler) getLatestMetrics(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetLatestMetricsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetLatestMetrics(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h metricsServiceHandler) queryMetricSeries(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.QueryMetricSeriesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.QueryMetricSeries(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h metricsServiceHandler) upsertMetric(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpsertMetricRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpsertMetric(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h metricsServiceHandler) deleteMetric(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteMetricRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteMetric(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h metricsServiceHandler) bulkUpsertMetrics(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.BulkUpsertMetricsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.BulkUpsertMetrics(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h metricsServiceHandler) getUserContext(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetUserContextRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetUserContext(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+var (
+	settingsServiceGetSettingsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("SettingsService").Methods().ByName("GetSettings"),
+			Procedure:  SettingsServiceGetSettingsProcedure,
+		}
+	})
+	settingsServiceUpdateSettingsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("SettingsService").Methods().ByName("UpdateSettings"),
+			Procedure:  SettingsServiceUpdateSettingsProcedure,
+		}
+	})
+	settingsServiceResetSettingsSectionSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_metrics_proto.Services().ByName("SettingsService").Methods().ByName("ResetSettingsSection"),
+			Procedure:  SettingsServiceResetSettingsSectionProcedure,
+		}
+	})
+)
 
 // SettingsServiceClient is a client for the cairn.v1.SettingsService service.
 type SettingsServiceClient interface {
-	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
+	GetSettings(context.Context, *v1.GetSettingsRequest) (*v1.GetSettingsResponse, error)
 	// Merge-update — only fields in field_mask are touched. Map updates
 	// are replace-by-key semantics: passing an entry replaces that key's
 	// value entirely; omitting a key leaves the existing value.
-	UpdateSettings(context.Context, *connect.Request[v1.UpdateSettingsRequest]) (*connect.Response[v1.UpdateSettingsResponse], error)
+	UpdateSettings(context.Context, *v1.UpdateSettingsRequest) (*v1.UpdateSettingsResponse, error)
 	// Reset to defaults — useful from the settings UI.
-	ResetSettingsSection(context.Context, *connect.Request[v1.ResetSettingsSectionRequest]) (*connect.Response[v1.ResetSettingsSectionResponse], error)
+	ResetSettingsSection(context.Context, *v1.ResetSettingsSectionRequest) (*v1.ResetSettingsSectionResponse, error)
 }
 
-// NewSettingsServiceClient constructs a client for the cairn.v1.SettingsService service. By
-// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
-// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewSettingsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) SettingsServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	settingsServiceMethods := v1.File_cairn_v1_metrics_proto.Services().ByName("SettingsService").Methods()
-	return &settingsServiceClient{
-		getSettings: connect.NewClient[v1.GetSettingsRequest, v1.GetSettingsResponse](
-			httpClient,
-			baseURL+SettingsServiceGetSettingsProcedure,
-			connect.WithSchema(settingsServiceMethods.ByName("GetSettings")),
-			connect.WithClientOptions(opts...),
-		),
-		updateSettings: connect.NewClient[v1.UpdateSettingsRequest, v1.UpdateSettingsResponse](
-			httpClient,
-			baseURL+SettingsServiceUpdateSettingsProcedure,
-			connect.WithSchema(settingsServiceMethods.ByName("UpdateSettings")),
-			connect.WithClientOptions(opts...),
-		),
-		resetSettingsSection: connect.NewClient[v1.ResetSettingsSectionRequest, v1.ResetSettingsSectionResponse](
-			httpClient,
-			baseURL+SettingsServiceResetSettingsSectionProcedure,
-			connect.WithSchema(settingsServiceMethods.ByName("ResetSettingsSection")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// settingsServiceClient implements SettingsServiceClient.
-type settingsServiceClient struct {
-	getSettings          *connect.Client[v1.GetSettingsRequest, v1.GetSettingsResponse]
-	updateSettings       *connect.Client[v1.UpdateSettingsRequest, v1.UpdateSettingsResponse]
-	resetSettingsSection *connect.Client[v1.ResetSettingsSectionRequest, v1.ResetSettingsSectionResponse]
-}
-
-// GetSettings calls cairn.v1.SettingsService.GetSettings.
-func (c *settingsServiceClient) GetSettings(ctx context.Context, req *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
-	return c.getSettings.CallUnary(ctx, req)
-}
-
-// UpdateSettings calls cairn.v1.SettingsService.UpdateSettings.
-func (c *settingsServiceClient) UpdateSettings(ctx context.Context, req *connect.Request[v1.UpdateSettingsRequest]) (*connect.Response[v1.UpdateSettingsResponse], error) {
-	return c.updateSettings.CallUnary(ctx, req)
-}
-
-// ResetSettingsSection calls cairn.v1.SettingsService.ResetSettingsSection.
-func (c *settingsServiceClient) ResetSettingsSection(ctx context.Context, req *connect.Request[v1.ResetSettingsSectionRequest]) (*connect.Response[v1.ResetSettingsSectionResponse], error) {
-	return c.resetSettingsSection.CallUnary(ctx, req)
+// NewSettingsServiceClient constructs a client for the cairn.v1.SettingsService service. Multiple
+// service clients may share a single connect.Client.
+func NewSettingsServiceClient(client *connect.Client) SettingsServiceClient {
+	return &settingsServiceClient{client: client}
 }
 
 // SettingsServiceHandler is an implementation of the cairn.v1.SettingsService service.
 type SettingsServiceHandler interface {
-	GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error)
+	GetSettings(context.Context, *v1.GetSettingsRequest) (*v1.GetSettingsResponse, error)
 	// Merge-update — only fields in field_mask are touched. Map updates
 	// are replace-by-key semantics: passing an entry replaces that key's
 	// value entirely; omitting a key leaves the existing value.
-	UpdateSettings(context.Context, *connect.Request[v1.UpdateSettingsRequest]) (*connect.Response[v1.UpdateSettingsResponse], error)
+	UpdateSettings(context.Context, *v1.UpdateSettingsRequest) (*v1.UpdateSettingsResponse, error)
 	// Reset to defaults — useful from the settings UI.
-	ResetSettingsSection(context.Context, *connect.Request[v1.ResetSettingsSectionRequest]) (*connect.Response[v1.ResetSettingsSectionResponse], error)
+	ResetSettingsSection(context.Context, *v1.ResetSettingsSectionRequest) (*v1.ResetSettingsSectionResponse, error)
 }
 
-// NewSettingsServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewSettingsServiceHandler(svc SettingsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	settingsServiceMethods := v1.File_cairn_v1_metrics_proto.Services().ByName("SettingsService").Methods()
-	settingsServiceGetSettingsHandler := connect.NewUnaryHandler(
-		SettingsServiceGetSettingsProcedure,
-		svc.GetSettings,
-		connect.WithSchema(settingsServiceMethods.ByName("GetSettings")),
-		connect.WithHandlerOptions(opts...),
+// RegisterSettingsServiceHandler registers svc as the cairn.v1.SettingsService implementation on
+// server.
+func RegisterSettingsServiceHandler(server *connect.Server, svc SettingsServiceHandler) {
+	adapter := settingsServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: settingsServiceGetSettingsSpec(), Handler: adapter.getSettings},
+		connect.Method{Spec: settingsServiceUpdateSettingsSpec(), Handler: adapter.updateSettings},
+		connect.Method{Spec: settingsServiceResetSettingsSectionSpec(), Handler: adapter.resetSettingsSection},
 	)
-	settingsServiceUpdateSettingsHandler := connect.NewUnaryHandler(
-		SettingsServiceUpdateSettingsProcedure,
-		svc.UpdateSettings,
-		connect.WithSchema(settingsServiceMethods.ByName("UpdateSettings")),
-		connect.WithHandlerOptions(opts...),
-	)
-	settingsServiceResetSettingsSectionHandler := connect.NewUnaryHandler(
-		SettingsServiceResetSettingsSectionProcedure,
-		svc.ResetSettingsSection,
-		connect.WithSchema(settingsServiceMethods.ByName("ResetSettingsSection")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/cairn.v1.SettingsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case SettingsServiceGetSettingsProcedure:
-			settingsServiceGetSettingsHandler.ServeHTTP(w, r)
-		case SettingsServiceUpdateSettingsProcedure:
-			settingsServiceUpdateSettingsHandler.ServeHTTP(w, r)
-		case SettingsServiceResetSettingsSectionProcedure:
-			settingsServiceResetSettingsSectionHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedSettingsServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedSettingsServiceHandler struct{}
 
-func (UnimplementedSettingsServiceHandler) GetSettings(context.Context, *connect.Request[v1.GetSettingsRequest]) (*connect.Response[v1.GetSettingsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.SettingsService.GetSettings is not implemented"))
+func (UnimplementedSettingsServiceHandler) GetSettings(context.Context, *v1.GetSettingsRequest) (*v1.GetSettingsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.SettingsService.GetSettings is not implemented")
 }
 
-func (UnimplementedSettingsServiceHandler) UpdateSettings(context.Context, *connect.Request[v1.UpdateSettingsRequest]) (*connect.Response[v1.UpdateSettingsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.SettingsService.UpdateSettings is not implemented"))
+func (UnimplementedSettingsServiceHandler) UpdateSettings(context.Context, *v1.UpdateSettingsRequest) (*v1.UpdateSettingsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.SettingsService.UpdateSettings is not implemented")
 }
 
-func (UnimplementedSettingsServiceHandler) ResetSettingsSection(context.Context, *connect.Request[v1.ResetSettingsSectionRequest]) (*connect.Response[v1.ResetSettingsSectionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.SettingsService.ResetSettingsSection is not implemented"))
+func (UnimplementedSettingsServiceHandler) ResetSettingsSection(context.Context, *v1.ResetSettingsSectionRequest) (*v1.ResetSettingsSectionResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.SettingsService.ResetSettingsSection is not implemented")
+}
+
+type settingsServiceClient struct {
+	client *connect.Client
+}
+
+func (c *settingsServiceClient) GetSettings(ctx context.Context, req *v1.GetSettingsRequest) (*v1.GetSettingsResponse, error) {
+	var res v1.GetSettingsResponse
+	if err := c.client.CallUnary(ctx, settingsServiceGetSettingsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *settingsServiceClient) UpdateSettings(ctx context.Context, req *v1.UpdateSettingsRequest) (*v1.UpdateSettingsResponse, error) {
+	var res v1.UpdateSettingsResponse
+	if err := c.client.CallUnary(ctx, settingsServiceUpdateSettingsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *settingsServiceClient) ResetSettingsSection(ctx context.Context, req *v1.ResetSettingsSectionRequest) (*v1.ResetSettingsSectionResponse, error) {
+	var res v1.ResetSettingsSectionResponse
+	if err := c.client.CallUnary(ctx, settingsServiceResetSettingsSectionSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type settingsServiceHandler struct{ svc SettingsServiceHandler }
+
+func (h settingsServiceHandler) getSettings(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetSettingsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetSettings(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h settingsServiceHandler) updateSettings(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateSettingsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateSettings(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h settingsServiceHandler) resetSettingsSection(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ResetSettingsSectionRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ResetSettingsSection(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

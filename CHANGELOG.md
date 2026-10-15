@@ -6,6 +6,15 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The Go server moved to connect-go v2 (`connectrpc.com/connect/v2`). The wire
+  protocol is unchanged, so the web app and other Connect, gRPC and gRPC-Web
+  clients keep working. Stubs are generated with `protoc-gen-connect-go` v2 from
+  the build-base image. Connect requests are now capped at 4 MiB per message
+  (previously unbounded).
+- Renovate no longer automerges Go major-version updates; they are labelled
+  `needs-migration` for a manual migration.
+
 ### Fixed
 - The worker permission template now matches the provider contract, so
   workers under NATS auth are no longer refused: fetch_source consumers use

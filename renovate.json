@@ -27,6 +27,13 @@
       "groupName": "go modules (non-major)"
     },
     {
+      "description": "Go major versions change the module path and need a code migration; never automerge them.",
+      "matchDatasources": ["go"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["needs-migration"]
+    },
+    {
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "web npm (non-major)"
