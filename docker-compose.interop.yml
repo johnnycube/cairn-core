@@ -24,7 +24,7 @@ x-cairn-env: &cairn-env
 
 services:
   postgres-a:
-    image: timescale/timescaledb-ha:pg17-ts2.27
+    image: timescale/timescaledb-ha:pg17-ts2.27@sha256:4f61167e11c7c95bedf96433c720d671a53aa29ad7f52b142b529a6d0e9f0b20
     environment:
       POSTGRES_USER: cairn
       POSTGRES_PASSWORD: cairn
@@ -36,7 +36,7 @@ services:
       retries: 20
 
   postgres-b:
-    image: timescale/timescaledb-ha:pg17-ts2.27
+    image: timescale/timescaledb-ha:pg17-ts2.27@sha256:4f61167e11c7c95bedf96433c720d671a53aa29ad7f52b142b529a6d0e9f0b20
     environment:
       POSTGRES_USER: cairn
       POSTGRES_PASSWORD: cairn
