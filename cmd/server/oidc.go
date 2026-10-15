@@ -202,12 +202,12 @@ func setLoginFlowCookie(w http.ResponseWriter, r *http.Request, app *App, s logi
 		}
 		body = ct
 	}
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     loginFlowCookieName,
 		Value:    base64.RawURLEncoding.EncodeToString(body),
 		Path:     "/auth/oidc/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(loginFlowCookieTTL.Seconds()),
 	})
@@ -241,12 +241,12 @@ func readLoginFlowCookie(r *http.Request, app *App) (loginFlowState, error) {
 }
 
 func clearLoginFlowCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     loginFlowCookieName,
 		Value:    "",
 		Path:     "/auth/oidc/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -259,12 +259,12 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 	if maxAge < 0 {
 		maxAge = 0
 	}
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  expiresAt,
 		MaxAge:   maxAge,
@@ -272,12 +272,12 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -287,18 +287,19 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// isHTTPS reports whether the request arrived over TLS — either directly
-// or via a reverse-proxy that set X-Forwarded-Proto=https. The Secure
-// cookie attribute follows this so dev (http://localhost:8080) doesn't
-// drop the cookie.
+// secureCookiesAlways is set at startup when PUBLIC_BASE_URL is https.
+var secureCookiesAlways bool
+
+// cookieSecure is the Secure cookie attribute: always behind an https public URL, otherwise
+// per request so plain-http dev (http://localhost:8080) keeps its cookies.
+func cookieSecure(r *http.Request) bool {
+	return secureCookiesAlways || isHTTPS(r)
+}
+
+// isHTTPS reports whether the request arrived over TLS, directly or via a
+// reverse-proxy that set X-Forwarded-Proto=https.
 func isHTTPS(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		return true
-	}
-	return false
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func clientIP(r *http.Request) string {

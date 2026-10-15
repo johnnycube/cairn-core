@@ -146,12 +146,19 @@ func (c OAuthClient) IsPublic() bool { return len(c.SecretHash) == 0 }
 
 // AllowsRedirectURI reports whether uri exactly matches a registered redirect.
 func (c OAuthClient) AllowsRedirectURI(uri string) bool {
+	_, ok := c.RegisteredRedirectURI(uri)
+	return ok
+}
+
+// RegisteredRedirectURI returns the registered redirect equal to uri, so callers redirect to the
+// stored value rather than to request input.
+func (c OAuthClient) RegisteredRedirectURI(uri string) (string, bool) {
 	for _, u := range c.RedirectURIs {
-		if u == uri {
-			return true
+		if u == uri && u != "" {
+			return u, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // AllowsGrant reports whether the client may use grant type g.

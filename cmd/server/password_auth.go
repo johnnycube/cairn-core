@@ -121,10 +121,11 @@ func passwordAuthVerify(ctx context.Context, app *App, logger *slog.Logger, iden
 // the redirect form field can't be abused as an open redirect. Anything
 // that isn't a single-slash-rooted relative path collapses to "/".
 func safeRedirect(dest string) string {
-	if dest == "" || !strings.HasPrefix(dest, "/") || strings.HasPrefix(dest, "//") {
+	// "//host" and "/\host" are protocol-relative URLs to browsers.
+	if !strings.HasPrefix(dest, "/") || strings.HasPrefix(dest, "//") || strings.HasPrefix(dest, "/\\") {
 		return "/"
 	}
-	// Browsers treat "\" as "/" and strip tabs/newlines, so "/\host" or "/\t/host" would escape.
+	// Browsers treat "\" as "/" and strip tabs/newlines, so "/\t/host" would escape.
 	if strings.ContainsFunc(dest, func(c rune) bool { return c == '\\' || c < 0x20 || c == 0x7f }) {
 		return "/"
 	}

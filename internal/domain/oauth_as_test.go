@@ -74,6 +74,17 @@ func TestOAuthClientHelpers(t *testing.T) {
 	if !pub.AllowsRedirectURI("https://app/cb") || pub.AllowsRedirectURI("https://evil/cb") {
 		t.Fatal("redirect matching wrong")
 	}
+	if got, ok := pub.RegisteredRedirectURI("https://app/cb"); !ok || got != "https://app/cb" {
+		t.Fatalf("RegisteredRedirectURI = %q, %v", got, ok)
+	}
+	for _, bad := range []string{"", "https://app/cb/", "https://APP/cb", "https://app/cb?x=1"} {
+		if _, ok := pub.RegisteredRedirectURI(bad); ok {
+			t.Fatalf("RegisteredRedirectURI(%q) matched", bad)
+		}
+	}
+	if _, ok := (OAuthClient{RedirectURIs: []string{""}}).RegisteredRedirectURI(""); ok {
+		t.Fatal("empty registered redirect must not match")
+	}
 	if !pub.AllowsGrant("authorization_code") || pub.AllowsGrant("password") {
 		t.Fatal("grant matching wrong")
 	}

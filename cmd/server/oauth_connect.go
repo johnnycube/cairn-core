@@ -363,13 +363,13 @@ func (h *oauthConnectHandlers) connect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := randToken()
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name: oauthStateCookie, Value: state, Path: "/auth/oauth/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r), MaxAge: 600,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: cookieSecure(r), MaxAge: 600,
 	})
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name: oauthConnectionCookie, Value: conn.ID.String(), Path: "/auth/oauth/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r), MaxAge: 600,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: cookieSecure(r), MaxAge: 600,
 	})
 	q := url.Values{}
 	q.Set("client_id", conn.ClientID)

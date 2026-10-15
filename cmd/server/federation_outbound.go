@@ -7,8 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 )
+
+// webfingerHost is a DNS name with an optional port: no userinfo, path, query or IP-literal tricks.
+var webfingerHost = regexp.MustCompile(`^(?i)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?$`)
 
 // federationScheme is the URL scheme for WebFinger lookups — https per spec,
 // loosened to http alongside the SSRF guard (CAIRN_FEDERATION_ALLOW_PRIVATE_HOSTS)
@@ -24,6 +28,9 @@ func resolveRemoteHandle(ctx context.Context, handle string) (string, error) {
 		return "", fmt.Errorf("expected user@host")
 	}
 	user, host := handle[:at], handle[at+1:]
+	if len(host) > 253 || !webfingerHost.MatchString(host) {
+		return "", fmt.Errorf("invalid host %q", host)
+	}
 	wf := federationScheme + "://" + host + "/.well-known/webfinger?resource=" +
 		url.QueryEscape("acct:"+user+"@"+host)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wf, nil)

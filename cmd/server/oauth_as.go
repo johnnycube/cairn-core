@@ -110,14 +110,14 @@ func (s *oauthServer) protectedResourceMetadata(w http.ResponseWriter, _ *http.R
 func (s *oauthServer) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	clientID := q.Get("client_id")
-	redirectURI := q.Get("redirect_uri")
 
 	client, err := s.app.OAuth.GetClient(r.Context(), clientID)
 	if err != nil {
 		http.Error(w, "unknown client_id", http.StatusBadRequest)
 		return
 	}
-	if redirectURI == "" || !client.AllowsRedirectURI(redirectURI) {
+	redirectURI, ok := client.RegisteredRedirectURI(q.Get("redirect_uri"))
+	if !ok {
 		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
 		return
 	}
@@ -198,12 +198,17 @@ func (s *oauthServer) decision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client, err := s.app.OAuth.GetClient(r.Context(), req.ClientID)
-	if err != nil || !client.AllowsRedirectURI(req.RedirectURI) {
+	if err != nil {
+		http.Error(w, "invalid client/redirect", http.StatusBadRequest)
+		return
+	}
+	redirectURI, ok := client.RegisteredRedirectURI(req.RedirectURI)
+	if !ok {
 		http.Error(w, "invalid client/redirect", http.StatusBadRequest)
 		return
 	}
 	if !req.Approve {
-		oauthJSON(w, map[string]string{"redirect_uri": appendQuery(req.RedirectURI, map[string]string{
+		oauthJSON(w, map[string]string{"redirect_uri": appendQuery(redirectURI, map[string]string{
 			"error": "access_denied", "state": req.State,
 		})})
 		return
@@ -223,7 +228,7 @@ func (s *oauthServer) decision(w http.ResponseWriter, r *http.Request) {
 	err = s.app.OAuth.CreateAuthCode(r.Context(), domain.OAuthAuthorizationCode{
 		ClientID:            client.ClientID,
 		UserID:              userID,
-		RedirectURI:         req.RedirectURI,
+		RedirectURI:         redirectURI,
 		Scope:               domain.JoinScopes(scopes),
 		CodeChallenge:       req.CodeChallenge,
 		CodeChallengeMethod: method,
@@ -234,7 +239,7 @@ func (s *oauthServer) decision(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
-	oauthJSON(w, map[string]string{"redirect_uri": appendQuery(req.RedirectURI, map[string]string{
+	oauthJSON(w, map[string]string{"redirect_uri": appendQuery(redirectURI, map[string]string{
 		"code": code, "state": req.State,
 	})})
 }
@@ -484,7 +489,7 @@ func (s *oauthServer) authClient(r *http.Request) (string, bool) {
 }
 
 func (s *oauthServer) redirectErr(w http.ResponseWriter, r *http.Request, redirectURI, state, code, desc string) {
-	http.Redirect(w, r, appendQuery(redirectURI, map[string]string{ //nolint:gosec // G710: callers pass only a redirect_uri checked against the client's registered URIs
+	http.Redirect(w, r, appendQuery(redirectURI, map[string]string{ //nolint:gosec // G710: callers pass only a registered redirect_uri of the client
 		"error": code, "error_description": desc, "state": state,
 	}), http.StatusFound)
 }

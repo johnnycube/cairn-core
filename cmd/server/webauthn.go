@@ -345,9 +345,9 @@ func newWebAuthn(publicURL string) (*webauthn.WebAuthn, error) {
 
 func storeWASession(w http.ResponseWriter, r *http.Request, name string, sd *webauthn.SessionData) {
 	b, _ := json.Marshal(sd)
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name: name, Value: base64.RawURLEncoding.EncodeToString(b),
-		Path: "/auth/webauthn/", HttpOnly: true, Secure: isHTTPS(r),
+		Path: "/auth/webauthn/", HttpOnly: true, Secure: cookieSecure(r),
 		SameSite: http.SameSiteLaxMode, MaxAge: 300,
 	})
 }
@@ -369,8 +369,8 @@ func loadWASession(r *http.Request, name string) (*webauthn.SessionData, error) 
 }
 
 func clearWACookie(w http.ResponseWriter, r *http.Request, name string) {
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name: name, Value: "", Path: "/auth/webauthn/", HttpOnly: true,
-		Secure: isHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: -1,
+		Secure: cookieSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1,
 	})
 }

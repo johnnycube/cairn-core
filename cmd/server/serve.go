@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -100,6 +101,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// ------------------------------------------------------------------
 
 	mux := http.NewServeMux()
+	secureCookiesAlways = strings.HasPrefix(strings.ToLower(cfg.HTTP.PublicBaseURL), "https://")
 	serveMountCore(ctx, mux, app, pool, cfg, logger)
 	serveMountFeatures(mux, app, cfg, logger)
 	serveMountPlatform(mux, app, logger)
