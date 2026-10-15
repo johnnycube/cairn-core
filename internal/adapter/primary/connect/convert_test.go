@@ -530,3 +530,50 @@ func TestChannelsFromProto(t *testing.T) {
 		t.Errorf("channels = %v, want %v", got, want)
 	}
 }
+
+func TestChannelsFromProtoAllChannels(t *testing.T) {
+	var all []v1.StreamChannel
+	for n := range v1.StreamChannel_name {
+		if c := v1.StreamChannel(n); c != v1.StreamChannel_STREAM_CHANNEL_UNSPECIFIED && c != v1.StreamChannel_STREAM_CHANNEL_TIME {
+			all = append(all, c)
+		}
+	}
+	slices.Sort(all)
+	if got := channelsFromProto(all); !slices.Equal(got, domain.AllStreamChannels) {
+		t.Errorf("channels = %v, want %v", got, domain.AllStreamChannels)
+	}
+}
+
+func TestChannelsFromProtoSubsets(t *testing.T) {
+	timeOnly := channelsFromProto([]v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_TIME})
+	if timeOnly == nil || len(timeOnly) != 0 {
+		t.Errorf("TIME only = %#v, want empty non-nil", timeOnly)
+	}
+	adv := channelsFromProto([]v1.StreamChannel{
+		v1.StreamChannel_STREAM_CHANNEL_LEFT_RIGHT_BALANCE,
+		v1.StreamChannel_STREAM_CHANNEL_CORE_TEMPERATURE,
+	})
+	if !slices.Equal(adv, []domain.StreamChannel{domain.StreamChannelLeftRightBalance, domain.StreamChannelCoreTemperature}) {
+		t.Errorf("advanced = %v", adv)
+	}
+	if got := channelsFromProto([]v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_UNSPECIFIED}); got != nil {
+		t.Errorf("UNSPECIFIED only = %v, want nil", got)
+	}
+}
+
+func TestStreamToProtoKeepChannels(t *testing.T) {
+	hr, lat := int16(120), 47.1
+	s := domain.Stream{Samples: []domain.StreamSample{
+		{Timestamp: time.Unix(0, 0), HeartRateBpm: &hr, Latitude: &lat},
+		{Timestamp: time.Unix(1, 0), HeartRateBpm: &hr, Latitude: &lat},
+	}}
+	got := streamToProto(s.KeepChannels(channelsFromProto([]v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_TIME})))
+	if !slices.Equal(got.GetChannels(), []v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_TIME}) ||
+		len(got.GetTimeS()) != 2 || got.GetHeartRateBpm() != nil || got.GetLatitude() != nil {
+		t.Errorf("TIME only stream = %v", got)
+	}
+	got = streamToProto(s.KeepChannels(channelsFromProto([]v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_HEART_RATE})))
+	if !slices.Equal(got.GetChannels(), []v1.StreamChannel{v1.StreamChannel_STREAM_CHANNEL_TIME, v1.StreamChannel_STREAM_CHANNEL_HEART_RATE}) {
+		t.Errorf("HR only channels = %v", got.GetChannels())
+	}
+}

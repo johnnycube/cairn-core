@@ -32,10 +32,44 @@ func TestIsBlocked(t *testing.T) {
 		{"::", true},
 		{"::ffff:127.0.0.1", true},
 		{"::ffff:10.0.0.1", true},
+		{"0.1.2.3", true},
+		{"100.64.0.1", true},
+		{"100.100.100.200", true},
+		{"100.127.255.254", true},
+		{"192.0.0.8", true},
+		{"192.0.2.1", true},
+		{"192.88.99.1", true},
+		{"198.18.0.1", true},
+		{"198.19.255.255", true},
+		{"198.51.100.7", true},
+		{"203.0.113.9", true},
+		{"239.255.255.250", true},
+		{"240.0.0.1", true},
+		{"255.255.255.255", true},
+		{"::ffff:169.254.169.254", true},
+		{"::ffff:100.100.100.200", true},
+		{"::127.0.0.1", true},
+		{"64:ff9b::7f00:1", true},
+		{"64:ff9b::808:808", true},
+		{"64:ff9b:1::a00:1", true},
+		{"100::1", true},
+		{"2001::1", true},
+		{"2001:db8::1", true},
+		{"2002:7f00:1::1", true},
+		{"2002:a9fe:a9fe::1", true},
+		{"3fff::1", true},
+		{"5f00::1", true},
+		{"fec0::1", true},
+		{"ff05::2", true},
 		{"8.8.8.8", false},
+		{"100.63.255.255", false},
+		{"100.128.0.1", false},
+		{"198.20.0.1", false},
+		{"::ffff:8.8.8.8", false},
 		{"1.1.1.1", false},
 		{"172.32.0.1", false},
 		{"2606:4700:4700::1111", false},
+		{"2a00:1450:4001::200e", false},
 	}
 	for _, tt := range tests {
 		ip := net.ParseIP(tt.ip)
@@ -45,6 +79,15 @@ func TestIsBlocked(t *testing.T) {
 		if got := IsBlocked(ip); got != tt.want {
 			t.Errorf("IsBlocked(%s) = %v, want %v", tt.ip, got, tt.want)
 		}
+		if got := IsBlocked(ip.To16()); got != tt.want {
+			t.Errorf("IsBlocked(%s as 16 bytes) = %v, want %v", tt.ip, got, tt.want)
+		}
+	}
+}
+
+func TestIsBlockedInvalid(t *testing.T) {
+	if !IsBlocked(nil) || !IsBlocked(net.IP{1, 2, 3}) {
+		t.Fatal("invalid IP must be blocked")
 	}
 }
 
