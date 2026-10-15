@@ -243,11 +243,13 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 	if wk == "" {
 		wk = p
 	}
+	// Job subjects as core publishes them (docs: provider contract §3).
 	jobs := []string{
-		fmt.Sprintf("cairn.jobs.fetch_source.%s.>", p),
+		fmt.Sprintf("cairn.jobs.fetch_source.%s", p),
 		fmt.Sprintf("cairn.jobs.parse_blob.%s", p),
 		fmt.Sprintf("cairn.jobs.backfill.%s", p),
 		fmt.Sprintf("cairn.jobs.reconcile.%s", p),
+		fmt.Sprintf("cairn.jobs.import_metrics.%s", p),
 	}
 	webhookEvent := fmt.Sprintf("cairn.webhooks.%s.event", wk)
 	return WorkerPermissionTemplate{
@@ -256,9 +258,12 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 			fmt.Sprintf("cairn.results.fetch_source.%s", p),
 			fmt.Sprintf("cairn.results.parse_blob.%s", p),
 			fmt.Sprintf("cairn.results.backfill.%s", p),
-			fmt.Sprintf("cairn.results.reconcile.%s", p),
+			fmt.Sprintf("cairn.results.reconcile.%s.*", p), // account-suffixed
+			fmt.Sprintf("cairn.results.import_metrics.%s", p),
+			fmt.Sprintf("cairn.jobs.fetch_source.%s", p), // reconcile/webhook sub-jobs
 			fmt.Sprintf("cairn.workers.%s.>", wk),
 			fmt.Sprintf("cairn.tokens.%s.>", p),
+			fmt.Sprintf("cairn.creds.%s.get", p), // custom-credential providers
 			fmt.Sprintf("cairn.blobs.presign_upload.%s", p),
 			fmt.Sprintf("cairn.blobs.presign_download.%s", p),
 			"cairn.accounts.lookup_by_provider_ext", // webhook → account resolution
@@ -266,6 +271,7 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 		}, workerJetStreamPublish(jobs, webhookEvent)...),
 		AllowSubscribe: append(slices.Clone(jobs),
 			fmt.Sprintf("cairn.cmd.worker.%s.>", wk),
+			fmt.Sprintf("cairn.discover.%s", p),
 			webhookEvent,
 			fmt.Sprintf("cairn.webhooks.%s.verify", wk),
 			"_INBOX.>",

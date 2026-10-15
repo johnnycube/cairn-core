@@ -64,18 +64,16 @@ func TestWorkerTemplateAllowsWorkerJetStreamUse(t *testing.T) {
 	defer cancel()
 
 	for _, cc := range []port.ConsumerConfig{
-		{Stream: StreamJobs, Durable: "strava__fetch", Subject: "cairn.jobs.fetch_source.strava.>"},
+		{Stream: StreamJobs, Durable: "strava__fetch", Subject: "cairn.jobs.fetch_source.strava"},
+		{Stream: StreamJobs, Durable: "strava__reconcile", Subject: "cairn.jobs.reconcile.strava"},
+		{Stream: StreamJobs, Durable: "strava__metrics", Subject: "cairn.jobs.import_metrics.strava"},
 		{Stream: StreamWebhooks, Durable: "strava__webhook_event", Subject: "cairn.webhooks.w1-strava.event"},
 	} {
 		ps, err := worker.Pull(ctx, cc)
 		if err != nil {
 			t.Fatalf("pull %s: %v", cc.Subject, err)
 		}
-		subj := cc.Subject
-		if subj == "cairn.jobs.fetch_source.strava.>" {
-			subj = "cairn.jobs.fetch_source.strava.a1"
-		}
-		if err := admin.Publish(ctx, subj, "", []byte("job")); err != nil {
+		if err := admin.Publish(ctx, cc.Subject, "", []byte("job")); err != nil {
 			t.Fatal(err)
 		}
 		msgs, err := ps.Fetch(ctx, 1)
@@ -90,8 +88,39 @@ func TestWorkerTemplateAllowsWorkerJetStreamUse(t *testing.T) {
 		}
 	}
 
-	if err := worker.Publish(ctx, "cairn.results.fetch_source.strava", "r1", []byte("result")); err != nil {
-		t.Fatalf("publish result: %v", err)
+	for _, subj := range []string{
+		"cairn.results.fetch_source.strava",
+		"cairn.results.import_metrics.strava",
+		"cairn.results.reconcile.strava.acct-1",
+		"cairn.jobs.fetch_source.strava", // reconcile sub-job
+	} {
+		if err := worker.Publish(ctx, subj, "", []byte("result")); err != nil {
+			t.Fatalf("publish %s: %v", subj, err)
+		}
+	}
+
+	// Core request/reply: the worker asks for credentials and serves discover.
+	if _, err := admin.RespondTo(ctx, "cairn.creds.strava.get", func(context.Context, []byte) ([]byte, error) {
+		return []byte("creds"), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worker.Request(ctx, "cairn.creds.strava.get", []byte("{}"), 2*time.Second); err != nil {
+		t.Fatalf("creds request: %v", err)
+	}
+	if _, err := worker.RespondTo(ctx, "cairn.discover.strava", func(context.Context, []byte) ([]byte, error) {
+		return []byte("items"), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Request(ctx, "cairn.discover.strava", []byte("{}"), 2*time.Second); err != nil {
+		t.Fatalf("discover reply: %v", err)
 	}
 	if err := worker.Publish(ctx, "cairn.workers.w1-strava.heartbeat", "", []byte("hb")); err != nil {
 		t.Fatalf("core publish: %v", err)
@@ -125,9 +154,15 @@ func TestWorkerTemplateDeniesForeignJetStreamUse(t *testing.T) {
 	}
 
 	if _, err := worker.Pull(short(), port.ConsumerConfig{
-		Stream: StreamJobs, Durable: "steal", Subject: "cairn.jobs.fetch_source.garmin.>",
+		Stream: StreamJobs, Durable: "steal", Subject: "cairn.jobs.fetch_source.garmin",
 	}); err == nil {
 		t.Error("consumer on another provider's jobs must be denied")
+	}
+	if err := worker.Publish(short(), "cairn.jobs.reconcile.strava", "", []byte("job")); err == nil {
+		t.Error("enqueueing jobs other than fetch_source must be denied")
+	}
+	if _, err := worker.Request(short(), "cairn.creds.garmin.get", []byte("{}"), time.Second); err == nil {
+		t.Error("another provider's credentials must be denied")
 	}
 	if _, err := worker.Pull(short(), port.ConsumerConfig{
 		Stream: StreamResults, Durable: "steal", Subject: "cairn.results.>",
