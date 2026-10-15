@@ -6,6 +6,34 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** configuration is read only from `CAIRN_`-prefixed variables.
+  Previously a missing `CAIRN_*` variable fell back to the bare name, so host
+  variables such as `URL`, `USERNAME`, `PASSWORD` or `SESSION_SECRET` could
+  fill Cairn settings. Rename any unprefixed variables you relied on.
+- **Breaking:** an empty `CAIRN_DATABASE_URL`, `CAIRN_AUTH_SESSION_SECRET` or
+  `CAIRN_AUTH_MASTER_ENCRYPTION_KEY` now fails startup instead of being
+  accepted. Setting an optional variable to an empty value still means empty
+  (for example `CAIRN_NATS_URL=` keeps NATS disabled).
+- `cairn config help` lists each variable with its type, default and whether
+  it is required.
+
+### Security
+- The SSRF guard for federation fetches and webhook delivery now blocks every
+  IANA special-purpose range: CGNAT `100.64.0.0/10` (including the
+  `100.100.100.200` metadata endpoint), `192.0.0.0/24`, the documentation and
+  benchmarking ranges, `240.0.0.0/4`, NAT64 (`64:ff9b::/96`,
+  `64:ff9b:1::/48`), 6to4 `2002::/16`, Teredo and IPv4-mapped addresses.
+  Webhook URL validation uses the same guard.
+
+### Fixed
+- `GetActivityStream` honours the requested channels. Requests for only
+  `TIME` or the advanced cycling/running channels used to return every
+  channel; a `TIME`-only request now returns just the timestamps.
+- The Nominatim geocoder returns `ErrNoPlace` when a coordinate has no place,
+  so the start-place backfill records it as resolved instead of relying on an
+  empty name.
+
 ## [0.2.6] — 2026-09-29
 
 ### Changed

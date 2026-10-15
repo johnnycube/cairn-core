@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/johnnycube/cairn-core/internal/safehttp"
 )
 
 // genWebhookSecret returns a 32-byte URL-safe secret for HMAC signing.
@@ -309,8 +310,7 @@ func isHTTPURL(s string) bool {
 		return false
 	}
 	if ip := net.ParseIP(u.Hostname()); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		if safehttp.IsBlocked(ip) {
 			return false
 		}
 	}

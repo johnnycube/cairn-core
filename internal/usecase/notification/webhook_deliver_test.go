@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/johnnycube/cairn-core/internal/safehttp"
 )
 
 // fakeWebhookRepo implements the dispatch-relevant subset of
@@ -189,13 +190,13 @@ func TestIsBlockedWebhookIP(t *testing.T) {
 		"224.0.0.1",       // multicast
 	}
 	for _, s := range blocked {
-		if !isBlockedWebhookIP(net.ParseIP(s)) {
+		if !safehttp.IsBlocked(net.ParseIP(s)) {
 			t.Errorf("%s should be blocked", s)
 		}
 	}
 	allowed := []string{"8.8.8.8", "1.1.1.1", "93.184.216.34"} // public
 	for _, s := range allowed {
-		if isBlockedWebhookIP(net.ParseIP(s)) {
+		if safehttp.IsBlocked(net.ParseIP(s)) {
 			t.Errorf("%s should be allowed", s)
 		}
 	}
