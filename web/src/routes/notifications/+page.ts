@@ -1,11 +1,11 @@
 import { redirect } from '@sveltejs/kit';
-import { connectClients, isUnauthenticated } from '$lib/connect';
+import { connectClients, isUnauthenticated } from '#lib/connect.js';
 import {
 	type NotificationEvent,
 	NotificationEventType,
 	NotificationSeverity
-} from '$proto/cairn/v1/notification_pb.js';
-import { enumName, protoTimestampToISO } from '$lib/proto-helpers';
+} from '#lib/proto/cairn/v1/notification_pb.js';
+import { enumName, protoTimestampToISO } from '#lib/proto-helpers.js';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url, parent }) => {

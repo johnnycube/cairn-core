@@ -1,6 +1,5 @@
-import { paraglideMiddleware } from '$lib/paraglide/server';
-import { sequence } from '@sveltejs/kit/hooks';
-import type { Handle } from '@sveltejs/kit';
+import { paraglideMiddleware } from '#lib/paraglide/server.js';
+import { sequence, type Handle } from '@sveltejs/kit/hooks';
 
 // Locale resolution: Paraglide's middleware reads PARAGLIDE_LOCALE
 // cookie → Accept-Language header → baseLocale (de). The %lang%
@@ -8,10 +7,12 @@ import type { Handle } from '@sveltejs/kit';
 // element has the right lang attribute for screen readers and search.
 const paraglideHandle: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, ({ request, locale }) => {
-		event.request = request;
-		return resolve(event, {
-			transformPageChunk: ({ html }) => html.replace('%lang%', locale)
-		});
+		return resolve(
+			{ ...event, request },
+			{
+				transformPageChunk: ({ html }) => html.replace('%lang%', locale)
+			}
+		);
 	});
 
 // Auth context: we no longer inject any user identity here. Connect

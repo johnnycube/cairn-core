@@ -1,8 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import { formatDistance, formatDuration, formatElevation, formatRelativeDate } from '$lib/format';
+	import { m } from '#lib/paraglide/messages.js';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import {
+		formatDistance,
+		formatDuration,
+		formatElevation,
+		formatRelativeDate
+	} from '#lib/format.js';
 
 	let { data } = $props();
 

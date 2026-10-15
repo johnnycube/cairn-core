@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getLocale, setLocale, locales, type Locale } from '$lib/paraglide/runtime';
-	import { m } from '$lib/paraglide/messages';
+	import { getLocale, setLocale, locales, type Locale } from '#lib/paraglide/runtime.js';
+	import { m } from '#lib/paraglide/messages.js';
 
 	const current = $derived(getLocale());
 

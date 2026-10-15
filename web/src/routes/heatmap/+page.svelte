@@ -5,9 +5,9 @@
 	import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 	import type { FeatureCollection } from 'geojson';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { basemapStyle } from '$lib/basemap';
-	import ActivityFilterBar from '$lib/components/ActivityFilterBar.svelte';
-	import { ActivityFilter, type ActivityFacets } from '$lib/activity-filter.svelte';
+	import { basemapStyle } from '#lib/basemap.js';
+	import ActivityFilterBar from '#lib/components/ActivityFilterBar.svelte';
+	import { ActivityFilter, type ActivityFacets } from '#lib/activity-filter.svelte.js';
 
 	// Every GPS track the filter matches, drawn as translucent lines so the
 	// routes you ride most burn brightest.

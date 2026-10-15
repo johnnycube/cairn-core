@@ -6,7 +6,7 @@
 		SORTS,
 		humanize,
 		type ActivityFacets
-	} from '$lib/activity-filter.svelte';
+	} from '#lib/activity-filter.svelte.js';
 
 	// The standard filter bar. Facet chips only render for values the user
 	// actually has (facets come from the server, respecting every filter but

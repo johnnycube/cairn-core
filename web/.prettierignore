@@ -6,4 +6,5 @@ package-lock.json
 src/lib/proto/
 src/lib/paraglide/
 static/
-project.inlang/cache/
+project.inlang/*
+!project.inlang/settings.json

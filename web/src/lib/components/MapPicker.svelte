@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Map as MapLibreMap, Marker, NavigationControl, type LngLatLike } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { basemapStyle } from '$lib/basemap';
+	import { basemapStyle } from '#lib/basemap.js';
 
 	// A small click-to-pick map: clicking drops a marker and reports the
 	// coordinates via onPick. Used to set a privacy-zone centre without typing

@@ -39,6 +39,12 @@
       "groupName": "web npm (non-major)"
     },
     {
+      "description": "SvelteKit majors and its adapters only work together.",
+      "matchPackageNames": ["@sveltejs/kit", "@sveltejs/adapter-*"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "sveltekit (major)"
+    },
+    {
       "description": "The build-base image floats on its major tag by design; downstream repos pull :1.",
       "matchDepNames": ["ghcr.io/johnnycube/cairn-build-base"],
       "pinDigests": false

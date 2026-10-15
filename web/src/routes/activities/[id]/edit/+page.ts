@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
-import { connectClients, isUnauthenticated, Code, ConnectError } from '$lib/connect';
-import { ActivityType, Discipline, Privacy } from '$proto/cairn/v1/activity_pb.js';
-import { enumName, protoDurationToSeconds } from '$lib/proto-helpers';
+import { connectClients, isUnauthenticated, Code, ConnectError } from '#lib/connect.js';
+import { ActivityType, Discipline, Privacy } from '#lib/proto/cairn/v1/activity_pb.js';
+import { enumName, protoDurationToSeconds } from '#lib/proto-helpers.js';
 import type { PageLoad } from './$types';
 
 // Loads the full activity (incl. tags/privacy) for the edit form, independent

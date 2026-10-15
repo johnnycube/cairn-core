@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import { formatDateOnly } from '$lib/format';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import { formatDateOnly } from '#lib/format.js';
 
 	// Confidence-band review queue (brief §7.3): medium-confidence merges the
 	// matcher flagged. The user confirms ("looks right" → clear flag) or opens

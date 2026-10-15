@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { ACTIVITY_TYPES, DISCIPLINES, typeLabel } from '$lib/activity-types';
-	import SportIcon from '$lib/components/SportIcon.svelte';
+	import { ACTIVITY_TYPES, DISCIPLINES, typeLabel } from '#lib/activity-types.js';
+	import SportIcon from '#lib/components/SportIcon.svelte';
 
 	// Manual activity entry — posts to the REST endpoint, which feeds the same
 	// ingest → merge pipeline as imports (provider = "manual").

@@ -1,11 +1,16 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { refreshAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import { m } from '$lib/paraglide/messages';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import ActivityFilterBar from '$lib/components/ActivityFilterBar.svelte';
-	import { ActivityFilter, humanize, type ActivityFacets } from '$lib/activity-filter.svelte';
-	import { formatDistance, formatDuration, formatElevation, formatRelativeDate } from '$lib/format';
+	import { m } from '#lib/paraglide/messages.js';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import ActivityFilterBar from '#lib/components/ActivityFilterBar.svelte';
+	import { ActivityFilter, humanize, type ActivityFacets } from '#lib/activity-filter.svelte.js';
+	import {
+		formatDistance,
+		formatDuration,
+		formatElevation,
+		formatRelativeDate
+	} from '#lib/format.js';
 
 	type FeedActivity = {
 		id: string;
@@ -145,7 +150,7 @@
 				uploadOk = `Imported ${imported} file${imported > 1 ? 's' : ''}.`;
 				pageNum = 1;
 				await loadFeed(1);
-				await invalidateAll();
+				await refreshAll();
 			}
 		} catch (e) {
 			uploadError = (e as Error).message;

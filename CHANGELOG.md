@@ -14,6 +14,12 @@ All notable changes to Cairn are documented here. The format follows
   (previously unbounded).
 - Renovate no longer automerges Go major-version updates; they are labelled
   `needs-migration` for a manual migration.
+- Web UI: upgraded to SvelteKit 3 (`@sveltejs/kit` 3.1.0, `adapter-static`
+  4.0.0, `adapter-node` 6.0.0). `svelte.config.js` is gone and its settings
+  now live in `web/vite.config.ts`; `web/tsconfig.json` extends
+  `$app/tsconfig`; the `$lib` and `$proto` aliases are replaced by the
+  `#lib/*` subpath import in `web/package.json` (proto stubs are imported
+  from `#lib/proto/...`). The embedded SPA and the dev workflow are unchanged.
 
 ### Fixed
 - The worker permission template now matches the provider contract, so

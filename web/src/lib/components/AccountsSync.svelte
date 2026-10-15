@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
-	import { formatDate } from '$lib/format';
+	import { refreshAll } from '$app/navigation';
+	import { formatDate } from '#lib/format.js';
 
 	// When `connectionId` is set, only the account belonging to that connection
 	// is shown (no outer "Connected accounts" header) — used to embed an
@@ -357,7 +357,7 @@
 		// Poll while there's queued work so the activities list + counts update.
 		poll = setInterval(async () => {
 			await loadAccounts();
-			if (hasPending) await invalidateAll();
+			if (hasPending) await refreshAll();
 		}, 5000);
 	});
 	onDestroy(() => poll && clearInterval(poll));

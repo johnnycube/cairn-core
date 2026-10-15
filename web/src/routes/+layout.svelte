@@ -2,9 +2,9 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { m } from '$lib/paraglide/messages';
-	import { setPrefs } from '$lib/prefs.svelte';
-	import { formatDate } from '$lib/format';
+	import { m } from '#lib/paraglide/messages.js';
+	import { setPrefs } from '#lib/prefs.svelte.js';
+	import { formatDate } from '#lib/format.js';
 
 	let { children, data } = $props();
 

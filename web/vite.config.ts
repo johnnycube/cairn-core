@@ -1,3 +1,6 @@
+import adapterNode from '@sveltejs/adapter-node';
+import adapterStatic from '@sveltejs/adapter-static';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
@@ -7,6 +10,26 @@ import { defineConfig } from 'vitest/config';
 // :8080 is taken (e.g. `export CAIRN_API_ORIGIN=http://localhost:8090` to match
 // CAIRN_HTTP_ADDR=0.0.0.0:8090). `make dev-web` sources dev.env, which sets it.
 const apiOrigin = process.env.CAIRN_API_ORIGIN || 'http://localhost:8080';
+
+// Dev (default): adapter-node — the SvelteKit Node server, SSR on, run in
+// the cairn-web container behind Caddy.
+//
+// Prod: CAIRN_WEB_TARGET=static → adapter-static, a self-contained SPA
+// (fallback index.html) that the Go binary embeds and serves. Pages opt
+// out of SSR for this target via src/routes/+layout.ts so there's nothing
+// to prerender against a live backend at build time.
+const target = process.env.CAIRN_WEB_TARGET ?? 'node';
+
+const adapter =
+	target === 'static'
+		? adapterStatic({
+				pages: 'build',
+				assets: 'build',
+				fallback: 'index.html',
+				precompress: false,
+				strict: false
+			})
+		: adapterNode({ out: 'build' });
 
 export default defineConfig({
 	plugins: [
@@ -19,7 +42,7 @@ export default defineConfig({
 			// and the cookie + header are enough.
 			strategy: ['cookie', 'preferredLanguage', 'baseLocale']
 		}),
-		sveltekit()
+		sveltekit({ preprocess: vitePreprocess(), adapter })
 	],
 	server: {
 		// CAIRN_WEB_PORT lets this dev server avoid colliding with another

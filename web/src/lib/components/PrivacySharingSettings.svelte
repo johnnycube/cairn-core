@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import MapPicker from '$lib/components/MapPicker.svelte';
+	import MapPicker from '#lib/components/MapPicker.svelte';
 
 	// Privacy & sharing controls: public-profile opt-in, the per-audience
 	// visibility policy, and privacy zones. Backs onto /api/profile/*.

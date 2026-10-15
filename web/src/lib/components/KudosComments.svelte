@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatRelativeDate } from '$lib/format';
+	import { formatRelativeDate } from '#lib/format.js';
 
 	// Kudos + comments for an activity. Self-contained: it probes the social
 	// endpoints; if the viewer isn't permitted (403) it renders nothing.

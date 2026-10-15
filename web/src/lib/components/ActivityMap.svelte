@@ -2,9 +2,9 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
-	import { basemapStyle } from '$lib/basemap';
-	import { m } from '$lib/paraglide/messages';
-	import { formatDistance, formatElevation } from '$lib/format';
+	import { basemapStyle } from '#lib/basemap.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { formatDistance, formatElevation } from '#lib/format.js';
 	import type { TrackPoint } from '../../routes/activities/[id]/+layout';
 
 	let {

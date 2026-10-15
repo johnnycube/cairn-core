@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import { page } from '$app/state';
-	import LocaleSwitcher from '$lib/components/LocaleSwitcher.svelte';
-	import PasskeyManager from '$lib/components/PasskeyManager.svelte';
-	import TokenManager from '$lib/components/TokenManager.svelte';
-	import WebhookManager from '$lib/components/WebhookManager.svelte';
-	import PrivacySharingSettings from '$lib/components/PrivacySharingSettings.svelte';
-	import MergePolicyEditor from '$lib/components/MergePolicyEditor.svelte';
-	import { prefs, setPrefs } from '$lib/prefs.svelte';
-	import { formatDate, formatDistance, formatElevation } from '$lib/format';
-	import { connectClients } from '$lib/connect';
-	import { DateFormat, TimeFormat, UnitSystem } from '$proto/cairn/v1/auth_pb.js';
+	import LocaleSwitcher from '#lib/components/LocaleSwitcher.svelte';
+	import PasskeyManager from '#lib/components/PasskeyManager.svelte';
+	import TokenManager from '#lib/components/TokenManager.svelte';
+	import WebhookManager from '#lib/components/WebhookManager.svelte';
+	import PrivacySharingSettings from '#lib/components/PrivacySharingSettings.svelte';
+	import MergePolicyEditor from '#lib/components/MergePolicyEditor.svelte';
+	import { prefs, setPrefs } from '#lib/prefs.svelte.js';
+	import { formatDate, formatDistance, formatElevation } from '#lib/format.js';
+	import { connectClients } from '#lib/connect.js';
+	import { DateFormat, TimeFormat, UnitSystem } from '#lib/proto/cairn/v1/auth_pb.js';
 
 	let { data } = $props();
 

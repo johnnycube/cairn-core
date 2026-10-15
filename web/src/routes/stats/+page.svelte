@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import { formatDistance, formatDuration, formatElevation } from '$lib/format';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import { formatDistance, formatDuration, formatElevation } from '#lib/format.js';
 
 	type Facet = { value: string; count: number };
 	type Year = {

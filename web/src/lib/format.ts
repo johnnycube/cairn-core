@@ -1,9 +1,9 @@
-import { getLocale } from '$lib/paraglide/runtime';
-import { prefs } from '$lib/prefs.svelte';
+import { getLocale } from '#lib/paraglide/runtime.js';
+import { prefs } from '#lib/prefs.svelte.js';
 
 // UI-side formatters. The Go server reports SI units (meters, seconds, m/s);
 // this module converts to human-friendly strings, honouring the user's
-// preferences (unit system + date/time format) from $lib/prefs. Reading
+// preferences (unit system + date/time format) from #lib/prefs. Reading
 // `prefs.*` here makes every caller reactive to preference changes.
 
 const DASH = '—';

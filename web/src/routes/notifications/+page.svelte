@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { formatRelativeDate } from '$lib/format';
-	import { clients, isUnauthenticated } from '$lib/connect';
+	import { goto, refreshAll } from '$app/navigation';
+	import { m } from '#lib/paraglide/messages.js';
+	import { formatRelativeDate } from '#lib/format.js';
+	import { clients, isUnauthenticated } from '#lib/connect.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -11,13 +11,13 @@
 	let actionError = $state<string | null>(null);
 
 	// Client-side mutations (static SPA: no server form actions). Each calls
-	// Connect directly, then invalidateAll() re-runs the load to refresh.
+	// Connect directly, then refreshAll() re-runs the load to refresh.
 	async function markRead(id: string) {
 		busy = true;
 		actionError = null;
 		try {
 			await clients.notification.markNotificationRead({ id });
-			await invalidateAll();
+			await refreshAll();
 		} catch (err) {
 			if (isUnauthenticated(err)) return goto('/login');
 			actionError = (err as Error).message;
@@ -31,7 +31,7 @@
 		actionError = null;
 		try {
 			await clients.notification.markAllNotificationsRead({});
-			await invalidateAll();
+			await refreshAll();
 		} catch (err) {
 			if (isUnauthenticated(err)) return goto('/login');
 			actionError = (err as Error).message;

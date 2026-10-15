@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { m } from '$lib/paraglide/messages';
-	import AccountsSync from '$lib/components/AccountsSync.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import AccountsSync from '#lib/components/AccountsSync.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

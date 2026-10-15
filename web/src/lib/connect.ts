@@ -1,12 +1,12 @@
 import { createClient, Code, ConnectError } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
 
-import { ActivityService } from '$proto/cairn/v1/activity_pb.js';
-import { SegmentService } from '$proto/cairn/v1/segment_pb.js';
-import { MetricsService } from '$proto/cairn/v1/metrics_pb.js';
-import { NotificationService } from '$proto/cairn/v1/notification_pb.js';
-import { AdminService } from '$proto/cairn/v1/admin_pb.js';
-import { AuthService, ExternalAccountService } from '$proto/cairn/v1/auth_pb.js';
+import { ActivityService } from '#lib/proto/cairn/v1/activity_pb.js';
+import { SegmentService } from '#lib/proto/cairn/v1/segment_pb.js';
+import { MetricsService } from '#lib/proto/cairn/v1/metrics_pb.js';
+import { NotificationService } from '#lib/proto/cairn/v1/notification_pb.js';
+import { AdminService } from '#lib/proto/cairn/v1/admin_pb.js';
+import { AuthService, ExternalAccountService } from '#lib/proto/cairn/v1/auth_pb.js';
 
 // Browser-side Connect-RPC clients.
 //

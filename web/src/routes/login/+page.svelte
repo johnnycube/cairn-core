@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { invalidateAll, goto } from '$app/navigation';
-	import { loginWithPasskey, supported as passkeysSupported } from '$lib/webauthn';
+	import { refreshAll, goto } from '$app/navigation';
+	import { loginWithPasskey, supported as passkeysSupported } from '#lib/webauthn.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -20,8 +20,9 @@
 		passkeyError = null;
 		try {
 			await loginWithPasskey();
-			await invalidateAll();
-			await goto(nextDest);
+			await refreshAll();
+			// goto rejects non-SvelteKit paths; fall back to a full load.
+			await goto(nextDest).catch(() => location.assign(nextDest));
 		} catch (e) {
 			passkeyError = (e as Error).message;
 		} finally {

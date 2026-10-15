@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import KudosComments from '$lib/components/KudosComments.svelte';
-	import { formatDistance, formatDuration, formatRelativeDate } from '$lib/format';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import KudosComments from '#lib/components/KudosComments.svelte';
+	import { formatDistance, formatDuration, formatRelativeDate } from '#lib/format.js';
 
 	let { data } = $props();
 
@@ -47,7 +47,7 @@
 			const body = await res.json();
 			// Owners get the full-fidelity page.
 			if (body.is_owner) {
-				goto(`/activities/${data.id}`, { replaceState: true });
+				goto(`/activities/${data.id}`, { replace: true });
 				return;
 			}
 			activity = body.activity;

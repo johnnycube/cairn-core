@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatDate } from '$lib/format';
-	import { registerPasskey, supported as passkeysSupported } from '$lib/webauthn';
+	import { formatDate } from '#lib/format.js';
+	import { registerPasskey, supported as passkeysSupported } from '#lib/webauthn.js';
 
 	type Passkey = {
 		id: string;

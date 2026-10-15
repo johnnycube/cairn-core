@@ -1,4 +1,5 @@
-import { prefs, type Units } from '$lib/prefs.svelte';
+import type { ReadonlyURLSearchParams } from '$app/state';
+import { prefs, type Units } from '#lib/prefs.svelte.js';
 
 // The standard activity filter: one reactive model shared by every view that
 // takes the server's activity filter params (/activities feed, /heatmap).
@@ -44,7 +45,7 @@ export type RangeSpec = {
 };
 
 // Numeric ranges are entered in the user's display units (same constants as
-// $lib/format) and converted to the SI query params the API expects.
+// #lib/format) and converted to the SI query params the API expects.
 const M_PER_MILE = 1609.344;
 const FT_PER_M = 3.28084;
 export function rangeSpecs(units: Units): RangeSpec[] {
@@ -112,7 +113,7 @@ export class ActivityFilter {
 	ranges = $state<Record<RangeKey, RangeBounds>>(emptyRanges());
 	moreFilters = $state(false);
 
-	constructor(params?: URLSearchParams) {
+	constructor(params?: ReadonlyURLSearchParams) {
 		if (!params) return;
 		this.type = params.get('type') ?? '';
 		this.discipline = params.get('discipline') ?? '';
