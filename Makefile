@@ -45,7 +45,7 @@ MUTATION_MIN ?= 55
 FLEETLINT_VERSION     ?= v0.4.0
 # Proto toolchain; keep in step with docker/Dockerfile.build-base.
 # renovate: datasource=go depName=github.com/bufbuild/buf
-BUF_VERSION           ?= v1.70.0
+BUF_VERSION           ?= v1.73.0
 # renovate: datasource=go depName=google.golang.org/protobuf
 PROTOC_GEN_GO_VERSION ?= v1.36.12
 # renovate: datasource=go depName=connectrpc.com/connect
