@@ -1,0 +1,8 @@
+# Documentation placeholders and the throwaway interop-test admin password, not real secrets.
+45625cf732e406f83aea79ae6a3fb927dc037258:README.md:generic-api-key:300
+45625cf732e406f83aea79ae6a3fb927dc037258:docker-compose.interop.yml:generic-api-key:23
+45625cf732e406f83aea79ae6a3fb927dc037258:docs/architecture.md:generic-api-key:346
+8527bcd878aefb815ea3b6ad92d28d34ba53698a:docker-compose.interop.yml:generic-api-key:20
+8fe9d0524f7330dcfe797fea640798d7c998675e:docker-compose.interop.yml:generic-api-key:20
+7a904759aac635753ab2e8829c85d47c1da63b83:README.md:generic-api-key:492
+7a904759aac635753ab2e8829c85d47c1da63b83:docs/architecture.md:generic-api-key:340
