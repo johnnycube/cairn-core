@@ -29,7 +29,7 @@ import (
 )
 
 // Config holds connection and pool settings. All fields are populated from
-// environment variables via envconfig; see internal/config for tags.
+// environment variables; see internal/config for tags.
 type Config struct {
 	// URL is the PostgreSQL connection string (postgres://...).
 	URL string
