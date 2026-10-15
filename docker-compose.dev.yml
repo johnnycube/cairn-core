@@ -57,7 +57,7 @@ services:
     # tag pins to Postgres 17.9 + TimescaleDB 2.27 — the latest stable as of
     # 2026-05. Bump deliberately when a new minor lands; offline replay needs
     # a concrete tag.
-    image: timescale/timescaledb-ha:pg17-ts2.27
+    image: timescale/timescaledb-ha:pg17-ts2.27@sha256:4f61167e11c7c95bedf96433c720d671a53aa29ad7f52b142b529a6d0e9f0b20
     restart: unless-stopped
     networks: [cairn]
     environment:
@@ -82,7 +82,7 @@ services:
   minio:
     # Pinned MinIO server release. The `latest` tag drifts; this one is
     # the most-recent stable RELEASE as of 2026-05.
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     restart: unless-stopped
     networks: [cairn]
     command: server /data --console-address ":9001"
