@@ -46,6 +46,8 @@ RUN npm run build:static
 # ---- stage 3: compile the Go binary with the SPA embedded ------------------
 FROM ${BUILD_BASE} AS build
 
+# Honour go.mod's toolchain line so a lagging build-base never ships an unpatched stdlib.
+ENV GOTOOLCHAIN=auto
 WORKDIR /src
 
 # Module graph first for layer caching.
