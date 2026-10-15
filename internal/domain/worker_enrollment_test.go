@@ -39,6 +39,23 @@ func TestStandardPermissionTemplateJetStream(t *testing.T) {
 		t.Errorf("subscribe allow-list = %v", tpl.AllowSubscribe)
 	}
 	if empty := StandardPermissionTemplate("", "x"); empty.AllowPublish != nil || empty.AllowSubscribe != nil {
-		t.Errorf("no provider must grant nothing, got %+v", empty)
+		t.Errorf("no provider must yield empty allow lists (refused by the issuer), got %+v", empty)
+	}
+}
+
+func TestEnrollmentProviderRequirement(t *testing.T) {
+	if !(WorkerEnrollment{}).NeedsReenroll() {
+		t.Error("enrollment without provider must need re-enrollment")
+	}
+	if (WorkerEnrollment{Provider: "strava"}).NeedsReenroll() {
+		t.Error("enrollment with provider must not need re-enrollment")
+	}
+	for s, want := range map[string]bool{
+		"strava": true, "garmin": true, "fit_upload": true, "a-b": true,
+		"": false, "Strava": false, "a.b": false, "a>": false, "a*": false, strings.Repeat("a", 49): false,
+	} {
+		if got := ValidProviderID(s); got != want {
+			t.Errorf("ValidProviderID(%q) = %v, want %v", s, got, want)
+		}
 	}
 }

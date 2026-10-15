@@ -595,11 +595,41 @@ func TestAPI_EndToEnd(t *testing.T) {
 	}
 	alice.do(http.MethodPost, "/api/notifications/webhooks", map[string]any{"name": "ssrf", "url": "http://127.0.0.1/x"}, http.StatusBadRequest)
 
-	// Worker enrollments.
-	enr := adm.post("/api/admin/worker-enrollments", map[string]any{"name": "itest-worker", "expires_in_hours": 24, "note": "n"}, http.StatusCreated)
+	// Worker enrollments: provider is required and must be a known one.
+	for _, p := range []string{"", "nope"} {
+		msg := adm.do(http.MethodPost, "/api/admin/worker-enrollments", map[string]any{"name": "itest-worker", "provider": p}, http.StatusBadRequest)
+		if want := "provider is required (one of: garmin, strava)"; strings.TrimSpace(string(msg)) != want {
+			t.Errorf("provider %q: body %q, want %q", p, msg, want)
+		}
+	}
+	legacy := domain.WorkerEnrollment{
+		ID: domain.WorkerEnrollmentID(uuid.New()), TokenHash: make([]byte, 32), Name: "legacy-worker",
+		Version: 1, WorkerNamePattern: "*", PermissionTemplate: "standard", ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if _, err := env.app.WorkerEnrollments.CreateEnrollment(context.Background(), legacy); err != nil {
+		t.Fatalf("store enrollment without provider: %v", err)
+	}
+	enr := adm.post("/api/admin/worker-enrollments", map[string]any{"name": "itest-worker", "provider": "strava", "expires_in_hours": 24, "note": "n"}, http.StatusCreated)
 	if e, ok := enr["enrollment"].(map[string]any); ok {
 		id := str(e, "id")
-		adm.do(http.MethodGet, "/api/admin/worker-enrollments", nil, http.StatusOK)
+		if str(e, "provider") != "strava" || e["reenroll_required"] != false {
+			t.Errorf("created enrollment = %v", e)
+		}
+		var list struct {
+			Enrollments []map[string]any `json:"enrollments"`
+			Providers   []string         `json:"providers"`
+		}
+		if err := json.Unmarshal(adm.do(http.MethodGet, "/api/admin/worker-enrollments", nil, http.StatusOK), &list); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(list.Providers, []string{"garmin", "strava"}) {
+			t.Errorf("providers = %v", list.Providers)
+		}
+		for _, le := range list.Enrollments {
+			if want := str(le, "id") == legacy.ID.String(); le["reenroll_required"] != want {
+				t.Errorf("enrollment %s: reenroll_required = %v, want %v", str(le, "id"), le["reenroll_required"], want)
+			}
+		}
 		adm.do(http.MethodPost, "/api/admin/worker-enrollments/"+id+"/prolong", map[string]any{"expires_in_hours": 48})
 		adm.do(http.MethodPost, "/api/admin/worker-enrollments/"+id+"/revoke", nil)
 	}

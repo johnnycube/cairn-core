@@ -275,6 +275,7 @@ func enrollmentResponseJSON(e domain.WorkerEnrollment) map[string]any {
 		"uses":                e.Uses,
 		"token_hash_hex":      fmt.Sprintf("%x", e.TokenHash),
 		"is_revoked":          e.IsRevoked(),
+		"reenroll_required":   e.NeedsReenroll(),
 	}
 	if e.CreatedByUserID != nil {
 		out["created_by_user_id"] = e.CreatedByUserID.String()

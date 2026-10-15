@@ -124,12 +124,16 @@ func (s *AuthCalloutSubscriber) handleAuthRequest(ctx context.Context, msg *nats
 	if err != nil {
 		var rejection *enrollment.AuthRejection
 		if errors.As(err, &rejection) {
-			s.logger.Info("auth rejected",
+			attrs := []any{
 				"reason", rejection.Reason,
 				"detail", rejection.Detail,
 				"worker_name", in.WorkerName,
 				"client_host", in.ClientHost,
-			)
+			}
+			if rejection.EnrollmentID != nil {
+				attrs = append(attrs, "enrollment_id", rejection.EnrollmentID.String())
+			}
+			s.logger.Info("auth rejected", attrs...)
 			s.replyError(ctx, msg, req.UserNkey, rejection.Reason)
 			return
 		}

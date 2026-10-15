@@ -441,6 +441,8 @@ worker_enrollments
   id, token_hash (sha256), provider, worker_name_pattern,
   expires_at, max_uses, uses, revoked_at, ...
   Notes: plaintext token NEVER stored. token_hash UNIQUE INDEX.
+  provider is required on create (one of core's known providers); older
+  rows with an empty provider are refused at connect ("re-enroll required").
 
 worker_credential_grants
   id, enrollment_id (FK), worker_id (FK), user_nkey_public (UNIQUE),
@@ -548,7 +550,9 @@ type CreateWorkerEnrollment struct{ ... }
 type ProcessAuthCallout struct{ ... }
 //   Hot path. Called from the NATS adapter when an
 //   auth-callout request comes in. Validates token, mints JWT,
-//   writes audit grant.
+//   writes audit grant. Refuses enrollments without a provider
+//   (reason enrollment_missing_provider); the issuer also refuses
+//   to sign empty allow lists, which NATS reads as "allow all".
 
 type RevokeWorkerEnrollment struct{ ... }
 //   Admin command. Marks enrollment as revoked. Future connects
