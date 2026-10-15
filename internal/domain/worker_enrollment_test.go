@@ -10,7 +10,13 @@ func TestStandardPermissionTemplateJetStream(t *testing.T) {
 	tpl := StandardPermissionTemplate("strava", "w1-strava")
 	for _, want := range []string{
 		"$JS.API.STREAM.NAMES",
-		"$JS.API.CONSUMER.CREATE.CAIRN_JOBS.*.cairn.jobs.fetch_source.strava.>",
+		"$JS.API.CONSUMER.CREATE.CAIRN_JOBS.*.cairn.jobs.fetch_source.strava",
+		"$JS.API.CONSUMER.CREATE.CAIRN_JOBS.*.cairn.jobs.import_metrics.strava",
+		"$JS.API.CONSUMER.DURABLE.CREATE.CAIRN_JOBS.*",
+		"cairn.results.reconcile.strava.*",
+		"cairn.results.import_metrics.strava",
+		"cairn.jobs.fetch_source.strava",
+		"cairn.creds.strava.get",
 		"$JS.API.CONSUMER.CREATE.CAIRN_WEBHOOKS.*.cairn.webhooks.w1-strava.event",
 		"$JS.API.CONSUMER.MSG.NEXT.CAIRN_JOBS.*",
 		"$JS.ACK.CAIRN_JOBS.>",
@@ -27,7 +33,8 @@ func TestStandardPermissionTemplateJetStream(t *testing.T) {
 			t.Errorf("over-broad publish grant %q", s)
 		}
 	}
-	if !slices.Contains(tpl.AllowSubscribe, "cairn.jobs.fetch_source.strava.>") ||
+	if !slices.Contains(tpl.AllowSubscribe, "cairn.jobs.fetch_source.strava") ||
+		!slices.Contains(tpl.AllowSubscribe, "cairn.discover.strava") ||
 		slices.ContainsFunc(tpl.AllowSubscribe, func(s string) bool { return strings.HasPrefix(s, "$JS") }) {
 		t.Errorf("subscribe allow-list = %v", tpl.AllowSubscribe)
 	}

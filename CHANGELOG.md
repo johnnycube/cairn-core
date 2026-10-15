@@ -6,6 +6,14 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The worker permission template now matches the provider contract, so
+  workers under NATS auth are no longer refused: fetch_source consumers use
+  the exact `cairn.jobs.fetch_source.<provider>` subject core publishes (the
+  `.>` filter matched nothing), and the template adds `import_metrics` jobs and
+  results, account-suffixed reconcile results, `fetch_source` sub-job
+  enqueues, `cairn.creds.<provider>.get` and serving `cairn.discover.<provider>`.
+
 ## [0.2.7] — 2026-10-15
 
 ### Changed
