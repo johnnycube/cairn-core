@@ -20,7 +20,16 @@ func mountNotificationQuietHours(mux *http.ServeMux, app *App, logger *slog.Logg
 		return
 	}
 
-	mux.HandleFunc("GET /api/notifications/quiet-hours", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/notifications/quiet-hours", quietHoursHandleGet(app, logger))
+
+	mux.HandleFunc("PUT /api/notifications/quiet-hours", quietHoursHandlePut(app, logger))
+
+	logger.Info("notification quiet-hours endpoints mounted")
+}
+
+// quietHoursHandleGet serves GET /api/notifications/quiet-hours.
+func quietHoursHandleGet(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -43,9 +52,12 @@ func mountNotificationQuietHours(mux *http.ServeMux, app *App, logger *slog.Logg
 			"days_of_week": days,
 			"tz":           q.TZ,
 		})
-	})
+	}
+}
 
-	mux.HandleFunc("PUT /api/notifications/quiet-hours", func(w http.ResponseWriter, r *http.Request) {
+// quietHoursHandlePut serves PUT /api/notifications/quiet-hours.
+func quietHoursHandlePut(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -54,32 +66,13 @@ func mountNotificationQuietHours(mux *http.ServeMux, app *App, logger *slog.Logg
 		if !requireJSON(w, r) {
 			return
 		}
-		var body struct {
-			Enabled     bool   `json:"enabled"`
-			StartMinute int    `json:"start_minute"`
-			EndMinute   int    `json:"end_minute"`
-			DaysOfWeek  []int  `json:"days_of_week"`
-			TZ          string `json:"tz"`
-		}
+		var body quietHoursBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
-		if body.StartMinute < 0 || body.StartMinute >= 1440 || body.EndMinute < 0 || body.EndMinute >= 1440 {
-			http.Error(w, "start_minute/end_minute must be in [0,1440)", http.StatusBadRequest)
-			return
-		}
-		for _, d := range body.DaysOfWeek {
-			if d < 0 || d > 6 {
-				http.Error(w, "days_of_week entries must be 0..6 (Sun..Sat)", http.StatusBadRequest)
-				return
-			}
-		}
-		if body.TZ == "" {
-			body.TZ = "UTC"
-		}
-		if _, err := time.LoadLocation(body.TZ); err != nil {
-			http.Error(w, "invalid tz (use an IANA name like Europe/Berlin)", http.StatusBadRequest)
+		if msg := quietHoursValidate(&body); msg != "" {
+			http.Error(w, msg, http.StatusBadRequest)
 			return
 		}
 		if err := app.QuietHours.Upsert(r.Context(), domain.QuietHours{
@@ -95,7 +88,33 @@ func mountNotificationQuietHours(mux *http.ServeMux, app *App, logger *slog.Logg
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+	}
+}
 
-	logger.Info("notification quiet-hours endpoints mounted")
+// quietHoursBody is the PUT request body.
+type quietHoursBody struct {
+	Enabled     bool   `json:"enabled"`
+	StartMinute int    `json:"start_minute"`
+	EndMinute   int    `json:"end_minute"`
+	DaysOfWeek  []int  `json:"days_of_week"`
+	TZ          string `json:"tz"`
+}
+
+// quietHoursValidate defaults TZ and returns a 400 message, or "" when valid.
+func quietHoursValidate(body *quietHoursBody) string {
+	if body.StartMinute < 0 || body.StartMinute >= 1440 || body.EndMinute < 0 || body.EndMinute >= 1440 {
+		return "start_minute/end_minute must be in [0,1440)"
+	}
+	for _, d := range body.DaysOfWeek {
+		if d < 0 || d > 6 {
+			return "days_of_week entries must be 0..6 (Sun..Sat)"
+		}
+	}
+	if body.TZ == "" {
+		body.TZ = "UTC"
+	}
+	if _, err := time.LoadLocation(body.TZ); err != nil {
+		return "invalid tz (use an IANA name like Europe/Berlin)"
+	}
+	return ""
 }

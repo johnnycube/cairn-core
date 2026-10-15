@@ -38,7 +38,25 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	// Session logout is auth-mechanism-agnostic (password, passkey, OIDC all
 	// set the same session cookie) — mount it before the provider guard so it
 	// exists even when no OIDC provider is configured.
-	mux.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /auth/logout", oidcLogoutHandler(app))
+
+	if app.OIDCLogin == nil {
+		logger.Info("oidc endpoints not mounted: no providers configured (logout still mounted)")
+		return
+	}
+
+	mux.HandleFunc("GET /auth/oidc/clients", oidcClientsHandler(app))
+	mux.HandleFunc("GET /auth/oidc/{provider}/start", oidcStartHandler(app, logger))
+	mux.HandleFunc("GET /auth/oidc/callback", oidcCallbackHandler(app, logger))
+
+	logger.Info("oidc endpoints mounted", "paths", []string{
+		"/auth/oidc/clients", "/auth/oidc/{provider}/start",
+		"/auth/oidc/callback",
+	})
+}
+
+func oidcLogoutHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookieName)
 		if err == nil && cookie.Value != "" {
 			hash := sha256.Sum256([]byte(cookie.Value))
@@ -48,14 +66,11 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		}
 		clearSessionCookie(w, r)
 		w.WriteHeader(http.StatusNoContent)
-	})
-
-	if app.OIDCLogin == nil {
-		logger.Info("oidc endpoints not mounted: no providers configured (logout still mounted)")
-		return
 	}
+}
 
-	mux.HandleFunc("GET /auth/oidc/clients", func(w http.ResponseWriter, r *http.Request) {
+func oidcClientsHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		type clientJSON struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
@@ -66,9 +81,11 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			out[i] = clientJSON{ID: p.ID, DisplayName: p.Name}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"clients": out})
-	})
+	}
+}
 
-	mux.HandleFunc("GET /auth/oidc/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
+func oidcStartHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		providerID := r.PathValue("provider")
 
 		out, err := app.OIDCLogin.StartLogin(r.Context(), providerID)
@@ -94,9 +111,11 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 		http.Redirect(w, r, out.AuthURL, http.StatusFound)
-	})
+	}
+}
 
-	mux.HandleFunc("GET /auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+func oidcCallbackHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 		if code == "" || state == "" {
@@ -145,12 +164,7 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		// post-login deep-links should encode them in `state` themselves
 		// (round-tripped through the flow cookie).
 		http.Redirect(w, r, "/", http.StatusFound)
-	})
-
-	logger.Info("oidc endpoints mounted", "paths", []string{
-		"/auth/oidc/clients", "/auth/oidc/{provider}/start",
-		"/auth/oidc/callback",
-	})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +202,7 @@ func setLoginFlowCookie(w http.ResponseWriter, r *http.Request, app *App, s logi
 		}
 		body = ct
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
 		Name:     loginFlowCookieName,
 		Value:    base64.RawURLEncoding.EncodeToString(body),
 		Path:     "/auth/oidc/",
@@ -227,7 +241,7 @@ func readLoginFlowCookie(r *http.Request, app *App) (loginFlowState, error) {
 }
 
 func clearLoginFlowCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
 		Name:     loginFlowCookieName,
 		Value:    "",
 		Path:     "/auth/oidc/",
@@ -245,7 +259,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 	if maxAge < 0 {
 		maxAge = 0
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -258,7 +272,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the request scheme so plain-http dev works
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",

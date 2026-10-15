@@ -24,7 +24,19 @@ func mountActivitySimilar(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		return
 	}
 
-	mux.HandleFunc("GET /api/activities/{id}/similar", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/activities/{id}/similar", activitySimilarHandler(app, logger))
+
+	logger.Info("activity similar endpoint mounted")
+}
+
+// activitySimilarRow is one entry of the similar-activities group.
+type activitySimilarRow struct {
+	sa        domain.SimilarActivity
+	isCurrent bool
+}
+
+func activitySimilarHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -43,17 +55,11 @@ func mountActivitySimilar(mux *http.ServeMux, app *App, logger *slog.Logger) {
 
 		// The matcher needs start coordinates + distance. Without them we can't
 		// tell "same route", so return an empty group (just the current activity).
-		var matches []domain.SimilarActivity
-		if act.StartLat != nil && act.StartLng != nil && act.Summary.DistanceM != nil {
-			matches, err = app.Segments.FindSimilarActivities(
-				r.Context(), act.ID, userID,
-				*act.StartLat, *act.StartLng, *act.Summary.DistanceM, string(act.Type),
-			)
-			if err != nil {
-				logger.Error("find similar failed", "activity", act.ID, "error", err)
-				http.Error(w, "load failed", http.StatusInternalServerError)
-				return
-			}
+		matches, err := activitySimilarMatches(r, app, act, userID)
+		if err != nil {
+			logger.Error("find similar failed", "activity", act.ID, "error", err)
+			http.Error(w, "load failed", http.StatusInternalServerError)
+			return
 		}
 
 		targetSegments := 0
@@ -61,41 +67,9 @@ func mountActivitySimilar(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			targetSegments = matches[0].TargetSegments
 		}
 
-		// Assemble the full group including the reference activity, chronological.
-		type row struct {
-			sa        domain.SimilarActivity
-			isCurrent bool
-		}
-		group := make([]row, 0, len(matches)+1)
-		group = append(group, row{sa: toSimilar(act, targetSegments), isCurrent: true})
-		for _, m := range matches {
-			group = append(group, row{sa: m})
-		}
-		sort.Slice(group, func(i, j int) bool {
-			return group[i].sa.StartTime.Before(group[j].sa.StartTime)
-		})
+		group := activitySimilarGroup(act, matches, targetSegments)
 
-		// Rank by moving time (ascending = faster). Best = rank 1.
-		bestMoving := int64(0)
-		for _, g := range group {
-			if g.sa.MovingS > 0 && (bestMoving == 0 || g.sa.MovingS < bestMoving) {
-				bestMoving = g.sa.MovingS
-			}
-		}
-		currentMoving := int64(0)
-		currentRank := 0
-		// rank = 1 + count of activities strictly faster than current
-		for _, g := range group {
-			if g.isCurrent {
-				currentMoving = g.sa.MovingS
-			}
-		}
-		for _, g := range group {
-			if g.sa.MovingS > 0 && currentMoving > 0 && g.sa.MovingS < currentMoving {
-				currentRank++
-			}
-		}
-		currentRank++ // 1-based
+		bestMoving, currentMoving, currentRank := activitySimilarRank(group)
 
 		out := make([]map[string]any, 0, len(group))
 		for _, g := range group {
@@ -113,9 +87,54 @@ func mountActivitySimilar(mux *http.ServeMux, app *App, logger *slog.Logger) {
 				"is_best":          currentMoving > 0 && currentMoving == bestMoving,
 			},
 		})
-	})
+	}
+}
 
-	logger.Info("activity similar endpoint mounted")
+// activitySimilarMatches finds same-route activities. The matcher needs start coordinates + distance.
+// Without them we can't tell "same route", so return an empty group (just the current activity).
+func activitySimilarMatches(r *http.Request, app *App, act domain.Activity, userID domain.UserID) ([]domain.SimilarActivity, error) {
+	if act.StartLat == nil || act.StartLng == nil || act.Summary.DistanceM == nil {
+		return nil, nil
+	}
+	return app.Segments.FindSimilarActivities(
+		r.Context(), act.ID, userID,
+		*act.StartLat, *act.StartLng, *act.Summary.DistanceM, string(act.Type),
+	)
+}
+
+// activitySimilarGroup assembles the full group including the reference activity, chronological.
+func activitySimilarGroup(act domain.Activity, matches []domain.SimilarActivity, targetSegments int) []activitySimilarRow {
+	group := make([]activitySimilarRow, 0, len(matches)+1)
+	group = append(group, activitySimilarRow{sa: toSimilar(act, targetSegments), isCurrent: true})
+	for _, m := range matches {
+		group = append(group, activitySimilarRow{sa: m})
+	}
+	sort.Slice(group, func(i, j int) bool {
+		return group[i].sa.StartTime.Before(group[j].sa.StartTime)
+	})
+	return group
+}
+
+// activitySimilarRank ranks by moving time (ascending = faster). Best = rank 1.
+func activitySimilarRank(group []activitySimilarRow) (bestMoving, currentMoving int64, currentRank int) {
+	for _, g := range group {
+		if g.sa.MovingS > 0 && (bestMoving == 0 || g.sa.MovingS < bestMoving) {
+			bestMoving = g.sa.MovingS
+		}
+	}
+	// rank = 1 + count of activities strictly faster than current
+	for _, g := range group {
+		if g.isCurrent {
+			currentMoving = g.sa.MovingS
+		}
+	}
+	for _, g := range group {
+		if g.sa.MovingS > 0 && currentMoving > 0 && g.sa.MovingS < currentMoving {
+			currentRank++
+		}
+	}
+	currentRank++ // 1-based
+	return bestMoving, currentMoving, currentRank
 }
 
 // toSimilar projects the reference activity into the SimilarActivity shape so
@@ -133,11 +152,11 @@ func toSimilar(a domain.Activity, targetSegments int) domain.SimilarActivity {
 		TargetSegments: targetSegments,
 	}
 	if a.Summary.AvgHeartRateBpm != nil {
-		v := int(*a.Summary.AvgHeartRateBpm)
+		v := *a.Summary.AvgHeartRateBpm
 		sa.AvgHeartRateBpm = &v
 	}
 	if a.Summary.AvgPowerW != nil {
-		v := int(*a.Summary.AvgPowerW)
+		v := *a.Summary.AvgPowerW
 		sa.AvgPowerW = &v
 	}
 	return sa

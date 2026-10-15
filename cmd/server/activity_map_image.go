@@ -61,7 +61,7 @@ func newTileFetcher(cfg config.MapConfig) staticmap.TileFetcher {
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("tile %d/%d/%d: status %d", z, x, y, resp.StatusCode)
 		}
@@ -72,110 +72,19 @@ func newTileFetcher(cfg config.MapConfig) staticmap.TileFetcher {
 }
 
 func mountActivityMapImage(mux *http.ServeMux, app *App, cfg config.MapConfig, logger *slog.Logger) {
-	fetchTile := newTileFetcher(cfg)
-	mux.HandleFunc("GET /api/activities/{id}/map.png", func(w http.ResponseWriter, r *http.Request) {
-		actID, err := domain.ParseUUID[domain.ActivityID](r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad id", http.StatusBadRequest)
-			return
-		}
-		act, err := app.Activities.GetActivity(r.Context(), actID)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
+	h := activityMapImageHandlers{app: app, logger: logger, fetchTile: newTileFetcher(cfg)}
+	mux.HandleFunc("GET /api/activities/{id}/map.png", h.serve)
 
-		// Resolve viewer + the map-visibility decision.
-		var viewerPtr *domain.UserID
-		if v, ok := optionalSessionUser(r, app); ok {
-			viewerPtr = &v
-		}
-		isOwner := viewerPtr != nil && *viewerPtr == act.UserID
-		trim := false
-		if !isOwner {
-			if act.Privacy == domain.PrivacyPrivate || act.HiddenByAdmin {
-				http.NotFound(w, r)
-				return
-			}
-			cats, _ := visibilityFor(r.Context(), app, act.UserID, viewerPtr, act.ID, false)
-			if !cats.Has(domain.CategoryMap) {
-				http.NotFound(w, r) // the map isn't shared with this viewer
-				return
-			}
-			trim = true // non-owners get the privacy-zone-trimmed track
-		}
-
-		variant := "full"
-		if trim {
-			variant = "trimmed"
-		}
-		cacheKey := mapImageCacheKey(actID, variant)
-
-		// Serve from the S3 cache when present.
-		if app.BlobStore != nil {
-			if data, _, err := app.BlobStore.Get(r.Context(), cacheKey); err == nil && len(data) > 0 {
-				serveMapPNG(w, r, data)
-				return
-			}
-		}
-
-		imgBytes, ok := renderActivityMap(r.Context(), app, act, trim, fetchTile, logger)
-		if !ok {
-			http.NotFound(w, r) // no renderable GPS track
-			return
-		}
-		if app.BlobStore != nil {
-			if err := app.BlobStore.Put(r.Context(), cacheKey, imgBytes, "image/png"); err != nil {
-				logger.Warn("map image: cache store failed", "activity", actID, "error", err)
-			}
-		}
-		serveMapPNG(w, r, imgBytes)
-	})
-
-	// Owner-only: drop the cached snapshots and render the owner's variant
-	// afresh (the trimmed one re-renders lazily on the next non-owner view).
-	// For when the track changed under the cache — re-import, source pinned,
-	// privacy zone edited — or a render failed and cached nothing.
-	mux.HandleFunc("POST /api/activities/{id}/map/regenerate", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		actID, err := domain.ParseUUID[domain.ActivityID](r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad id", http.StatusBadRequest)
-			return
-		}
-		act, err := app.Activities.GetActivity(r.Context(), actID)
-		if err != nil || act.UserID != userID || act.IsDeleted() {
-			http.NotFound(w, r)
-			return
-		}
-		if app.BlobStore != nil {
-			for _, variant := range []string{"full", "trimmed"} {
-				if err := app.BlobStore.Delete(r.Context(), mapImageCacheKey(actID, variant)); err != nil {
-					logger.Warn("map image: cache delete failed", "activity", actID, "variant", variant, "error", err)
-				}
-			}
-		}
-		imgBytes, ok := renderActivityMap(r.Context(), app, act, false, fetchTile, logger)
-		if !ok {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"regenerated": false,
-				"warnings":    []string{"no renderable GPS track"},
-			})
-			return
-		}
-		if app.BlobStore != nil {
-			if err := app.BlobStore.Put(r.Context(), mapImageCacheKey(actID, "full"), imgBytes, "image/png"); err != nil {
-				logger.Warn("map image: cache store failed", "activity", actID, "error", err)
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"regenerated": true})
-	})
+	mux.HandleFunc("POST /api/activities/{id}/map/regenerate", h.regenerate)
 
 	logger.Info("activity map-image endpoint mounted", "path", "/api/activities/{id}/map.png", "tiles", cfg.TileURL)
+}
+
+// activityMapImageHandlers holds the map snapshot HTTP handlers.
+type activityMapImageHandlers struct {
+	app       *App
+	logger    *slog.Logger
+	fetchTile staticmap.TileFetcher
 }
 
 func mapImageCacheKey(id domain.ActivityID, variant string) string {
@@ -251,5 +160,115 @@ func serveMapPNG(w http.ResponseWriter, r *http.Request, data []byte) {
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) //nolint:gosec // G705: rendered PNG bytes served as image/png
+}
+
+func (h activityMapImageHandlers) serve(w http.ResponseWriter, r *http.Request) {
+	actID, err := domain.ParseUUID[domain.ActivityID](r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	act, err := h.app.Activities.GetActivity(r.Context(), actID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	trim, ok := h.viewerTrim(r, act)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	variant := "full"
+	if trim {
+		variant = "trimmed"
+	}
+	cacheKey := mapImageCacheKey(actID, variant)
+
+	// Serve from the S3 cache when present.
+	if h.app.BlobStore != nil {
+		if data, _, err := h.app.BlobStore.Get(r.Context(), cacheKey); err == nil && len(data) > 0 {
+			serveMapPNG(w, r, data)
+			return
+		}
+	}
+
+	imgBytes, rendered := renderActivityMap(r.Context(), h.app, act, trim, h.fetchTile, h.logger)
+	if !rendered {
+		http.NotFound(w, r) // no renderable GPS track
+		return
+	}
+	h.cacheStore(r.Context(), actID, cacheKey, imgBytes)
+	serveMapPNG(w, r, imgBytes)
+}
+
+// Owner-only: drop the cached snapshots and render the owner's variant
+// afresh (the trimmed one re-renders lazily on the next non-owner view).
+// For when the track changed under the cache — re-import, source pinned,
+// privacy zone edited — or a render failed and cached nothing.
+func (h activityMapImageHandlers) regenerate(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	actID, err := domain.ParseUUID[domain.ActivityID](r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	act, err := h.app.Activities.GetActivity(r.Context(), actID)
+	if err != nil || act.UserID != userID || act.IsDeleted() {
+		http.NotFound(w, r)
+		return
+	}
+	if h.app.BlobStore != nil {
+		for _, variant := range []string{"full", "trimmed"} {
+			if err := h.app.BlobStore.Delete(r.Context(), mapImageCacheKey(actID, variant)); err != nil {
+				h.logger.Warn("map image: cache delete failed", "activity", actID, "variant", variant, "error", err)
+			}
+		}
+	}
+	imgBytes, ok := renderActivityMap(r.Context(), h.app, act, false, h.fetchTile, h.logger)
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"regenerated": false,
+			"warnings":    []string{"no renderable GPS track"},
+		})
+		return
+	}
+	h.cacheStore(r.Context(), actID, mapImageCacheKey(actID, "full"), imgBytes)
+	writeJSON(w, http.StatusOK, map[string]any{"regenerated": true})
+}
+
+// viewerTrim resolves the map-visibility decision: trim reports whether the
+// privacy-zone-trimmed track applies; ok=false means the map isn't visible.
+func (h activityMapImageHandlers) viewerTrim(r *http.Request, act domain.Activity) (trim, ok bool) {
+	var viewerPtr *domain.UserID
+	if v, ok := optionalSessionUser(r, h.app); ok {
+		viewerPtr = &v
+	}
+	if viewerPtr != nil && *viewerPtr == act.UserID {
+		return false, true
+	}
+	if act.Privacy == domain.PrivacyPrivate || act.HiddenByAdmin {
+		return false, false
+	}
+	cats := visibilityFor(r.Context(), h.app, act.UserID, viewerPtr, act.ID, false)
+	if !cats.Has(domain.CategoryMap) {
+		return false, false // the map isn't shared with this viewer
+	}
+	return true, true // non-owners get the privacy-zone-trimmed track
+}
+
+// cacheStore writes a rendered snapshot to the S3 cache, logging failures.
+func (h activityMapImageHandlers) cacheStore(ctx context.Context, actID domain.ActivityID, key string, data []byte) {
+	if h.app.BlobStore == nil {
+		return
+	}
+	if err := h.app.BlobStore.Put(ctx, key, data, "image/png"); err != nil {
+		h.logger.Warn("map image: cache store failed", "activity", actID, "error", err)
+	}
 }

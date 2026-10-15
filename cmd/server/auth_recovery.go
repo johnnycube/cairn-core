@@ -31,151 +31,169 @@ const (
 //	GET  /auth/email/verify?code=…                   → verifies + redirects to /login
 //	POST /auth/email/verify/send                     → resend (logged-in, unverified)
 func mountAuthRecovery(mux *http.ServeMux, app *App, logger *slog.Logger, publicURL string, sessionTTL time.Duration) {
-	base := strings.TrimRight(publicURL, "/")
+	h := &authRecoveryHandlers{app: app, logger: logger, base: strings.TrimRight(publicURL, "/"), sessionTTL: sessionTTL}
 
 	// ---- password: forgot ----
-	mux.HandleFunc("POST /auth/password/forgot", func(w http.ResponseWriter, r *http.Request) {
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			Email string `json:"email"`
-		}
-		if err := decodeJSONBody(r, &body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		email := strings.TrimSpace(strings.ToLower(body.Email))
-
-		// Always respond the same way regardless of whether the email exists.
-		generic := func() {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"ok":      true,
-				"message": "If that email belongs to an account, a reset link is on its way.",
-			})
-		}
-		if email == "" || app.Email == nil {
-			if app.Email == nil {
-				logger.Warn("password reset requested but email is disabled")
-			}
-			generic()
-			return
-		}
-		user, err := app.Users.GetUserByEmail(r.Context(), email)
-		if err != nil {
-			generic() // unknown email — don't leak
-			return
-		}
-		code, hash := newRecoveryCode()
-		if err := app.AuthTokens.CreatePasswordResetToken(r.Context(), user.ID, hash, time.Now().UTC().Add(passwordResetTTL)); err != nil {
-			logger.Error("create password reset token", "error", err)
-			generic()
-			return
-		}
-		link := base + "/reset-password?code=" + code
-		sendBestEffortEmail(r.Context(), app, logger, user.Email, "Reset your Cairn password",
-			"Someone asked to reset the password for your Cairn account.\n\n"+
-				"Open this link to choose a new password (valid for 1 hour):\n"+link+"\n\n"+
-				"If you didn't request this, you can ignore this email.\n\n- Cairn",
-			"<p>Someone asked to reset the password for your Cairn account.</p>"+
-				"<p><a href=\""+link+"\">Choose a new password</a> (valid for 1 hour).</p>"+
-				"<p>If you didn't request this, you can ignore this email.</p><p>- Cairn</p>")
-		generic()
-	})
+	mux.HandleFunc("POST /auth/password/forgot", h.forgot)
 
 	// ---- password: reset ----
-	mux.HandleFunc("POST /auth/password/reset", func(w http.ResponseWriter, r *http.Request) {
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			Code     string `json:"code"`
-			Password string `json:"password"`
-		}
-		if err := decodeJSONBody(r, &body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		if len(body.Password) < minResetPasswordChars {
-			http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
-			return
-		}
-		hash := sha256.Sum256([]byte(strings.TrimSpace(body.Code)))
-		userID, err := app.AuthTokens.ConsumePasswordResetToken(r.Context(), hash[:], time.Now().UTC())
-		if errors.Is(err, port.ErrAuthTokenInvalid) {
-			http.Error(w, "this reset link is invalid or has expired", http.StatusBadRequest)
-			return
-		}
-		if err != nil {
-			http.Error(w, "reset failed", http.StatusInternalServerError)
-			return
-		}
-		encoded, err := app.PasswordHasher.Hash(body.Password)
-		if err != nil {
-			http.Error(w, "reset failed", http.StatusInternalServerError)
-			return
-		}
-		if err := app.Users.UpdatePassword(r.Context(), userID, encoded); err != nil {
-			http.Error(w, "reset failed", http.StatusInternalServerError)
-			return
-		}
-		// Auto-login after a successful reset.
-		if err := issueSessionForUser(w, r, app, userID, domain.SessionAuthPassword, sessionTTL); err != nil {
-			// Password is set; just have them log in manually.
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "logged_in": false})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "logged_in": true})
-	})
+	mux.HandleFunc("POST /auth/password/reset", h.reset)
 
 	// ---- email: verify (GET, from the email link) ----
-	mux.HandleFunc("GET /auth/email/verify", func(w http.ResponseWriter, r *http.Request) {
-		code := strings.TrimSpace(r.URL.Query().Get("code"))
-		if code == "" {
-			http.Redirect(w, r, base+"/login?verify_error=1", http.StatusSeeOther)
-			return
-		}
-		hash := sha256.Sum256([]byte(code))
-		userID, _, err := app.AuthTokens.ConsumeEmailVerificationToken(r.Context(), hash[:], time.Now().UTC())
-		if err != nil {
-			http.Redirect(w, r, base+"/login?verify_error=1", http.StatusSeeOther)
-			return
-		}
-		if err := app.Users.UpdateEmailVerified(r.Context(), userID, true); err != nil {
-			http.Redirect(w, r, base+"/login?verify_error=1", http.StatusSeeOther)
-			return
-		}
-		http.Redirect(w, r, base+"/login?verified=1", http.StatusSeeOther)
-	})
+	mux.HandleFunc("GET /auth/email/verify", h.verify)
 
 	// ---- email: resend verification (logged-in, unverified) ----
-	mux.HandleFunc("POST /auth/email/verify/send", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		user, err := app.Users.GetUser(r.Context(), userID)
-		if err != nil {
-			http.Error(w, "user lookup failed", http.StatusInternalServerError)
-			return
-		}
-		if user.EmailVerified {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "already_verified": true})
-			return
-		}
-		if app.Email == nil || user.Email == "" {
-			http.Error(w, "email is not available on this instance/account", http.StatusServiceUnavailable)
-			return
-		}
-		if err := sendVerificationEmail(r.Context(), app, logger, base, user); err != nil {
-			http.Error(w, "send failed", http.StatusBadGateway)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": true})
-	})
+	mux.HandleFunc("POST /auth/email/verify/send", h.resend)
 
 	logger.Info("auth recovery endpoints mounted (password reset + email verification)")
+}
+
+// authRecoveryHandlers carries the shared state of the recovery routes.
+type authRecoveryHandlers struct {
+	app        *App
+	logger     *slog.Logger
+	base       string
+	sessionTTL time.Duration
+}
+
+// authRecoveryGeneric is the identical reply whether or not the email exists.
+func authRecoveryGeneric(w http.ResponseWriter) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "If that email belongs to an account, a reset link is on its way.",
+	})
+}
+
+func (h *authRecoveryHandlers) forgot(w http.ResponseWriter, r *http.Request) {
+	if !requireJSON(w, r) {
+		return
+	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	email := strings.TrimSpace(strings.ToLower(body.Email))
+
+	// Always respond the same way regardless of whether the email exists.
+	if email == "" || h.app.Email == nil {
+		if h.app.Email == nil {
+			h.logger.Warn("password reset requested but email is disabled")
+		}
+		authRecoveryGeneric(w)
+		return
+	}
+	user, err := h.app.Users.GetUserByEmail(r.Context(), email)
+	if err != nil {
+		authRecoveryGeneric(w) // unknown email — don't leak
+		return
+	}
+	code, hash := newRecoveryCode()
+	if err := h.app.AuthTokens.CreatePasswordResetToken(r.Context(), user.ID, hash, time.Now().UTC().Add(passwordResetTTL)); err != nil {
+		h.logger.Error("create password reset token", "error", err)
+		authRecoveryGeneric(w)
+		return
+	}
+	link := h.base + "/reset-password?code=" + code
+	sendBestEffortEmail(r.Context(), h.app, h.logger, user.Email, "Reset your Cairn password",
+		"Someone asked to reset the password for your Cairn account.\n\n"+
+			"Open this link to choose a new password (valid for 1 hour):\n"+link+"\n\n"+
+			"If you didn't request this, you can ignore this email.\n\n- Cairn",
+		"<p>Someone asked to reset the password for your Cairn account.</p>"+
+			"<p><a href=\""+link+"\">Choose a new password</a> (valid for 1 hour).</p>"+
+			"<p>If you didn't request this, you can ignore this email.</p><p>- Cairn</p>")
+	authRecoveryGeneric(w)
+}
+
+func (h *authRecoveryHandlers) reset(w http.ResponseWriter, r *http.Request) {
+	if !requireJSON(w, r) {
+		return
+	}
+	var body struct {
+		Code     string `json:"code"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Password) < minResetPasswordChars {
+		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+	hash := sha256.Sum256([]byte(strings.TrimSpace(body.Code)))
+	userID, err := h.app.AuthTokens.ConsumePasswordResetToken(r.Context(), hash[:], time.Now().UTC())
+	if errors.Is(err, port.ErrAuthTokenInvalid) {
+		http.Error(w, "this reset link is invalid or has expired", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, "reset failed", http.StatusInternalServerError)
+		return
+	}
+	encoded, err := h.app.PasswordHasher.Hash(body.Password)
+	if err != nil {
+		http.Error(w, "reset failed", http.StatusInternalServerError)
+		return
+	}
+	if err := h.app.Users.UpdatePassword(r.Context(), userID, encoded); err != nil {
+		http.Error(w, "reset failed", http.StatusInternalServerError)
+		return
+	}
+	// Auto-login after a successful reset.
+	if err := issueSessionForUser(w, r, h.app, userID, domain.SessionAuthPassword, h.sessionTTL); err != nil {
+		// Password is set; just have them log in manually.
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "logged_in": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "logged_in": true})
+}
+
+func (h *authRecoveryHandlers) verify(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if code == "" {
+		http.Redirect(w, r, h.base+"/login?verify_error=1", http.StatusSeeOther)
+		return
+	}
+	hash := sha256.Sum256([]byte(code))
+	userID, _, err := h.app.AuthTokens.ConsumeEmailVerificationToken(r.Context(), hash[:], time.Now().UTC())
+	if err != nil {
+		http.Redirect(w, r, h.base+"/login?verify_error=1", http.StatusSeeOther)
+		return
+	}
+	if err := h.app.Users.UpdateEmailVerified(r.Context(), userID, true); err != nil {
+		http.Redirect(w, r, h.base+"/login?verify_error=1", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, h.base+"/login?verified=1", http.StatusSeeOther)
+}
+
+func (h *authRecoveryHandlers) resend(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	user, err := h.app.Users.GetUser(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "user lookup failed", http.StatusInternalServerError)
+		return
+	}
+	if user.EmailVerified {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "already_verified": true})
+		return
+	}
+	if h.app.Email == nil || user.Email == "" {
+		http.Error(w, "email is not available on this instance/account", http.StatusServiceUnavailable)
+		return
+	}
+	if err := sendVerificationEmail(r.Context(), h.app, h.logger, h.base, user); err != nil {
+		http.Error(w, "send failed", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": true})
 }
 
 // sendVerificationEmail issues an email-verification token and mails the link.

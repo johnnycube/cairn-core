@@ -36,60 +36,67 @@ func mountAnalysis(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 
-		type pt struct{ ctl, atl, tsb, tss float64 }
-		byDay := map[string]*pt{}
-		var order []string
-		for _, mtr := range metrics {
-			d := mtr.Timestamp.UTC().Format("2006-01-02")
-			p, ok := byDay[d]
-			if !ok {
-				p = &pt{}
-				byDay[d] = p
-				order = append(order, d)
-			}
-			v := 0.0
-			if mtr.ValueNumeric != nil {
-				v = *mtr.ValueNumeric
-			}
-			switch mtr.Key {
-			case domain.MetricKeyTrainingLoadCTL:
-				p.ctl = v
-			case domain.MetricKeyTrainingLoadATL:
-				p.atl = v
-			case domain.MetricKeyTrainingLoadTSB:
-				p.tsb = v
-			case "training_load.tss":
-				p.tss = v
-			}
-		}
-
-		dates := make([]string, 0, len(order))
-		ctl := make([]float64, 0, len(order))
-		atl := make([]float64, 0, len(order))
-		tsb := make([]float64, 0, len(order))
-		tss := make([]float64, 0, len(order))
-		for _, d := range order {
-			p := byDay[d]
-			dates = append(dates, d)
-			ctl = append(ctl, round1(p.ctl))
-			atl = append(atl, round1(p.atl))
-			tsb = append(tsb, round1(p.tsb))
-			tss = append(tss, round1(p.tss))
-		}
-
-		current := map[string]any{"ctl": 0.0, "atl": 0.0, "tsb": 0.0}
-		if n := len(order); n > 0 {
-			p := byDay[order[n-1]]
-			current = map[string]any{"ctl": round1(p.ctl), "atl": round1(p.atl), "tsb": round1(p.tsb)}
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"dates": dates, "ctl": ctl, "atl": atl, "tsb": tsb, "tss": tss,
-			"current": current,
-		})
+		writeJSON(w, http.StatusOK, analysisSeriesJSON(metrics))
 	})
 
 	logger.Info("analysis endpoint mounted")
+}
+
+// analysisPoint is one day of training-load values.
+type analysisPoint struct{ ctl, atl, tsb, tss float64 }
+
+// analysisSeriesJSON buckets training-load metrics per day into parallel series.
+func analysisSeriesJSON(metrics []domain.Metric) map[string]any {
+	byDay := map[string]*analysisPoint{}
+	var order []string
+	for _, mtr := range metrics {
+		d := mtr.Timestamp.UTC().Format("2006-01-02")
+		p, ok := byDay[d]
+		if !ok {
+			p = &analysisPoint{}
+			byDay[d] = p
+			order = append(order, d)
+		}
+		v := 0.0
+		if mtr.ValueNumeric != nil {
+			v = *mtr.ValueNumeric
+		}
+		switch mtr.Key {
+		case domain.MetricKeyTrainingLoadCTL:
+			p.ctl = v
+		case domain.MetricKeyTrainingLoadATL:
+			p.atl = v
+		case domain.MetricKeyTrainingLoadTSB:
+			p.tsb = v
+		case "training_load.tss":
+			p.tss = v
+		}
+	}
+
+	dates := make([]string, 0, len(order))
+	ctl := make([]float64, 0, len(order))
+	atl := make([]float64, 0, len(order))
+	tsb := make([]float64, 0, len(order))
+	tss := make([]float64, 0, len(order))
+	for _, d := range order {
+		p := byDay[d]
+		dates = append(dates, d)
+		ctl = append(ctl, round1(p.ctl))
+		atl = append(atl, round1(p.atl))
+		tsb = append(tsb, round1(p.tsb))
+		tss = append(tss, round1(p.tss))
+	}
+
+	current := map[string]any{"ctl": 0.0, "atl": 0.0, "tsb": 0.0}
+	if n := len(order); n > 0 {
+		p := byDay[order[n-1]]
+		current = map[string]any{"ctl": round1(p.ctl), "atl": round1(p.atl), "tsb": round1(p.tsb)}
+	}
+
+	return map[string]any{
+		"dates": dates, "ctl": ctl, "atl": atl, "tsb": tsb, "tss": tss,
+		"current": current,
+	}
 }
 
 func round1(v float64) float64 {

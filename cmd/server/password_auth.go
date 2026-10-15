@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -29,7 +30,13 @@ import (
 // /auth/* to this server, so the form post and the resulting Set-Cookie
 // are first-party with the rest of the app.
 func mountPasswordAuth(mux *http.ServeMux, app *App, logger *slog.Logger, sessionTTL time.Duration) {
-	mux.HandleFunc("POST /auth/password", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /auth/password", passwordAuthHandler(app, logger, sessionTTL))
+
+	logger.Info("password auth endpoint mounted", "path", "/auth/password")
+}
+
+func passwordAuthHandler(app *App, logger *slog.Logger, sessionTTL time.Duration) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad form", http.StatusBadRequest)
 			return
@@ -43,35 +50,9 @@ func mountPasswordAuth(mux *http.ServeMux, app *App, logger *slog.Logger, sessio
 			return
 		}
 
-		ctx := r.Context()
-
-		// Combined lookup: resolves either a username or an email and
-		// returns the user plus its credentials. A miss still runs an
-		// Argon2id round below so present/absent users take ~equal time.
-		user, cred, err := app.Users.GetCredentialsByLogin(ctx, identifier)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				_, _ = app.PasswordHasher.Verify(password, "")
-				redirectLoginError(w, r, "invalid_credentials")
-				return
-			}
-			logger.Error("password login: credentials lookup failed", "error", err)
-			redirectLoginError(w, r, "server_error")
-			return
-		}
-
-		ok, err := app.PasswordHasher.Verify(password, cred.PasswordHash)
-		if err != nil {
-			logger.Error("password login: verify failed", "error", err, "user_id", user.ID)
-			redirectLoginError(w, r, "server_error")
-			return
-		}
-		if !ok {
-			redirectLoginError(w, r, "invalid_credentials")
-			return
-		}
-		if !user.IsActive() {
-			redirectLoginError(w, r, "account_inactive")
+		user, errCode := passwordAuthVerify(r.Context(), app, logger, identifier, password)
+		if errCode != "" {
+			redirectLoginError(w, r, errCode)
 			return
 		}
 
@@ -87,7 +68,7 @@ func mountPasswordAuth(mux *http.ServeMux, app *App, logger *slog.Logger, sessio
 		now := time.Now()
 		expiresAt := now.Add(sessionTTL)
 
-		if _, err := app.Sessions.Create(ctx, domain.Session{
+		if _, err := app.Sessions.Create(r.Context(), domain.Session{
 			UserID:           user.ID,
 			TokenHash:        hash[:],
 			AuthMethod:       domain.SessionAuthPassword,
@@ -103,10 +84,37 @@ func mountPasswordAuth(mux *http.ServeMux, app *App, logger *slog.Logger, sessio
 
 		setSessionCookie(w, r, token, expiresAt)
 		logger.Info("password login succeeded", "user_id", user.ID, "username", user.Username)
-		http.Redirect(w, r, dest, http.StatusSeeOther)
-	})
+		http.Redirect(w, r, dest, http.StatusSeeOther) //nolint:gosec // G710: dest is constrained to a local path by safeRedirect
+	}
+}
 
-	logger.Info("password auth endpoint mounted", "path", "/auth/password")
+// passwordAuthVerify checks the credentials; a non-empty result is the login error code.
+func passwordAuthVerify(ctx context.Context, app *App, logger *slog.Logger, identifier, password string) (domain.User, string) {
+	// Combined lookup: resolves either a username or an email and
+	// returns the user plus its credentials. A miss still runs an
+	// Argon2id round below so present/absent users take ~equal time.
+	user, cred, err := app.Users.GetCredentialsByLogin(ctx, identifier)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			_, _ = app.PasswordHasher.Verify(password, "")
+			return domain.User{}, "invalid_credentials"
+		}
+		logger.Error("password login: credentials lookup failed", "error", err)
+		return domain.User{}, "server_error"
+	}
+
+	ok, err := app.PasswordHasher.Verify(password, cred.PasswordHash)
+	if err != nil {
+		logger.Error("password login: verify failed", "error", err, "user_id", user.ID)
+		return domain.User{}, "server_error"
+	}
+	if !ok {
+		return domain.User{}, "invalid_credentials"
+	}
+	if !user.IsActive() {
+		return domain.User{}, "account_inactive"
+	}
+	return user, ""
 }
 
 // safeRedirect constrains the post-login destination to a local path so
@@ -116,11 +124,15 @@ func safeRedirect(dest string) string {
 	if dest == "" || !strings.HasPrefix(dest, "/") || strings.HasPrefix(dest, "//") {
 		return "/"
 	}
+	// Browsers treat "\" as "/" and strip tabs/newlines, so "/\host" or "/\t/host" would escape.
+	if strings.ContainsFunc(dest, func(c rune) bool { return c == '\\' || c < 0x20 || c == 0x7f }) {
+		return "/"
+	}
 	return dest
 }
 
 func redirectLoginError(w http.ResponseWriter, r *http.Request, code string) {
-	http.Redirect(w, r, "/login?error="+code, http.StatusSeeOther)
+	http.Redirect(w, r, "/login?error="+code, http.StatusSeeOther) //nolint:gosec // G710: fixed same-origin path; code is a server-chosen error code
 }
 
 func randomSessionToken() (string, error) {

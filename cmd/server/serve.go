@@ -20,6 +20,7 @@ import (
 	webui "github.com/johnnycube/cairn-core/internal/adapter/primary/web"
 	"github.com/johnnycube/cairn-core/internal/config"
 	"github.com/johnnycube/cairn-core/internal/db"
+	"github.com/johnnycube/cairn-core/internal/port"
 	"github.com/johnnycube/cairn-core/internal/usecase/admin"
 	syncuc "github.com/johnnycube/cairn-core/internal/usecase/sync"
 )
@@ -62,23 +63,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Database
 	// ------------------------------------------------------------------
 
-	logger.Info("opening database pool",
-		"max_conns", cfg.Database.MaxConns,
-		"min_conns", cfg.Database.MinConns,
-	)
-
-	pool, err := db.Open(ctx, db.Config{
-		URL:                      cfg.Database.URL,
-		MaxConns:                 cfg.Database.MaxConns,
-		MinConns:                 cfg.Database.MinConns,
-		StatementTimeout:         cfg.Database.StatementTimeout,
-		LockTimeout:              cfg.Database.LockTimeout,
-		IdleInTransactionTimeout: cfg.Database.IdleInTransactionTimeout,
-		ApplicationName:          cfg.Database.ApplicationName,
-		AutoMigrate:              cfg.Database.AutoMigrate,
-	})
+	pool, err := serveOpenDatabase(ctx, cfg, logger)
 	if err != nil {
-		return fmt.Errorf("open database: %w", err)
+		return err
 	}
 	defer pool.Close()
 
@@ -104,10 +91,59 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
+	if err := serveBootstrapAdmin(ctx, app, cfg, logger); err != nil {
+		return err
+	}
+
 	// ------------------------------------------------------------------
-	// Bootstrap admin (idempotent)
+	// HTTP server: health, REST, Connect-RPC, embedded UI
 	// ------------------------------------------------------------------
 
+	mux := http.NewServeMux()
+	serveMountCore(ctx, mux, app, pool, cfg, logger)
+	serveMountFeatures(mux, app, cfg, logger)
+	serveMountPlatform(mux, app, logger)
+	srv := serveNewHTTPServer(ctx, cfg, mux)
+
+	// Subscriptions/watchers are closed in reverse start order on return.
+	var cleanup serveCleanup
+	defer cleanup.run()
+	if err := serveStartBusHandlers(ctx, app, logger, &cleanup); err != nil {
+		return err
+	}
+	if err := serveStartPipelines(ctx, app, logger, &cleanup); err != nil {
+		return err
+	}
+	serveStartBackgroundLoops(ctx, app, cfg, logger)
+
+	return serveListen(ctx, srv, cfg, logger)
+}
+
+// serveOpenDatabase opens the Postgres pool.
+func serveOpenDatabase(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*pgxpool.Pool, error) {
+	logger.Info("opening database pool",
+		"max_conns", cfg.Database.MaxConns,
+		"min_conns", cfg.Database.MinConns,
+	)
+
+	pool, err := db.Open(ctx, db.Config{
+		URL:                      cfg.Database.URL,
+		MaxConns:                 cfg.Database.MaxConns,
+		MinConns:                 cfg.Database.MinConns,
+		StatementTimeout:         cfg.Database.StatementTimeout,
+		LockTimeout:              cfg.Database.LockTimeout,
+		IdleInTransactionTimeout: cfg.Database.IdleInTransactionTimeout,
+		ApplicationName:          cfg.Database.ApplicationName,
+		AutoMigrate:              cfg.Database.AutoMigrate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	return pool, nil
+}
+
+// serveBootstrapAdmin creates the initial admin when configured (idempotent).
+func serveBootstrapAdmin(ctx context.Context, app *App, cfg *config.Config, logger *slog.Logger) error {
 	bootRes, err := app.BootstrapAdmin.Execute(ctx, admin.BootstrapAdminInput{
 		Email:    cfg.Instance.BootstrapAdminEmail,
 		Password: cfg.Instance.BootstrapAdminPassword,
@@ -129,56 +165,66 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			"username", bootRes.CreatedUser.Username,
 		)
 	}
+	return nil
+}
 
-	// ------------------------------------------------------------------
-	// HTTP server: health, REST, Connect-RPC, embedded UI
-	// ------------------------------------------------------------------
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintln(w, "ok")
-	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+// serveReadyzHandler reports whether every wired dependency is reachable.
+func serveReadyzHandler(pool *pgxpool.Pool, app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Ready means: every wired dependency is reachable. Orchestrators route
 		// traffic on this, so a half-up instance (DB ok but NATS/S3 down) must
 		// report NOT ready. Optional deps (NATS/S3) are only checked when wired.
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 
-		checks := map[string]string{}
-		ok := true
-		fail := func(name string, err error) {
-			checks[name] = "error: " + err.Error()
-			ok = false
-		}
-
-		if err := pool.Ping(ctx); err != nil {
-			fail("postgres", err)
-		} else {
-			checks["postgres"] = "ok"
-		}
-		if app.NATSBus != nil {
-			if app.NATSBus.Conn().IsConnected() {
-				checks["nats"] = "ok"
-			} else {
-				fail("nats", errors.New("not connected"))
-			}
-		}
-		if app.BlobStore != nil {
-			if err := app.BlobStore.Healthy(ctx); err != nil {
-				fail("blob_store", err)
-			} else {
-				checks["blob_store"] = "ok"
-			}
-		}
+		checks, ok := serveReadyzChecks(ctx, pool, app)
 
 		status := http.StatusOK
 		if !ok {
 			status = http.StatusServiceUnavailable
 		}
 		writeJSON(w, status, map[string]any{"ready": ok, "checks": checks})
+	}
+}
+
+// serveReadyzChecks probes postgres plus NATS/S3 when wired.
+func serveReadyzChecks(ctx context.Context, pool *pgxpool.Pool, app *App) (map[string]string, bool) {
+	checks := map[string]string{}
+	ok := true
+	fail := func(name string, err error) {
+		checks[name] = "error: " + err.Error()
+		ok = false
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		fail("postgres", err)
+	} else {
+		checks["postgres"] = "ok"
+	}
+	if app.NATSBus != nil {
+		if app.NATSBus.Conn().IsConnected() {
+			checks["nats"] = "ok"
+		} else {
+			fail("nats", errors.New("not connected"))
+		}
+	}
+	if app.BlobStore != nil {
+		if err := app.BlobStore.Healthy(ctx); err != nil {
+			fail("blob_store", err)
+		} else {
+			checks["blob_store"] = "ok"
+		}
+	}
+	return checks, ok
+}
+
+// serveMountCore mounts health, admin ops, webhooks, sign-in and federation.
+func serveMountCore(ctx context.Context, mux *http.ServeMux, app *App, pool *pgxpool.Pool, cfg *config.Config, logger *slog.Logger) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "ok")
 	})
+	mux.HandleFunc("GET /readyz", serveReadyzHandler(pool, app))
 	// Operator-only maintenance endpoints, session+admin-gated under /api/admin/*
 	// (NATS account-key bootstrap/rotate, dead-letter inspect/replay, geocode
 	// backfill). The legacy token-gated /admin/* smoketest surface was removed —
@@ -234,7 +280,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// MCP server (read-only, OAuth-protected) — depends on the AS.
 		mountMCP(mux, app, logger, cfg.HTTP.PublicBaseURL)
 	}
+}
 
+// serveMountFeatures mounts the user-facing REST feature endpoints.
+func serveMountFeatures(mux *http.ServeMux, app *App, cfg *config.Config, logger *slog.Logger) {
 	// Drag-and-drop file import (GPX/TCX) — POST /api/activities/upload.
 	mountUploadEndpoint(mux, app, logger)
 	// Manual activity entry — POST /api/activities/manual.
@@ -268,10 +317,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mountZones(mux, app, logger)
 	mountLaps(mux, app, logger)
 	mountActivitySources(mux, app, logger)
-	mountGarminConnect(mux, app, logger)
+	mountGarminConnect(mux, app)
 	mountMergeOverrides(mux, app, logger)
 	mountMergePolicy(mux, app, logger)
-	mountMergedStream(mux, app, logger)
+	mountMergedStream(mux, app)
 	mountRecords(mux, app, logger)
 	mountHealth(mux, app, logger)
 	mountReviewQueue(mux, app, logger)
@@ -283,6 +332,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mountActivitySimilar(mux, app, logger)
 	mountBestEffortHistory(mux, app, logger)
 	mountSegmentsList(mux, app, logger)
+	serveMountSocial(mux, app, logger)
+}
+
+// serveMountSocial mounts social, moderation, club and notification endpoints.
+func serveMountSocial(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	mountSocial(mux, app, logger)
 	mountHomeFeed(mux, app, logger)
 	mountProfiles(mux, app, logger)
@@ -296,7 +350,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	mountNotificationWebhooks(mux, app, logger)
 	mountNotificationQuietHours(mux, app, logger)
 	mountNotificationDeliveries(mux, app, logger)
+}
 
+// serveMountPlatform mounts admin API, sync, version, metrics, Connect-RPC and the web UI.
+func serveMountPlatform(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	// Session+admin-gated admin API (worker onboarding) for the admin UI.
 	mountAdminAPI(mux, app, logger)
 
@@ -333,7 +390,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	} else {
 		logger.Info("no embedded web UI in this build (dev: served by the web container)")
 	}
+}
 
+// serveNewHTTPServer wraps mux in the middleware chain and builds the server.
+func serveNewHTTPServer(ctx context.Context, cfg *config.Config, mux *http.ServeMux) *http.Server {
 	// Per-caller request-rate ceiling (per session, else per IP). Generous by
 	// default so the polling SPA isn't throttled; override via env.
 	perMin := 600.0
@@ -344,7 +404,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	httpLimiter := newIPRateLimiter(perMin, nil)
 
-	srv := &http.Server{
+	return &http.Server{
 		Addr:         cfg.HTTP.Addr,
 		Handler:      metricsMiddleware(securityHeaders(rateLimitMiddleware(httpLimiter, mux))),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
@@ -352,7 +412,37 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		IdleTimeout:  cfg.HTTP.IdleTimeout,
 		BaseContext:  func(net.Listener) context.Context { return ctx },
 	}
+}
 
+// serveClosable is anything runServe closes on shutdown (subscriptions, KV watchers).
+type serveClosable interface {
+	Close(ctx context.Context) error
+}
+
+// serveCleanup is a LIFO stack of shutdown closers, mirroring stacked defers.
+type serveCleanup struct {
+	fns []func()
+}
+
+// add registers closer to be closed on run, logging warnMsg on a close error.
+func (c *serveCleanup) add(closer serveClosable, logger *slog.Logger, warnMsg string) {
+	c.fns = append(c.fns, func() {
+		if err := closer.Close(context.Background()); err != nil {
+			logger.Warn(warnMsg, "error", err)
+		}
+	})
+}
+
+// run closes everything in reverse registration order.
+func (c *serveCleanup) run() {
+	for i := len(c.fns) - 1; i >= 0; i-- {
+		c.fns[i]()
+	}
+}
+
+// serveStartBusHandlers starts the auth-callout subscriber and the worker
+// request/reply responders (OAuth tokens, Garmin creds, reauth, account lookup).
+func serveStartBusHandlers(ctx context.Context, app *App, logger *slog.Logger, cleanup *serveCleanup) error {
 	// ------------------------------------------------------------------
 	// NATS auth-callout subscriber
 	//
@@ -366,11 +456,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("start auth-callout subscriber: %w", err)
 		}
-		defer func() {
-			if err := sub.Close(context.Background()); err != nil {
-				logger.Warn("auth-callout: close error", "error", err)
-			}
-		}()
+		cleanup.add(sub, logger, "auth-callout: close error")
 	} else {
 		logger.Info("auth-callout subscriber not started: NATS adapter not wired")
 	}
@@ -387,48 +473,51 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start oauth token handlers: %w", err)
 	}
 	for _, sub := range oauthSubs {
-		sub := sub
-		defer func() {
-			if err := sub.Close(context.Background()); err != nil {
-				logger.Warn("oauth handler: close error", "error", err)
-			}
-		}()
+		cleanup.add(sub, logger, "oauth handler: close error")
 	}
 	// Garmin per-user credential handler (cairn.creds.garmin.get).
-	if garminSub, err := startGarminCredsHandler(ctx, app, logger); err != nil {
-		return fmt.Errorf("start garmin creds handler: %w", err)
-	} else if garminSub != nil {
-		defer func() {
-			if err := garminSub.Close(context.Background()); err != nil {
-				logger.Warn("garmin creds handler: close error", "error", err)
-			}
-		}()
+	if err := serveStartOptionalSub(ctx, app, logger, cleanup, startGarminCredsHandler,
+		"start garmin creds handler: %w", "garmin creds handler: close error"); err != nil {
+		return err
 	}
-
 	// Reauth notifier: turns needs_reauth events into user notifications.
-	if reauthSub, err := startReauthNotifier(ctx, app, logger); err != nil {
-		return fmt.Errorf("start reauth notifier: %w", err)
-	} else if reauthSub != nil {
-		defer func() {
-			if err := reauthSub.Close(context.Background()); err != nil {
-				logger.Warn("reauth notifier: close error", "error", err)
-			}
-		}()
+	if err := serveStartOptionalSub(ctx, app, logger, cleanup, startReauthNotifier,
+		"start reauth notifier: %w", "reauth notifier: close error"); err != nil {
+		return err
 	}
 	// Account-lookup responder (workers resolve webhook owner_id → account).
-	if lookupSub, err := startAccountLookupHandler(ctx, app, logger); err != nil {
-		return fmt.Errorf("start account lookup handler: %w", err)
-	} else if lookupSub != nil {
-		defer func() {
-			if err := lookupSub.Close(context.Background()); err != nil {
-				logger.Warn("account lookup handler: close error", "error", err)
-			}
-		}()
+	if err := serveStartOptionalSub(ctx, app, logger, cleanup, startAccountLookupHandler,
+		"start account lookup handler: %w", "account lookup handler: close error"); err != nil {
+		return err
 	}
 	if len(oauthSubs) == 0 {
 		logger.Info("oauth token handlers not started: NATS adapter not wired")
 	}
+	return nil
+}
 
+// serveStartOptionalSub starts a responder that returns nil when not wired.
+func serveStartOptionalSub(
+	ctx context.Context,
+	app *App,
+	logger *slog.Logger,
+	cleanup *serveCleanup,
+	start func(context.Context, *App, *slog.Logger) (port.Subscription, error),
+	startErrFmt, closeWarn string,
+) error {
+	sub, err := start(ctx, app, logger)
+	if err != nil {
+		return fmt.Errorf(startErrFmt, err)
+	}
+	if sub != nil {
+		cleanup.add(sub, logger, closeWarn)
+	}
+	return nil
+}
+
+// serveStartPipelines starts blob presign handlers, the result router, the
+// manifest watcher and the DLQ listener.
+func serveStartPipelines(ctx context.Context, app *App, logger *slog.Logger, cleanup *serveCleanup) error {
 	// ------------------------------------------------------------------
 	// Blob presign handlers
 	//
@@ -442,12 +531,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start blob handlers: %w", err)
 	}
 	for _, sub := range blobSubs {
-		sub := sub
-		defer func() {
-			if err := sub.Close(context.Background()); err != nil {
-				logger.Warn("blob handler: close error", "error", err)
-			}
-		}()
+		cleanup.add(sub, logger, "blob handler: close error")
 	}
 
 	// ------------------------------------------------------------------
@@ -463,11 +547,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start result router: %w", err)
 	}
 	if resultSub != nil {
-		defer func() {
-			if err := resultSub.Close(context.Background()); err != nil {
-				logger.Warn("result router: close error", "error", err)
-			}
-		}()
+		cleanup.add(resultSub, logger, "result router: close error")
 	} else {
 		logger.Info("result router not started: NATS adapter not wired")
 	}
@@ -487,11 +567,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start manifest watcher: %w", err)
 	}
 	if manifestWatch != nil {
-		defer func() {
-			if err := manifestWatch.Close(context.Background()); err != nil {
-				logger.Warn("manifest watcher: close error", "error", err)
-			}
-		}()
+		cleanup.add(manifestWatch, logger, "manifest watcher: close error")
 	} else {
 		logger.Info("manifest watcher not started: NATS adapter not wired")
 	}
@@ -508,15 +584,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start dlq listener: %w", err)
 	}
 	if dlqSub != nil {
-		defer func() {
-			if err := dlqSub.Close(context.Background()); err != nil {
-				logger.Warn("dlq listener: close error", "error", err)
-			}
-		}()
+		cleanup.add(dlqSub, logger, "dlq listener: close error")
 	} else {
 		logger.Info("dlq listener not started: NATS adapter or repo not wired")
 	}
+	return nil
+}
 
+// serveStartBackgroundLoops launches the queue processor, watchers, backfillers and schedulers.
+func serveStartBackgroundLoops(ctx context.Context, app *App, cfg *config.Config, logger *slog.Logger) {
 	// ------------------------------------------------------------------
 	// Reconciliation scheduler
 	//
@@ -567,7 +643,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			logger.Info("reconcile scheduler not started: JobBus not wired (NATS adapter pending)")
 		}
 	}
+}
 
+// serveListen runs the HTTP server until it fails or ctx is cancelled, then drains it.
+func serveListen(ctx context.Context, srv *http.Server, cfg *config.Config, logger *slog.Logger) error {
 	// Run the listener in a goroutine so we can react to ctx cancellation.
 	errCh := make(chan error, 1)
 	go func() {
@@ -817,13 +896,6 @@ func runReconcileScheduler(
 	}
 }
 
-// runWorkerPresenceWatcher polls the worker-presence KV and notifies admins
-// when a worker that was previously online stops heartbeating (its presence
-// key expires past the TTL). It tracks the set of live worker keys between
-// ticks; a key that was present last tick and is gone/stale this tick is an
-// offline transition. On server restart the tracked set starts empty, so the
-// first tick only populates it — no false "offline" for workers that were
-// already up.
 // runNotificationRetryScheduler ticks every minute and re-attempts due
 // side-channel notification deliveries. The backoff schedule lives in the
 // domain (NextDeliveryRetryAt); this just paces the polling. Stops with ctx.
@@ -843,125 +915,156 @@ func runNotificationRetryScheduler(ctx context.Context, logger *slog.Logger, app
 	}
 }
 
+// runWorkerPresenceWatcher polls the worker-presence KV and notifies admins
+// when a worker that was previously online stops heartbeating (its presence
+// key expires past the TTL). It tracks the set of live worker keys between
+// ticks; a key that was present last tick and is gone/stale this tick is an
+// offline transition. On server restart the tracked set starts empty, so the
+// first tick only populates it — no false "offline" for workers that were
+// already up.
 func runWorkerPresenceWatcher(ctx context.Context, logger *slog.Logger, app *App) {
-	log := logger.With("component", "worker_presence_watcher")
 	const tick = 30 * time.Second
 	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
 
-	// worker_key → display name, for workers seen live on the previous tick.
-	seen := map[string]string{}
-	primed := false
-
-	// worker name → consecutive ticks with no live presence. A manifest is
-	// reaped once its worker has been absent this many ticks, so a rolling
-	// redeploy's brief presence gap doesn't drop a still-deployed worker's
-	// manifest. The manifests-bucket TTL is the slower backstop.
-	const manifestReapAfterTicks = 2
-	manifestAbsent := map[string]int{}
-
-	// reapStaleManifests deletes manifest keys whose worker has no live
-	// presence. Without this a decommissioned worker's manifest lingers
-	// forever (no natural writer to expire it) and replays through the
-	// update-available watcher on every server restart. Delete tombstones are
-	// ignored by the manifest watcher, so this drives no spurious re-imports.
-	reapStaleManifests := func(liveNames map[string]struct{}) {
-		kv, err := app.NATSBus.KV("cairn_worker_manifests")
-		if err != nil {
-			log.Warn("reap stale manifests: manifests bucket unavailable", "error", err)
-			return
-		}
-		keys, err := kv.Keys(ctx)
-		if err != nil {
-			log.Debug("reap stale manifests: no keys this tick", "error", err)
-			return
-		}
-		for _, name := range keys {
-			if _, live := liveNames[name]; live {
-				delete(manifestAbsent, name)
-				continue
-			}
-			manifestAbsent[name]++
-			if manifestAbsent[name] < manifestReapAfterTicks {
-				continue
-			}
-			if err := kv.Delete(ctx, name); err != nil {
-				log.Warn("reap stale manifest failed", "worker", name, "error", err)
-				continue
-			}
-			delete(manifestAbsent, name)
-			log.Info("reaped stale worker manifest (no live presence)", "worker", name)
-		}
+	w := &workerPresenceWatcher{
+		app:            app,
+		log:            logger.With("component", "worker_presence_watcher"),
+		seen:           map[string]string{},
+		manifestAbsent: map[string]int{},
 	}
-
-	scan := func() map[string]string {
-		live := map[string]string{}
-		kv, err := app.NATSBus.KV("cairn_worker_presence")
-		if err != nil {
-			return nil // KV unavailable this tick; don't treat as "all offline"
-		}
-		keys, err := kv.Keys(ctx)
-		if err != nil {
-			return nil
-		}
-		now := time.Now()
-		for _, k := range keys {
-			entry, err := kv.Get(ctx, k)
-			if err != nil {
-				// Presence keys carry a TTL; one can expire between Keys and Get.
-				log.Debug("presence scan: key vanished", "key", k, "error", err)
-				continue
-			}
-			var hb struct {
-				WorkerName string `json:"worker_name"`
-				WorkerKey  string `json:"worker_key"`
-				LastSeen   string `json:"last_seen"`
-			}
-			if json.Unmarshal(entry.Value, &hb) != nil || hb.WorkerKey == "" {
-				continue
-			}
-			if ts, perr := time.Parse(time.RFC3339, hb.LastSeen); perr == nil && now.Sub(ts) > presenceStaleAfter {
-				continue // stale; treat as not-live
-			}
-			name := hb.WorkerName
-			if name == "" {
-				name = hb.WorkerKey
-			}
-			live[hb.WorkerKey] = name
-		}
-		return live
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			live := scan()
-			if live == nil {
-				continue // KV blip; keep prior state
-			}
-			if !primed {
-				seen = live
-				primed = true
-				continue
-			}
-			for key, name := range seen {
-				if _, stillLive := live[key]; !stillLive {
-					log.Info("worker went offline", "worker_key", key, "worker", name)
-					if err := app.NotifyWorkerOffline.Execute(ctx, key, name); err != nil {
-						log.Warn("notify worker offline failed", "worker_key", key, "error", err)
-					}
-				}
-			}
-			// Manifest keys are worker names ({name}); presence values are the
-			// same names. Reap manifests whose worker is no longer live.
-			liveNames := make(map[string]struct{}, len(live))
-			for _, name := range live {
-				liveNames[name] = struct{}{}
-			}
-			reapStaleManifests(liveNames)
-			seen = live
+			w.tick(ctx)
 		}
 	}
+}
+
+// workerPresenceManifestReapAfterTicks: worker name → consecutive ticks with no
+// live presence. A manifest is reaped once its worker has been absent this many
+// ticks, so a rolling redeploy's brief presence gap doesn't drop a still-deployed
+// worker's manifest. The manifests-bucket TTL is the slower backstop.
+const workerPresenceManifestReapAfterTicks = 2
+
+// workerPresenceWatcher is the per-process state of runWorkerPresenceWatcher.
+type workerPresenceWatcher struct {
+	app *App
+	log *slog.Logger
+	// worker_key → display name, for workers seen live on the previous tick.
+	seen   map[string]string
+	primed bool
+	// worker name → consecutive ticks absent (see workerPresenceManifestReapAfterTicks).
+	manifestAbsent map[string]int
+}
+
+// tick scans presence, notifies offline transitions and reaps stale manifests.
+func (w *workerPresenceWatcher) tick(ctx context.Context) {
+	live := w.scan(ctx)
+	if live == nil {
+		return // KV blip; keep prior state
+	}
+	if !w.primed {
+		w.seen = live
+		w.primed = true
+		return
+	}
+	for key, name := range w.seen {
+		if _, stillLive := live[key]; !stillLive {
+			w.log.Info("worker went offline", "worker_key", key, "worker", name)
+			if err := w.app.NotifyWorkerOffline.Execute(ctx, key, name); err != nil {
+				w.log.Warn("notify worker offline failed", "worker_key", key, "error", err)
+			}
+		}
+	}
+	// Manifest keys are worker names ({name}); presence values are the
+	// same names. Reap manifests whose worker is no longer live.
+	liveNames := make(map[string]struct{}, len(live))
+	for _, name := range live {
+		liveNames[name] = struct{}{}
+	}
+	w.reapStaleManifests(ctx, liveNames)
+	w.seen = live
+}
+
+// reapStaleManifests deletes manifest keys whose worker has no live
+// presence. Without this a decommissioned worker's manifest lingers
+// forever (no natural writer to expire it) and replays through the
+// update-available watcher on every server restart. Delete tombstones are
+// ignored by the manifest watcher, so this drives no spurious re-imports.
+func (w *workerPresenceWatcher) reapStaleManifests(ctx context.Context, liveNames map[string]struct{}) {
+	kv, err := w.app.NATSBus.KV("cairn_worker_manifests")
+	if err != nil {
+		w.log.Warn("reap stale manifests: manifests bucket unavailable", "error", err)
+		return
+	}
+	keys, err := kv.Keys(ctx)
+	if err != nil {
+		w.log.Debug("reap stale manifests: no keys this tick", "error", err)
+		return
+	}
+	for _, name := range keys {
+		if _, live := liveNames[name]; live {
+			delete(w.manifestAbsent, name)
+			continue
+		}
+		w.manifestAbsent[name]++
+		if w.manifestAbsent[name] < workerPresenceManifestReapAfterTicks {
+			continue
+		}
+		if err := kv.Delete(ctx, name); err != nil {
+			w.log.Warn("reap stale manifest failed", "worker", name, "error", err)
+			continue
+		}
+		delete(w.manifestAbsent, name)
+		w.log.Info("reaped stale worker manifest (no live presence)", "worker", name)
+	}
+}
+
+// scan returns worker_key → name for live workers, or nil when the KV is unavailable.
+func (w *workerPresenceWatcher) scan(ctx context.Context) map[string]string {
+	live := map[string]string{}
+	kv, err := w.app.NATSBus.KV("cairn_worker_presence")
+	if err != nil {
+		return nil // KV unavailable this tick; don't treat as "all offline"
+	}
+	keys, err := kv.Keys(ctx)
+	if err != nil {
+		return nil
+	}
+	now := time.Now()
+	for _, k := range keys {
+		entry, err := kv.Get(ctx, k)
+		if err != nil {
+			// Presence keys carry a TTL; one can expire between Keys and Get.
+			w.log.Debug("presence scan: key vanished", "key", k, "error", err)
+			continue
+		}
+		if key, name, ok := workerPresenceParse(entry.Value, now); ok {
+			live[key] = name
+		}
+	}
+	return live
+}
+
+// workerPresenceParse decodes a heartbeat; ok is false when invalid or stale.
+func workerPresenceParse(value []byte, now time.Time) (key, name string, ok bool) {
+	var hb struct {
+		WorkerName string `json:"worker_name"`
+		WorkerKey  string `json:"worker_key"`
+		LastSeen   string `json:"last_seen"`
+	}
+	if json.Unmarshal(value, &hb) != nil || hb.WorkerKey == "" {
+		return "", "", false
+	}
+	if ts, perr := time.Parse(time.RFC3339, hb.LastSeen); perr == nil && now.Sub(ts) > presenceStaleAfter {
+		return "", "", false // stale; treat as not-live
+	}
+	name = hb.WorkerName
+	if name == "" {
+		name = hb.WorkerKey
+	}
+	return hb.WorkerKey, name, true
 }

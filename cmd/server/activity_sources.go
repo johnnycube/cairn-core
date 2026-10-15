@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -34,42 +35,94 @@ func blobExt(key string) string {
 //	POST /api/activities/{id}/sources/{sourceId}/detach   { reason? }
 func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	// View the source's normalized (parsed) payload as stored.
-	mux.HandleFunc("GET /api/activities/{id}/sources/{sourceId}/parsed", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/activities/{id}/sources/{sourceId}/parsed", activitySourcesParsedHandler(app))
+
+	mux.HandleFunc("POST /api/activities/{id}/sources/{sourceId}/detach", activitySourcesDetachHandler(app, logger))
+
+	// Download the archived original file for a source. Ownership-checked;
+	// redirects (302) to a short-lived presigned URL so the bytes stream from
+	// object storage directly, not through this server.
+	//
+	//	GET /api/activities/{id}/sources/{sourceId}/download
+	mux.HandleFunc("GET /api/activities/{id}/sources/{sourceId}/download", activitySourcesDownloadHandler(app, logger))
+
+	// Re-fetch a source fresh from its external provider. Publishes a
+	// fetch_source job for the source's (provider, account, ext_id); a worker
+	// pulls it, re-fetches from the provider API, and the result flows through
+	// the normal ingest pipeline → Stage-1 finds the existing source →
+	// handleReimport replaces the payload + re-merges. Sets reimport_status to
+	// 'updating' so the UI shows the in-flight state; the ingest resets it to
+	// 'current' on the result.
+	//
+	// Re-fetch needs: an external account (not a manual upload) + a connected
+	// worker for the provider + a valid OAuth token + provider budget. We can't
+	// pre-check the latter two, so failures surface as the job sitting in the
+	// queue / the worker NAK'ing — the source simply stays 'updating'.
+	//
+	//	POST /api/activities/{id}/sources/{sourceId}/reimport
+	mux.HandleFunc("POST /api/activities/{id}/sources/{sourceId}/reimport", activitySourcesReimportHandler(app, logger))
+
+	logger.Info("activity source actions mounted")
+}
+
+// activitySourcesParseIDs parses the {id} and {sourceId} path values, writing 400 on failure.
+func activitySourcesParseIDs(w http.ResponseWriter, r *http.Request) (domain.ActivityID, domain.SourceID, bool) {
+	activityID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad activity id", http.StatusBadRequest)
+		return domain.ActivityID{}, domain.SourceID{}, false
+	}
+	sourceID, err := uuid.Parse(r.PathValue("sourceId"))
+	if err != nil {
+		http.Error(w, "bad source id", http.StatusBadRequest)
+		return domain.ActivityID{}, domain.SourceID{}, false
+	}
+	return domain.ActivityID(activityID), domain.SourceID(sourceID), true
+}
+
+// activitySourcesLoadOwned loads the caller's activity and one of its sources, writing 404 on mismatch.
+func activitySourcesLoadOwned(w http.ResponseWriter, r *http.Request, app *App, userID domain.UserID, aID domain.ActivityID, sID domain.SourceID, rejectDeleted bool) (domain.Activity, domain.ActivitySource, bool) {
+	act, err := app.Activities.GetActivity(r.Context(), aID)
+	if err != nil || act.UserID != userID || (rejectDeleted && act.IsDeleted()) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return act, domain.ActivitySource{}, false
+	}
+	// The source must belong to THIS activity (defence against detaching a
+	// source from another of the user's activities by guessing its id).
+	src, err := app.Activities.GetSource(r.Context(), sID)
+	if err != nil || src.ActivityID != aID {
+		http.Error(w, "not found", http.StatusNotFound)
+		return act, src, false
+	}
+	return act, src, true
+}
+
+func activitySourcesParsedHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
-		activityID, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad activity id", http.StatusBadRequest)
+		aID, sID, ok := activitySourcesParseIDs(w, r)
+		if !ok {
 			return
 		}
-		sourceID, err := uuid.Parse(r.PathValue("sourceId"))
-		if err != nil {
-			http.Error(w, "bad source id", http.StatusBadRequest)
+		if _, _, ok := activitySourcesLoadOwned(w, r, app, userID, aID, sID, false); !ok {
 			return
 		}
-		act, err := app.Activities.GetActivity(r.Context(), domain.ActivityID(activityID))
-		if err != nil || act.UserID != userID {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		src, err := app.Activities.GetSource(r.Context(), domain.SourceID(sourceID))
-		if err != nil || src.ActivityID != domain.ActivityID(activityID) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		raw, err := app.Activities.GetSourceParsedRaw(r.Context(), domain.SourceID(sourceID))
+		raw, err := app.Activities.GetSourceParsedRaw(r.Context(), sID)
 		if err != nil {
 			http.Error(w, "load failed", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(raw)
-	})
+		_, _ = w.Write(raw) //nolint:gosec // G705: stored JSON served as application/json, owner-only
+	}
+}
 
-	mux.HandleFunc("POST /api/activities/{id}/sources/{sourceId}/detach", func(w http.ResponseWriter, r *http.Request) {
+func activitySourcesDetachHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -78,31 +131,13 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		if !requireJSON(w, r) {
 			return
 		}
-
-		activityID, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad activity id", http.StatusBadRequest)
+		aID, sID, ok := activitySourcesParseIDs(w, r)
+		if !ok {
 			return
 		}
-		sourceID, err := uuid.Parse(r.PathValue("sourceId"))
-		if err != nil {
-			http.Error(w, "bad source id", http.StatusBadRequest)
-			return
-		}
-		aID := domain.ActivityID(activityID)
-		sID := domain.SourceID(sourceID)
-
 		// Ownership: the activity must belong to the caller and not be deleted.
-		act, err := app.Activities.GetActivity(r.Context(), aID)
-		if err != nil || act.UserID != userID || act.IsDeleted() {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		// The source must belong to THIS activity (defence against detaching a
-		// source from another of the user's activities by guessing its id).
-		src, err := app.Activities.GetSource(r.Context(), sID)
-		if err != nil || src.ActivityID != aID {
-			http.Error(w, "not found", http.StatusNotFound)
+		act, src, ok := activitySourcesLoadOwned(w, r, app, userID, aID, sID, true)
+		if !ok {
 			return
 		}
 
@@ -123,58 +158,60 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			http.Error(w, "detach failed", http.StatusInternalServerError)
 			return
 		}
+		activitySourcesDenylist(r.Context(), app, logger, userID, src, reason)
+		activitySourcesRecomputeAfterDetach(w, r, app, logger, act, aID)
+	}
+}
 
-		// Make the detach DURABLE (Gap 6): record the source's identity on the
-		// denylist so a provider re-push doesn't silently re-attach it. The
-		// ingest dedup path consults this before heuristic attach.
-		if app.SourceDenylist != nil {
-			if err := app.SourceDenylist.Add(r.Context(), domain.SourceDenylistEntry{
-				UserID:            userID,
-				Provider:          src.Provider,
-				ExternalAccountID: src.ExternalAccountID,
-				ExternalID:        src.ExternalID,
-				Reason:            reason,
-			}); err != nil {
-				logger.Warn("detach denylist write failed", "source_id", sID, "error", err)
-			}
-		}
+// activitySourcesDenylist makes the detach DURABLE (Gap 6) so a provider re-push doesn't re-attach it.
+func activitySourcesDenylist(ctx context.Context, app *App, logger *slog.Logger, userID domain.UserID, src domain.ActivitySource, reason string) {
+	if app.SourceDenylist == nil {
+		return
+	}
+	if err := app.SourceDenylist.Add(ctx, domain.SourceDenylistEntry{
+		UserID:            userID,
+		Provider:          src.Provider,
+		ExternalAccountID: src.ExternalAccountID,
+		ExternalID:        src.ExternalID,
+		Reason:            reason,
+	}); err != nil {
+		logger.Warn("detach denylist write failed", "source_id", src.ID, "error", err)
+	}
+}
 
-		// Re-merge from the remaining sources (or soft-delete if none remain).
-		result, err := app.RecomputeActivity.Execute(r.Context(), aID)
-		if err != nil {
-			// The detach is durable; recompute is best-effort (matches the
-			// pipeline-wide "auto-triggers log, don't fail the request" rule).
-			logger.Warn("detach succeeded but recompute failed", "activity_id", aID, "error", err)
-			writeJSON(w, http.StatusOK, map[string]any{
-				"detached":        true,
-				"recomputed":      false,
-				"recompute_error": err.Error(),
-				"activity_id":     aID.String(),
-			})
-			return
-		}
-
-		// If that was the activity's last source, it's gone — tell remote
-		// followers so the federated copy is removed too.
-		if result.SoftDeleted {
-			publishActivityDelete(r.Context(), app, logger, act.UserID, aID)
-		}
-
+// activitySourcesRecomputeAfterDetach re-merges from the remaining sources (or soft-deletes if none remain).
+func activitySourcesRecomputeAfterDetach(w http.ResponseWriter, r *http.Request, app *App, logger *slog.Logger, act domain.Activity, aID domain.ActivityID) {
+	result, err := app.RecomputeActivity.Execute(r.Context(), aID)
+	if err != nil {
+		// The detach is durable; recompute is best-effort (matches the
+		// pipeline-wide "auto-triggers log, don't fail the request" rule).
+		logger.Warn("detach succeeded but recompute failed", "activity_id", aID, "error", err)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"detached":     true,
-			"recomputed":   true,
-			"soft_deleted": result.SoftDeleted,
-			"source_count": len(result.SourceIDs),
-			"activity_id":  aID.String(),
+			"detached":        true,
+			"recomputed":      false,
+			"recompute_error": err.Error(),
+			"activity_id":     aID.String(),
 		})
-	})
+		return
+	}
 
-	// Download the archived original file for a source. Ownership-checked;
-	// redirects (302) to a short-lived presigned URL so the bytes stream from
-	// object storage directly, not through this server.
-	//
-	//	GET /api/activities/{id}/sources/{sourceId}/download
-	mux.HandleFunc("GET /api/activities/{id}/sources/{sourceId}/download", func(w http.ResponseWriter, r *http.Request) {
+	// If that was the activity's last source, it's gone — tell remote
+	// followers so the federated copy is removed too.
+	if result.SoftDeleted {
+		publishActivityDelete(r.Context(), app, logger, act.UserID, aID)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"detached":     true,
+		"recomputed":   true,
+		"soft_deleted": result.SoftDeleted,
+		"source_count": len(result.SourceIDs),
+		"activity_id":  aID.String(),
+	})
+}
+
+func activitySourcesDownloadHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -184,24 +221,12 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			http.Error(w, "object storage is not configured", http.StatusServiceUnavailable)
 			return
 		}
-		activityID, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad activity id", http.StatusBadRequest)
+		aID, sID, ok := activitySourcesParseIDs(w, r)
+		if !ok {
 			return
 		}
-		sourceID, err := uuid.Parse(r.PathValue("sourceId"))
-		if err != nil {
-			http.Error(w, "bad source id", http.StatusBadRequest)
-			return
-		}
-		act, err := app.Activities.GetActivity(r.Context(), domain.ActivityID(activityID))
-		if err != nil || act.UserID != userID || act.IsDeleted() {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		src, err := app.Activities.GetSource(r.Context(), domain.SourceID(sourceID))
-		if err != nil || src.ActivityID != domain.ActivityID(activityID) {
-			http.Error(w, "not found", http.StatusNotFound)
+		_, src, ok := activitySourcesLoadOwned(w, r, app, userID, aID, sID, true)
+		if !ok {
 			return
 		}
 		if src.RawBlobID == "" {
@@ -213,38 +238,45 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		// being browser-reachable; fine for the small raw activity files.
 		data, ct, err := app.BlobStore.Get(r.Context(), src.RawBlobID)
 		if err != nil {
-			logger.Error("blob get failed", "source_id", sourceID, "error", err)
+			logger.Error("blob get failed", "source_id", uuid.UUID(sID), "error", err)
 			http.Error(w, "download unavailable", http.StatusBadGateway)
 			return
 		}
-		if ct == "" {
-			ct = src.RawContentType
-		}
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
-		ext := blobExt(src.RawBlobID)
-		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+src.Provider+"-"+src.ExternalID+ext+"\"")
-		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		activitySourcesWriteDownloadHeaders(w, src, ct, len(data))
 		_, _ = w.Write(data)
-	})
+	}
+}
 
-	// Re-fetch a source fresh from its external provider. Publishes a
-	// fetch_source job for the source's (provider, account, ext_id); a worker
-	// pulls it, re-fetches from the provider API, and the result flows through
-	// the normal ingest pipeline → Stage-1 finds the existing source →
-	// handleReimport replaces the payload + re-merges. Sets reimport_status to
-	// 'updating' so the UI shows the in-flight state; the ingest resets it to
-	// 'current' on the result.
-	//
-	// Re-fetch needs: an external account (not a manual upload) + a connected
-	// worker for the provider + a valid OAuth token + provider budget. We can't
-	// pre-check the latter two, so failures surface as the job sitting in the
-	// queue / the worker NAK'ing — the source simply stays 'updating'.
-	//
-	//	POST /api/activities/{id}/sources/{sourceId}/reimport
-	mux.HandleFunc("POST /api/activities/{id}/sources/{sourceId}/reimport", func(w http.ResponseWriter, r *http.Request) {
+// activitySourcesWriteDownloadHeaders sets the attachment headers for a raw source download.
+func activitySourcesWriteDownloadHeaders(w http.ResponseWriter, src domain.ActivitySource, ct string, size int) {
+	if ct == "" {
+		ct = src.RawContentType
+	}
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	ext := blobExt(src.RawBlobID)
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+src.Provider+"-"+src.ExternalID+ext+"\"")
+	w.Header().Set("Content-Length", strconv.Itoa(size))
+}
+
+// activitySourcesReimportMode reads the optional {mode} body, defaulting to "refetch".
+func activitySourcesReimportMode(r *http.Request) (string, error) {
+	var reqBody struct {
+		Mode string `json:"mode"`
+	}
+	if err := decodeOptionalJSONBody(r, &reqBody); err != nil {
+		return "", err
+	}
+	if reqBody.Mode == "" {
+		return "refetch", nil
+	}
+	return reqBody.Mode, nil
+}
+
+func activitySourcesReimportHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -254,42 +286,21 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			http.Error(w, "re-fetch requires the async worker bus, which isn't configured", http.StatusServiceUnavailable)
 			return
 		}
-		activityID, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad activity id", http.StatusBadRequest)
+		aID, sID, ok := activitySourcesParseIDs(w, r)
+		if !ok {
 			return
 		}
-		sourceID, err := uuid.Parse(r.PathValue("sourceId"))
-		if err != nil {
-			http.Error(w, "bad source id", http.StatusBadRequest)
-			return
-		}
-		aID := domain.ActivityID(activityID)
-		sID := domain.SourceID(sourceID)
-
-		act, err := app.Activities.GetActivity(r.Context(), aID)
-		if err != nil || act.UserID != userID || act.IsDeleted() {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		src, err := app.Activities.GetSource(r.Context(), sID)
-		if err != nil || src.ActivityID != aID {
-			http.Error(w, "not found", http.StatusNotFound)
+		_, src, ok := activitySourcesLoadOwned(w, r, app, userID, aID, sID, true)
+		if !ok {
 			return
 		}
 		// mode: "refetch" (default) = fresh from provider; "reparse" =
 		// re-run the worker's mapping over the archived raw blob (no provider
 		// API quota). Reparse needs an archived blob + object storage.
-		var reqBody struct {
-			Mode string `json:"mode"`
-		}
-		if err := decodeOptionalJSONBody(r, &reqBody); err != nil {
+		mode, err := activitySourcesReimportMode(r)
+		if err != nil {
 			http.Error(w, "bad body", http.StatusBadRequest)
 			return
-		}
-		mode := reqBody.Mode
-		if mode == "" {
-			mode = "refetch"
 		}
 
 		if mode == "reparse" {
@@ -300,43 +311,45 @@ func mountActivitySources(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			writeJSON(w, http.StatusOK, map[string]any{"queued": true, "mode": "reparse", "provider": src.Provider})
 			return
 		}
+		activitySourcesRefetch(w, r, app, logger, userID, src, sID)
+	}
+}
 
-		if src.ExternalAccountID == nil || src.ExternalID == "" {
-			// Manual uploads have no provider to re-fetch from.
-			http.Error(w, "this source has no external provider to re-fetch from", http.StatusBadRequest)
-			return
-		}
+// activitySourcesRefetch queues a fetch_source job for the source's provider.
+func activitySourcesRefetch(w http.ResponseWriter, r *http.Request, app *App, logger *slog.Logger, userID domain.UserID, src domain.ActivitySource, sID domain.SourceID) {
+	if src.ExternalAccountID == nil || src.ExternalID == "" {
+		// Manual uploads have no provider to re-fetch from.
+		http.Error(w, "this source has no external provider to re-fetch from", http.StatusBadRequest)
+		return
+	}
 
-		// Flip to 'updating' first so a concurrent view sees the in-flight state.
-		if err := app.Activities.SetSourceReimportStatus(r.Context(), sID, domain.ReimportStatusUpdating, "user_refetch"); err != nil {
-			logger.Error("set reimport status failed", "source_id", sID, "error", err)
-			http.Error(w, "could not start re-fetch", http.StatusInternalServerError)
-			return
-		}
+	// Flip to 'updating' first so a concurrent view sees the in-flight state.
+	if err := app.Activities.SetSourceReimportStatus(r.Context(), sID, domain.ReimportStatusUpdating, "user_refetch"); err != nil {
+		logger.Error("set reimport status failed", "source_id", sID, "error", err)
+		http.Error(w, "could not start re-fetch", http.StatusInternalServerError)
+		return
+	}
 
-		body, _ := json.Marshal(map[string]any{
-			"job_id":        "refetch:" + sID.String(),
-			"account_id":    src.ExternalAccountID.String(),
-			"user_id":       userID.String(),
-			"provider":      src.Provider,
-			"ext_id":        src.ExternalID,
-			"fetch_streams": true,
-			"reason":        "user_refetch",
-		})
-		// Deterministic msg-id collapses double-clicks within the dedup window.
-		msgID := "refetch:" + src.Provider + ":" + src.ExternalID
-		if err := app.NATSBus.Publish(r.Context(), "cairn.jobs.fetch_source."+src.Provider, msgID, body); err != nil {
-			// Roll the status back so the user can retry; the job never landed.
-			_ = app.Activities.SetSourceReimportStatus(r.Context(), sID, domain.ReimportStatusCurrent, "")
-			logger.Error("publish fetch_source failed", "source_id", sID, "error", err)
-			http.Error(w, "could not queue re-fetch", http.StatusBadGateway)
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{"queued": true, "mode": "refetch", "provider": src.Provider})
+	body, _ := json.Marshal(map[string]any{
+		"job_id":        "refetch:" + sID.String(),
+		"account_id":    src.ExternalAccountID.String(),
+		"user_id":       userID.String(),
+		"provider":      src.Provider,
+		"ext_id":        src.ExternalID,
+		"fetch_streams": true,
+		"reason":        "user_refetch",
 	})
+	// Deterministic msg-id collapses double-clicks within the dedup window.
+	msgID := "refetch:" + src.Provider + ":" + src.ExternalID
+	if err := app.NATSBus.Publish(r.Context(), "cairn.jobs.fetch_source."+src.Provider, msgID, body); err != nil {
+		// Roll the status back so the user can retry; the job never landed.
+		_ = app.Activities.SetSourceReimportStatus(r.Context(), sID, domain.ReimportStatusCurrent, "")
+		logger.Error("publish fetch_source failed", "source_id", sID, "error", err)
+		http.Error(w, "could not queue re-fetch", http.StatusBadGateway)
+		return
+	}
 
-	logger.Info("activity source actions mounted")
+	writeJSON(w, http.StatusOK, map[string]any{"queued": true, "mode": "refetch", "provider": src.Provider})
 }
 
 // reimportError carries an HTTP status alongside a message so the reparse
@@ -350,7 +363,8 @@ type reimportError struct {
 func (e *reimportError) Error() string { return e.msg }
 
 func writeReimportError(w http.ResponseWriter, err error) {
-	if re, ok := err.(*reimportError); ok {
+	var re *reimportError
+	if errors.As(err, &re) {
 		http.Error(w, re.msg, re.status)
 		return
 	}

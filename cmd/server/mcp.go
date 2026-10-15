@@ -63,10 +63,10 @@ type jsonrpcReq struct {
 }
 
 type jsonrpcResp struct {
-	JSONRPC string         `json:"jsonrpc"`
+	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
-	Result  any            `json:"result,omitempty"`
-	Error   *jsonrpcError  `json:"error,omitempty"`
+	Result  any             `json:"result,omitempty"`
+	Error   *jsonrpcError   `json:"error,omitempty"`
 }
 
 type jsonrpcError struct {
@@ -297,10 +297,10 @@ func (s *mcpServer) toolActivityStats(ctx context.Context, uid domain.UserID) (a
 		return toolError("could not compute totals"), nil
 	}
 	return toolJSON(map[string]any{
-		"activity_count":     t.Count,
-		"distance_m":         t.DistanceM,
-		"moving_time_s":      t.MovingS,
-		"elevation_gain_m":   t.ElevationGainM,
+		"activity_count":   t.Count,
+		"distance_m":       t.DistanceM,
+		"moving_time_s":    t.MovingS,
+		"elevation_gain_m": t.ElevationGainM,
 	})
 }
 

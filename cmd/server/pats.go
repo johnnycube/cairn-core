@@ -28,7 +28,15 @@ func mountPATs(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		return
 	}
 
-	mux.HandleFunc("GET /api/pats", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/pats", patsListHandler(app))
+	mux.HandleFunc("POST /api/pats", patsCreateHandler(app))
+	mux.HandleFunc("DELETE /api/pats/{id}", patsRevokeHandler(app))
+
+	logger.Info("personal access token endpoints mounted")
+}
+
+func patsListHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -56,9 +64,11 @@ func mountPATs(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tokens": out})
-	})
+	}
+}
 
-	mux.HandleFunc("POST /api/pats", func(w http.ResponseWriter, r *http.Request) {
+func patsCreateHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -102,9 +112,11 @@ func mountPATs(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		}
 		// token shown exactly once
 		writeJSON(w, http.StatusCreated, map[string]any{"id": id.String(), "token": token})
-	})
+	}
+}
 
-	mux.HandleFunc("DELETE /api/pats/{id}", func(w http.ResponseWriter, r *http.Request) {
+func patsRevokeHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -120,7 +132,5 @@ func mountPATs(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
-
-	logger.Info("personal access token endpoints mounted")
+	}
 }

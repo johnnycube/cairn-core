@@ -23,7 +23,14 @@ func mountSegmentDetail(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		return
 	}
 
-	mux.HandleFunc("GET /api/segments/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/segments/{id}", segmentDetailHandler(app))
+
+	logger.Info("segment detail endpoint mounted")
+}
+
+// segmentDetailHandler serves GET /api/segments/{id}.
+func segmentDetailHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -57,25 +64,8 @@ func mountSegmentDetail(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 
-		out := make([]map[string]any, 0, len(efforts))
-		for _, e := range efforts {
-			out = append(out, map[string]any{
-				"id":                 e.ID.String(),
-				"activity_id":        e.ActivityID.String(),
-				"start_time":         e.StartTime.UTC().Format("2006-01-02T15:04:05Z07:00"),
-				"elapsed_s":          int64(e.ElapsedS),
-				"moving_s":           int64(e.MovingS),
-				"avg_heart_rate":     e.AvgHeartRateBpm,
-				"avg_power":          e.AvgPowerW,
-				"personal_rank":      e.PersonalRank,
-				"is_personal_record": e.IsPersonalRecord,
-			})
-		}
-
-		var climb any
-		if seg.ClimbCategory != "" && seg.ClimbCategory != domain.ClimbCategoryNone {
-			climb = string(seg.ClimbCategory)
-		}
+		out := segmentDetailEffortsJSON(efforts)
+		climb := segmentClimbJSON(seg)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"segment": map[string]any{
 				"id":                 seg.ID.String(),
@@ -91,7 +81,32 @@ func mountSegmentDetail(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			},
 			"efforts": out,
 		})
-	})
+	}
+}
 
-	logger.Info("segment detail endpoint mounted")
+// segmentDetailEffortsJSON renders the viewer's efforts for the detail page.
+func segmentDetailEffortsJSON(efforts []domain.SegmentEffort) []map[string]any {
+	out := make([]map[string]any, 0, len(efforts))
+	for _, e := range efforts {
+		out = append(out, map[string]any{
+			"id":                 e.ID.String(),
+			"activity_id":        e.ActivityID.String(),
+			"start_time":         e.StartTime.UTC().Format("2006-01-02T15:04:05Z07:00"),
+			"elapsed_s":          int64(e.ElapsedS),
+			"moving_s":           int64(e.MovingS),
+			"avg_heart_rate":     e.AvgHeartRateBpm,
+			"avg_power":          e.AvgPowerW,
+			"personal_rank":      e.PersonalRank,
+			"is_personal_record": e.IsPersonalRecord,
+		})
+	}
+	return out
+}
+
+// segmentClimbJSON returns the climb category, or nil when uncategorised.
+func segmentClimbJSON(seg domain.Segment) any {
+	if seg.ClimbCategory != "" && seg.ClimbCategory != domain.ClimbCategoryNone {
+		return string(seg.ClimbCategory)
+	}
+	return nil
 }

@@ -18,83 +18,98 @@ func mountMergePolicy(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	if app.UserSettings == nil {
 		return
 	}
+	h := &mergePolicyAPI{app: app, logger: logger}
+	mux.HandleFunc("GET /api/settings/merge-policy", h.getUser)
+	mux.HandleFunc("PUT /api/settings/merge-policy", h.putUser)
+	mux.HandleFunc("GET /api/admin/instance/merge-defaults", h.getInstance)
+	mux.HandleFunc("PUT /api/admin/instance/merge-defaults", h.putInstance)
+}
 
-	mux.HandleFunc("GET /api/settings/merge-policy", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		policies, err := app.UserSettings.GetAllMergePolicies(r.Context(), userID)
-		if err != nil {
-			http.Error(w, "load failed", http.StatusInternalServerError)
-			return
-		}
-		defaults, err := app.UserSettings.GetInstanceMergeDefaults(r.Context())
-		if err != nil {
-			http.Error(w, "load failed", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"policies":          policiesToAPI(policies),
-			"instance_defaults": policiesToAPI(defaults),
-			"field_groups":      fieldGroupKeys(),
-		})
-	})
+// mergePolicyAPI holds the dependencies of the merge-policy handlers.
+type mergePolicyAPI struct {
+	app    *App
+	logger *slog.Logger
+}
 
-	mux.HandleFunc("PUT /api/settings/merge-policy", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		policies, ok := decodePoliciesBody(w, r)
-		if !ok {
-			return
-		}
-		if err := app.UserSettings.SetMergePolicies(r.Context(), userID, policies); err != nil {
-			http.Error(w, "save failed", http.StatusInternalServerError)
-			return
-		}
-		logger.Info("user merge policy updated", "user_id", userID, "types", len(policies))
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+func (h *mergePolicyAPI) getUser(w http.ResponseWriter, r *http.Request) {
+	app := h.app
+	userID, ok := resolveSessionUser(r, app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	policies, err := app.UserSettings.GetAllMergePolicies(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "load failed", http.StatusInternalServerError)
+		return
+	}
+	defaults, err := app.UserSettings.GetInstanceMergeDefaults(r.Context())
+	if err != nil {
+		http.Error(w, "load failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"policies":          policiesToAPI(policies),
+		"instance_defaults": policiesToAPI(defaults),
+		"field_groups":      fieldGroupKeys(),
 	})
+}
 
-	mux.HandleFunc("GET /api/admin/instance/merge-defaults", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := resolveAdminUser(r, app); !ok {
-			http.Error(w, "admin only", http.StatusForbidden)
-			return
-		}
-		defaults, err := app.UserSettings.GetInstanceMergeDefaults(r.Context())
-		if err != nil {
-			http.Error(w, "load failed", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"policies": policiesToAPI(defaults), "field_groups": fieldGroupKeys()})
-	})
+func (h *mergePolicyAPI) putUser(w http.ResponseWriter, r *http.Request) {
+	app := h.app
+	userID, ok := resolveSessionUser(r, app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if !requireJSON(w, r) {
+		return
+	}
+	policies, ok := decodePoliciesBody(w, r)
+	if !ok {
+		return
+	}
+	if err := app.UserSettings.SetMergePolicies(r.Context(), userID, policies); err != nil {
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	h.logger.Info("user merge policy updated", "user_id", userID, "types", len(policies))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
 
-	mux.HandleFunc("PUT /api/admin/instance/merge-defaults", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := resolveAdminUser(r, app); !ok {
-			http.Error(w, "admin only", http.StatusForbidden)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		policies, ok := decodePoliciesBody(w, r)
-		if !ok {
-			return
-		}
-		if err := app.UserSettings.SetInstanceMergeDefaults(r.Context(), policies); err != nil {
-			http.Error(w, "save failed", http.StatusInternalServerError)
-			return
-		}
-		logger.Info("instance merge defaults updated", "types", len(policies))
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+func (h *mergePolicyAPI) getInstance(w http.ResponseWriter, r *http.Request) {
+	app := h.app
+	if _, ok := resolveAdminUser(r, app); !ok {
+		http.Error(w, "admin only", http.StatusForbidden)
+		return
+	}
+	defaults, err := app.UserSettings.GetInstanceMergeDefaults(r.Context())
+	if err != nil {
+		http.Error(w, "load failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"policies": policiesToAPI(defaults), "field_groups": fieldGroupKeys()})
+}
+
+func (h *mergePolicyAPI) putInstance(w http.ResponseWriter, r *http.Request) {
+	app := h.app
+	if _, ok := resolveAdminUser(r, app); !ok {
+		http.Error(w, "admin only", http.StatusForbidden)
+		return
+	}
+	if !requireJSON(w, r) {
+		return
+	}
+	policies, ok := decodePoliciesBody(w, r)
+	if !ok {
+		return
+	}
+	if err := app.UserSettings.SetInstanceMergeDefaults(r.Context(), policies); err != nil {
+		http.Error(w, "save failed", http.StatusInternalServerError)
+		return
+	}
+	h.logger.Info("instance merge defaults updated", "types", len(policies))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 type policyAPI struct {

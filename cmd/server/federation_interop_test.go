@@ -120,7 +120,7 @@ func TestFederationInterop_InboundActivityAcrossHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var actor apActor
 	if err := json.NewDecoder(resp.Body).Decode(&actor); err != nil {
 		t.Fatalf("decode actor: %v", err)
@@ -201,7 +201,7 @@ func TestFederationInterop_OutboundSignatureIsVerifiable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var actor apActor
 	if err := json.NewDecoder(resp.Body).Decode(&actor); err != nil {
 		t.Fatal(err)

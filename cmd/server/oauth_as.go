@@ -35,7 +35,7 @@ import (
 
 const (
 	oauthAccessTokenPrefix  = "cairn_at_"
-	oauthRefreshTokenPrefix = "cairn_rt_"
+	oauthRefreshTokenPrefix = "cairn_rt_" //nolint:gosec // G101: token prefix marker, not a credential
 	oauthAuthCodePrefix     = "cairn_ac_"
 )
 
@@ -92,9 +92,9 @@ func (s *oauthServer) metadata(w http.ResponseWriter, _ *http.Request) {
 
 func (s *oauthServer) protectedResourceMetadata(w http.ResponseWriter, _ *http.Request) {
 	writeJSONCache(w, map[string]any{
-		"resource":              s.baseURL,
-		"authorization_servers": []string{s.baseURL},
-		"scopes_supported":      domain.SupportedScopes,
+		"resource":                 s.baseURL,
+		"authorization_servers":    []string{s.baseURL},
+		"scopes_supported":         domain.SupportedScopes,
 		"bearer_methods_supported": []string{"header"},
 	})
 }
@@ -140,7 +140,7 @@ func (s *oauthServer) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Hand off to the SPA consent page, preserving the request verbatim.
-	http.Redirect(w, r, "/oauth/consent?"+r.URL.RawQuery, http.StatusFound)
+	http.Redirect(w, r, "/oauth/consent?"+r.URL.RawQuery, http.StatusFound) //nolint:gosec // G710: fixed same-origin path; the query cannot change the target
 }
 
 // authorizeInfo returns the data the consent page renders. Session-authed: the
@@ -381,6 +381,28 @@ type registrationRequest struct {
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
+// withDefaults fills unset registration fields.
+func (req registrationRequest) withDefaults() (authMethod string, grants, scopes []string, name string) {
+	authMethod = req.TokenEndpointAuthMethod
+	if authMethod == "" {
+		authMethod = "none" // default to a public (PKCE) client
+	}
+	grants = req.GrantTypes
+	if len(grants) == 0 {
+		grants = []string{"authorization_code", "refresh_token"}
+	}
+	// Default to read-only scopes; intersect any requested with the catalog.
+	scopes = domain.ReadOnlyScopes
+	if req.Scope != "" {
+		scopes = domain.FilterRequestedScopes(domain.ParseScopes(req.Scope), domain.SupportedScopes)
+	}
+	name = req.ClientName
+	if name == "" {
+		name = "Dynamic client"
+	}
+	return authMethod, grants, scopes, name
+}
+
 func (s *oauthServer) register(w http.ResponseWriter, r *http.Request) {
 	var req registrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -397,23 +419,7 @@ func (s *oauthServer) register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	authMethod := req.TokenEndpointAuthMethod
-	if authMethod == "" {
-		authMethod = "none" // default to a public (PKCE) client
-	}
-	grants := req.GrantTypes
-	if len(grants) == 0 {
-		grants = []string{"authorization_code", "refresh_token"}
-	}
-	// Default to read-only scopes; intersect any requested with the catalog.
-	scopes := domain.ReadOnlyScopes
-	if req.Scope != "" {
-		scopes = domain.FilterRequestedScopes(domain.ParseScopes(req.Scope), domain.SupportedScopes)
-	}
-	name := req.ClientName
-	if name == "" {
-		name = "Dynamic client"
-	}
+	authMethod, grants, scopes, name := req.withDefaults()
 
 	clientID := "cairn_dcr_" + randString(16)
 	client := domain.OAuthClient{
@@ -478,7 +484,7 @@ func (s *oauthServer) authClient(r *http.Request) (string, bool) {
 }
 
 func (s *oauthServer) redirectErr(w http.ResponseWriter, r *http.Request, redirectURI, state, code, desc string) {
-	http.Redirect(w, r, appendQuery(redirectURI, map[string]string{
+	http.Redirect(w, r, appendQuery(redirectURI, map[string]string{ //nolint:gosec // G710: callers pass only a redirect_uri checked against the client's registered URIs
 		"error": code, "error_description": desc, "state": state,
 	}), http.StatusFound)
 }
@@ -554,9 +560,10 @@ func oauthTokenErr(w http.ResponseWriter, code, desc string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	status := http.StatusBadRequest
-	if code == "invalid_client" {
+	switch code {
+	case "invalid_client":
 		status = http.StatusUnauthorized
-	} else if code == "server_error" {
+	case "server_error":
 		status = http.StatusInternalServerError
 	}
 	w.WriteHeader(status)

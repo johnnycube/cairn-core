@@ -116,7 +116,7 @@ func (in manualActivityInput) toPayload() (*cairnv1.ActivitySourcePayload, error
 	}
 	start, err := time.Parse(time.RFC3339, in.StartTime)
 	if err != nil {
-		return nil, fmt.Errorf("invalid start_time (want RFC3339): %v", err)
+		return nil, fmt.Errorf("invalid start_time (want RFC3339): %w", err)
 	}
 	if in.ElapsedDuration <= 0 {
 		return nil, fmt.Errorf("elapsed_duration_s must be > 0")

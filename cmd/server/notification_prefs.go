@@ -28,20 +28,22 @@ var notifTypeMeta = []struct {
 //	GET /api/notifications/preferences        → [{event_type,key,label,email_enabled}]
 //	PUT /api/notifications/preferences        { event_type, channel, enabled }
 func mountNotificationPrefs(mux *http.ServeMux, app *App, logger *slog.Logger) {
-	mux.HandleFunc("GET /api/notifications/preferences", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/notifications/preferences", notifPrefsHandleGet(app))
+
+	mux.HandleFunc("PUT /api/notifications/preferences", notifPrefsHandlePut(app, logger))
+
+	logger.Info("notification preferences endpoints mounted")
+}
+
+// notifPrefsHandleGet serves GET /api/notifications/preferences.
+func notifPrefsHandleGet(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
-		explicit := map[domain.NotificationType]bool{}
-		if rows, err := app.NotificationPrefs.ListForUser(r.Context(), userID); err == nil {
-			for _, p := range rows {
-				if p.Channel == domain.NotificationChannelEmail {
-					explicit[p.Type] = p.Enabled
-				}
-			}
-		}
+		explicit := notifPrefsExplicitEmail(r, app, userID)
 		out := make([]map[string]any, 0, len(notifTypeMeta))
 		for _, m := range notifTypeMeta {
 			enabled, ok := explicit[m.Type]
@@ -59,9 +61,12 @@ func mountNotificationPrefs(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			"preferences":   out,
 			"email_enabled": app.Email != nil, // instance has an email channel at all
 		})
-	})
+	}
+}
 
-	mux.HandleFunc("PUT /api/notifications/preferences", func(w http.ResponseWriter, r *http.Request) {
+// notifPrefsHandlePut serves PUT /api/notifications/preferences.
+func notifPrefsHandlePut(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -96,7 +101,18 @@ func mountNotificationPrefs(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+	}
+}
 
-	logger.Info("notification preferences endpoints mounted")
+// notifPrefsExplicitEmail returns the user's explicit email-channel settings.
+func notifPrefsExplicitEmail(r *http.Request, app *App, userID domain.UserID) map[domain.NotificationType]bool {
+	explicit := map[domain.NotificationType]bool{}
+	if rows, err := app.NotificationPrefs.ListForUser(r.Context(), userID); err == nil {
+		for _, p := range rows {
+			if p.Channel == domain.NotificationChannelEmail {
+				explicit[p.Type] = p.Enabled
+			}
+		}
+	}
+	return explicit
 }

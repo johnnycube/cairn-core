@@ -52,29 +52,34 @@ func mountLaps(mux *http.ServeMux, app *App, logger *slog.Logger) {
 				laps = s.Parsed.Laps
 			}
 		}
-
-		out := make([]map[string]any, 0, len(laps))
-		for i, l := range laps {
-			idx := l.Index
-			if idx == 0 {
-				idx = i + 1
-			}
-			out = append(out, map[string]any{
-				"index":            idx,
-				"label":            l.Label,
-				"start_offset_s":   int64(l.StartOffset.Seconds()),
-				"elapsed_s":        int64(l.ElapsedDuration.Seconds()),
-				"moving_s":         int64(l.MovingDuration.Seconds()),
-				"distance_m":       l.DistanceM,
-				"avg_speed_mps":    l.AvgSpeedMps,
-				"avg_heart_rate":   l.AvgHeartRateBpm,
-				"avg_power":        l.AvgPowerW,
-				"avg_cadence":      l.AvgCadence,
-				"elevation_gain_m": l.ElevationGainM,
-			})
-		}
+		out := lapsToJSON(laps)
 		writeJSON(w, http.StatusOK, map[string]any{"laps": out})
 	})
 
 	logger.Info("laps endpoint mounted")
+}
+
+// lapsToJSON renders laps for the laps endpoint, defaulting index to position.
+func lapsToJSON(laps []domain.ActivityLap) []map[string]any {
+	out := make([]map[string]any, 0, len(laps))
+	for i, l := range laps {
+		idx := l.Index
+		if idx == 0 {
+			idx = i + 1
+		}
+		out = append(out, map[string]any{
+			"index":            idx,
+			"label":            l.Label,
+			"start_offset_s":   int64(l.StartOffset.Seconds()),
+			"elapsed_s":        int64(l.ElapsedDuration.Seconds()),
+			"moving_s":         int64(l.MovingDuration.Seconds()),
+			"distance_m":       l.DistanceM,
+			"avg_speed_mps":    l.AvgSpeedMps,
+			"avg_heart_rate":   l.AvgHeartRateBpm,
+			"avg_power":        l.AvgPowerW,
+			"avg_cadence":      l.AvgCadence,
+			"elevation_gain_m": l.ElevationGainM,
+		})
+	}
+	return out
 }

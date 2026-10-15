@@ -26,35 +26,42 @@ func visibilityFor(
 	viewerID *domain.UserID,
 	activityID domain.ActivityID,
 	hasLink bool,
-) (domain.CategorySet, error) {
+) domain.CategorySet {
 	in := domain.VisibilityInput{
 		IsOwner:      viewerID != nil && *viewerID == ownerID,
 		HasValidLink: hasLink,
 	}
 	if in.IsOwner {
-		return domain.ResolveVisibility(in), nil
+		return domain.ResolveVisibility(in)
 	}
-	// A block (either direction) hides everything from the other party.
-	if viewerID != nil && app.Blocks != nil {
-		if blocked, err := app.Blocks.IsBlockedEitherWay(ctx, *viewerID, ownerID); err == nil && blocked {
-			return domain.CategorySet{}, nil
+	if viewerID != nil {
+		// A block (either direction) hides everything from the other party.
+		if app.Blocks != nil {
+			if blocked, err := app.Blocks.IsBlockedEitherWay(ctx, *viewerID, ownerID); err == nil && blocked {
+				return domain.CategorySet{}
+			}
 		}
-	}
-	// Follower?
-	if viewerID != nil && app.Follows != nil {
-		if following, err := app.Follows.IsFollowing(ctx, *viewerID, ownerID); err == nil {
-			in.IsFollower = following
+		// Follower?
+		if app.Follows != nil {
+			if following, err := app.Follows.IsFollowing(ctx, *viewerID, ownerID); err == nil {
+				in.IsFollower = following
+			}
 		}
 	}
 	if app.Visibility != nil {
-		if p, err := app.Visibility.GetUserPolicy(ctx, ownerID); err == nil {
-			in.OwnerPolicy = p
-		}
-		if ov, err := app.Visibility.GetActivityOverride(ctx, activityID); err == nil {
-			in.ActivityPolicy = ov
-		}
+		visibilityLoadPolicies(ctx, app, &in, ownerID, activityID)
 	}
-	return domain.ResolveVisibility(in), nil
+	return domain.ResolveVisibility(in)
+}
+
+// visibilityLoadPolicies fills the owner and per-activity policies, ignoring load errors.
+func visibilityLoadPolicies(ctx context.Context, app *App, in *domain.VisibilityInput, ownerID domain.UserID, activityID domain.ActivityID) {
+	if p, err := app.Visibility.GetUserPolicy(ctx, ownerID); err == nil {
+		in.OwnerPolicy = p
+	}
+	if ov, err := app.Visibility.GetActivityOverride(ctx, activityID); err == nil {
+		in.ActivityPolicy = ov
+	}
 }
 
 // ownerPrivacyZones loads the owner's privacy zones to apply to a NON-owner
@@ -101,18 +108,7 @@ func projectActivityJSON(a domain.Activity, cats domain.CategorySet, zones []dom
 		out["calories"] = a.Summary.CaloriesKcal
 	}
 	if cats.Has(domain.CategoryLocation) {
-		inZone := a.StartLat != nil && a.StartLng != nil &&
-			domain.PointInAnyZone(zones, *a.StartLat, *a.StartLng)
-		if inZone {
-			// Geofenced: reveal neither the coordinates nor the place name.
-			out["start_location_redacted"] = true
-		} else {
-			out["start_place"] = a.StartPlace
-			if a.StartLat != nil && a.StartLng != nil {
-				out["start_lat"] = *a.StartLat
-				out["start_lng"] = *a.StartLng
-			}
-		}
+		projectActivityLocation(out, a, zones)
 	}
 	if cats.Has(domain.CategoryHR) {
 		out["avg_hr"] = a.Summary.AvgHeartRateBpm
@@ -149,4 +145,20 @@ func projectActivityJSON(a domain.Activity, cats domain.CategorySet, zones []dom
 	}
 	out["visible_categories"] = allowed
 	return out
+}
+
+// projectActivityLocation adds the start place/coords unless the start is geofenced.
+func projectActivityLocation(out map[string]any, a domain.Activity, zones []domain.PrivacyZone) {
+	inZone := a.StartLat != nil && a.StartLng != nil &&
+		domain.PointInAnyZone(zones, *a.StartLat, *a.StartLng)
+	if inZone {
+		// Geofenced: reveal neither the coordinates nor the place name.
+		out["start_location_redacted"] = true
+		return
+	}
+	out["start_place"] = a.StartPlace
+	if a.StartLat != nil && a.StartLng != nil {
+		out["start_lat"] = *a.StartLat
+		out["start_lng"] = *a.StartLng
+	}
 }

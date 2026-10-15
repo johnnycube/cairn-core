@@ -35,7 +35,7 @@ func resolveRemoteHandle(ctx context.Context, handle string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("webfinger: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("webfinger %s: status %d", host, resp.StatusCode)
 	}

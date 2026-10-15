@@ -31,68 +31,7 @@ func startAccountLookupHandler(
 
 	sub, err := app.NATSBus.RespondTo(ctx, "cairn.accounts.lookup_by_provider_ext",
 		func(ctx context.Context, body []byte) ([]byte, error) {
-			var req struct {
-				Provider       string `json:"provider"`
-				ExternalID     string `json:"external_id"`
-				SubscriptionID string `json:"subscription_id"`
-			}
-			if err := json.Unmarshal(body, &req); err != nil {
-				return accountLookupErr("bad_request"), nil
-			}
-			if req.Provider == "" || (req.ExternalID == "" && req.SubscriptionID == "") {
-				return accountLookupErr("provider and external_id or subscription_id required"), nil
-			}
-			// Prefer the unambiguous subscription_id path (#50): the same
-			// provider athlete may be linked by multiple connections, so
-			// owner_id alone can resolve to the wrong one. Fall back to
-			// owner_id only when the subscription is unknown.
-			var (
-				acct domain.ExternalAccount
-				err  error
-			)
-			if req.SubscriptionID != "" {
-				acct, err = app.ExternalAccounts.FindBySubscription(ctx, req.Provider, req.SubscriptionID)
-				if errors.Is(err, domain.ErrNotFound) && req.ExternalID != "" {
-					log.Warn("subscription unknown, falling back to external_id",
-						"provider", req.Provider, "subscription_id", req.SubscriptionID)
-					acct, err = app.ExternalAccounts.FindByProviderAndExternalID(ctx, req.Provider, req.ExternalID)
-				}
-			} else {
-				acct, err = app.ExternalAccounts.FindByProviderAndExternalID(ctx, req.Provider, req.ExternalID)
-			}
-			if err != nil {
-				if errors.Is(err, domain.ErrNotFound) {
-					return accountLookupErr("not_found"), nil
-				}
-				log.Warn("account lookup failed", "provider", req.Provider, "error", err)
-				return accountLookupErr("lookup_failed"), nil
-			}
-			// Auto-import suspended for this account (#93): refuse the lookup so
-			// the worker drops the webhook-driven fetch. The account stays
-			// linked; manual sync still works (it doesn't go through here).
-			if !acct.AutoImportEnabled {
-				return accountLookupErr("auto_import_suspended"), nil
-			}
-			// Self-heal the subscription → account mapping (#50): the first
-			// event that carried a subscription_id but resolved via the
-			// owner_id fallback records the binding, so every subsequent event
-			// for this connection resolves unambiguously via FindBySubscription.
-			if req.SubscriptionID != "" && acct.WebhookSubscriptionID != req.SubscriptionID {
-				if regErr := app.ExternalAccounts.RegisterWebhookSubscription(
-					ctx, req.Provider, req.SubscriptionID, acct.ID); regErr != nil {
-					log.Warn("self-heal subscription mapping failed",
-						"provider", req.Provider, "account_id", acct.ID.String(), "error", regErr)
-				} else {
-					log.Info("recorded webhook subscription mapping",
-						"provider", req.Provider, "account_id", acct.ID.String(),
-						"subscription_id", req.SubscriptionID)
-				}
-			}
-			out, _ := json.Marshal(map[string]string{
-				"account_id": acct.ID.String(),
-				"user_id":    acct.UserID.String(),
-			})
-			return out, nil
+			return accountLookupRespond(ctx, app, log, body), nil
 		})
 	if err != nil {
 		return nil, err
@@ -104,4 +43,76 @@ func startAccountLookupHandler(
 func accountLookupErr(reason string) []byte {
 	b, _ := json.Marshal(map[string]string{"error": reason})
 	return b
+}
+
+// accountLookupRequest is the cairn.accounts.lookup_by_provider_ext request body.
+type accountLookupRequest struct {
+	Provider       string `json:"provider"`
+	ExternalID     string `json:"external_id"`
+	SubscriptionID string `json:"subscription_id"`
+}
+
+// accountLookupRespond resolves one lookup request into its reply payload.
+func accountLookupRespond(ctx context.Context, app *App, log *slog.Logger, body []byte) []byte {
+	var req accountLookupRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return accountLookupErr("bad_request")
+	}
+	if req.Provider == "" || (req.ExternalID == "" && req.SubscriptionID == "") {
+		return accountLookupErr("provider and external_id or subscription_id required")
+	}
+	acct, err := accountLookupFind(ctx, app, log, req)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return accountLookupErr("not_found")
+		}
+		log.Warn("account lookup failed", "provider", req.Provider, "error", err)
+		return accountLookupErr("lookup_failed")
+	}
+	// Auto-import suspended for this account (#93): refuse the lookup so
+	// the worker drops the webhook-driven fetch. The account stays
+	// linked; manual sync still works (it doesn't go through here).
+	if !acct.AutoImportEnabled {
+		return accountLookupErr("auto_import_suspended")
+	}
+	accountLookupSelfHeal(ctx, app, log, req, acct)
+	out, _ := json.Marshal(map[string]string{
+		"account_id": acct.ID.String(),
+		"user_id":    acct.UserID.String(),
+	})
+	return out
+}
+
+// accountLookupFind prefers the unambiguous subscription_id path (#50): the same
+// provider athlete may be linked by multiple connections, so owner_id alone can
+// resolve to the wrong one. Falls back to owner_id only when the subscription is unknown.
+func accountLookupFind(ctx context.Context, app *App, log *slog.Logger, req accountLookupRequest) (domain.ExternalAccount, error) {
+	if req.SubscriptionID == "" {
+		return app.ExternalAccounts.FindByProviderAndExternalID(ctx, req.Provider, req.ExternalID)
+	}
+	acct, err := app.ExternalAccounts.FindBySubscription(ctx, req.Provider, req.SubscriptionID)
+	if errors.Is(err, domain.ErrNotFound) && req.ExternalID != "" {
+		log.Warn("subscription unknown, falling back to external_id",
+			"provider", req.Provider, "subscription_id", req.SubscriptionID)
+		acct, err = app.ExternalAccounts.FindByProviderAndExternalID(ctx, req.Provider, req.ExternalID)
+	}
+	return acct, err
+}
+
+// accountLookupSelfHeal records the subscription → account mapping (#50): the first
+// event that carried a subscription_id but resolved via the owner_id fallback
+// records the binding, so every subsequent event resolves via FindBySubscription.
+func accountLookupSelfHeal(ctx context.Context, app *App, log *slog.Logger, req accountLookupRequest, acct domain.ExternalAccount) {
+	if req.SubscriptionID == "" || acct.WebhookSubscriptionID == req.SubscriptionID {
+		return
+	}
+	if regErr := app.ExternalAccounts.RegisterWebhookSubscription(
+		ctx, req.Provider, req.SubscriptionID, acct.ID); regErr != nil {
+		log.Warn("self-heal subscription mapping failed",
+			"provider", req.Provider, "account_id", acct.ID.String(), "error", regErr)
+		return
+	}
+	log.Info("recorded webhook subscription mapping",
+		"provider", req.Provider, "account_id", acct.ID.String(),
+		"subscription_id", req.SubscriptionID)
 }

@@ -59,14 +59,7 @@ const federationPublishMaxAge = 48 * time.Hour
 // (runFollowUps), NOT here, so an explicit "make public" edit federates an
 // activity of any age.
 func publishActivityCreate(ctx context.Context, app *App, log *slog.Logger, act domain.Activity) {
-	if !app.FederationEnabled || app.FederationFollows == nil || app.FederationKeys == nil || app.Users == nil {
-		return
-	}
-	// Only public, non-hidden activities are announced.
-	if act.Privacy != domain.PrivacyPublic || act.HiddenByAdmin {
-		return
-	}
-	if enabled, err := app.Users.IsFederationEnabled(ctx, act.UserID); err != nil || !enabled {
+	if !publishCreateEligible(ctx, app, act) {
 		return
 	}
 	inboxes, err := app.FederationFollows.ListInboundFollowerInboxes(ctx, act.UserID)
@@ -97,15 +90,7 @@ func publishActivityCreate(ctx context.Context, app *App, log *slog.Logger, act 
 	// signs + POSTs and retries transient failures with backoff. Falls back to
 	// best-effort inline delivery only if the queue isn't wired.
 	if app.FederationDeliveries == nil {
-		go func() {
-			dctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			for _, inbox := range inboxes {
-				if err := deliverActivity(dctx, app, act.UserID, actorID, inbox, create); err != nil {
-					log.Warn("federation publish: inline deliver failed", "to", inbox, "activity_id", act.ID, "error", err)
-				}
-			}
-		}()
+		go publishCreateInline(app, log, act, actorID, inboxes, create) //nolint:gosec // G118: best-effort fan-out outlives the caller, on its own timeout
 		return
 	}
 	queued := 0
@@ -125,6 +110,30 @@ func publishActivityCreate(ctx context.Context, app *App, log *slog.Logger, act 
 	}
 	log.Info("federation publish: queued Create deliveries",
 		"activity_id", act.ID, "followers", len(inboxes), "queued", queued)
+}
+
+// publishCreateEligible: federation on, owner opted in, activity public + non-hidden.
+func publishCreateEligible(ctx context.Context, app *App, act domain.Activity) bool {
+	if !app.FederationEnabled || app.FederationFollows == nil || app.FederationKeys == nil || app.Users == nil {
+		return false
+	}
+	// Only public, non-hidden activities are announced.
+	if act.Privacy != domain.PrivacyPublic || act.HiddenByAdmin {
+		return false
+	}
+	enabled, err := app.Users.IsFederationEnabled(ctx, act.UserID)
+	return err == nil && enabled
+}
+
+// publishCreateInline is the best-effort fallback; detached from the caller's context.
+func publishCreateInline(app *App, log *slog.Logger, act domain.Activity, actorID string, inboxes []string, create map[string]any) {
+	dctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for _, inbox := range inboxes {
+		if err := deliverActivity(dctx, app, act.UserID, actorID, inbox, create); err != nil {
+			log.Warn("federation publish: inline deliver failed", "to", inbox, "activity_id", act.ID, "error", err)
+		}
+	}
 }
 
 // publishActivityDelete tells the owner's remote followers that a federated
@@ -226,45 +235,53 @@ func processFederationDeliveries(ctx context.Context, log *slog.Logger, app *App
 		return
 	}
 	for _, d := range due {
-		// Defederation is retroactive: a domain blocked AFTER this row was
-		// queued must not still receive the activity. Kill in-flight deliveries
-		// to a now-blocked inbox.
-		if domainBlocked(ctx, app, hostOf(d.InboxURL)) {
-			_ = app.FederationDeliveries.MarkDead(ctx, d.ID, "domain blocked")
-			continue
+		processFederationDelivery(ctx, log, app, d)
+	}
+}
+
+func processFederationDelivery(ctx context.Context, log *slog.Logger, app *App, d domain.FederationDelivery) {
+	// Defederation is retroactive: a domain blocked AFTER this row was
+	// queued must not still receive the activity. Kill in-flight deliveries
+	// to a now-blocked inbox.
+	if domainBlocked(ctx, app, hostOf(d.InboxURL)) {
+		_ = app.FederationDeliveries.MarkDead(ctx, d.ID, "domain blocked")
+		return
+	}
+	code, derr := deliverSignedBody(ctx, app, d.FromUserID, d.ActorID, d.InboxURL, d.Body)
+	switch {
+	case derr == nil && code >= 200 && code < 300:
+		if err := app.FederationDeliveries.MarkDelivered(ctx, d.ID); err != nil {
+			log.Warn("federation delivery: mark delivered failed", "id", d.ID, "error", err)
 		}
-		code, derr := deliverSignedBody(ctx, app, d.FromUserID, d.ActorID, d.InboxURL, d.Body)
-		switch {
-		case derr == nil && code >= 200 && code < 300:
-			if err := app.FederationDeliveries.MarkDelivered(ctx, d.ID); err != nil {
-				log.Warn("federation delivery: mark delivered failed", "id", d.ID, "error", err)
-			}
-		case derr == nil && code >= 400 && code < 500 && code != 429:
-			// Permanent reject (auth, gone, malformed) — stop retrying.
-			if err := app.FederationDeliveries.MarkDead(ctx, d.ID, "status "+itoa(code)); err != nil {
-				log.Warn("federation delivery: mark dead failed", "id", d.ID, "error", err)
-			}
-			log.Warn("federation delivery: permanent reject", "to", d.InboxURL, "status", code, "activity", d.ActivityAPID)
-		default:
-			// Transient (network, 5xx, 429): back off, or give up at the cap.
-			attempts := d.Attempts + 1
-			reason := "status " + itoa(code)
-			if derr != nil {
-				reason = derr.Error()
-			}
-			if attempts >= d.MaxAttempts {
-				if err := app.FederationDeliveries.MarkDead(ctx, d.ID, reason); err != nil {
-					log.Warn("federation delivery: mark dead failed", "id", d.ID, "error", err)
-				}
-				log.Warn("federation delivery: gave up after max attempts",
-					"to", d.InboxURL, "attempts", attempts, "activity", d.ActivityAPID, "reason", reason)
-				continue
-			}
-			next := time.Now().UTC().Add(deliveryBackoff(attempts))
-			if err := app.FederationDeliveries.Reschedule(ctx, d.ID, attempts, next, reason); err != nil {
-				log.Warn("federation delivery: reschedule failed", "id", d.ID, "error", err)
-			}
+	case derr == nil && code >= 400 && code < 500 && code != 429:
+		// Permanent reject (auth, gone, malformed) — stop retrying.
+		if err := app.FederationDeliveries.MarkDead(ctx, d.ID, "status "+itoa(code)); err != nil {
+			log.Warn("federation delivery: mark dead failed", "id", d.ID, "error", err)
 		}
+		log.Warn("federation delivery: permanent reject", "to", d.InboxURL, "status", code, "activity", d.ActivityAPID)
+	default:
+		processFederationDeliveryRetry(ctx, log, app, d, code, derr)
+	}
+}
+
+// processFederationDeliveryRetry handles a transient failure (network, 5xx, 429): back off, or give up at the cap.
+func processFederationDeliveryRetry(ctx context.Context, log *slog.Logger, app *App, d domain.FederationDelivery, code int, derr error) {
+	attempts := d.Attempts + 1
+	reason := "status " + itoa(code)
+	if derr != nil {
+		reason = derr.Error()
+	}
+	if attempts >= d.MaxAttempts {
+		if err := app.FederationDeliveries.MarkDead(ctx, d.ID, reason); err != nil {
+			log.Warn("federation delivery: mark dead failed", "id", d.ID, "error", err)
+		}
+		log.Warn("federation delivery: gave up after max attempts",
+			"to", d.InboxURL, "attempts", attempts, "activity", d.ActivityAPID, "reason", reason)
+		return
+	}
+	next := time.Now().UTC().Add(deliveryBackoff(attempts))
+	if err := app.FederationDeliveries.Reschedule(ctx, d.ID, attempts, next, reason); err != nil {
+		log.Warn("federation delivery: reschedule failed", "id", d.ID, "error", err)
 	}
 }
 

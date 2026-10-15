@@ -21,19 +21,22 @@ import (
 // the generic /api/connections CRUD like every provider — and reach the worker
 // via the cairn.creds.garmin.get request/reply, never queued in a job.
 
-const garminProvider = "garmin"
-
 // mountGarminConnect wires the Garmin-specific health-import trigger. Account
 // linking happens in the generic POST /api/connections (credential providers
 // create their external account together with the connection).
-func mountGarminConnect(mux *http.ServeMux, app *App, logger *slog.Logger) {
+func mountGarminConnect(mux *http.ServeMux, app *App) {
 	if app.UserProviderConfigs == nil || app.ExternalAccounts == nil {
 		return
 	}
 
 	// Trigger a health-metric import (HRV/sleep/weight/steps/resting HR) for the
 	// last N days. Publishes a job the Garmin worker pulls.
-	mux.HandleFunc("POST /api/accounts/{id}/import-health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/accounts/{id}/import-health", garminImportHealthHandler(app))
+}
+
+// garminImportHealthHandler serves POST /api/accounts/{id}/import-health.
+func garminImportHealthHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -53,12 +56,7 @@ func mountGarminConnect(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		days := 30
-		if d := r.URL.Query().Get("days"); d != "" {
-			if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 365 {
-				days = n
-			}
-		}
+		days := garminImportHealthDays(r.URL.Query().Get("days"))
 		now := time.Now().UTC()
 		job := map[string]any{
 			"account_id": accID.String(),
@@ -75,8 +73,18 @@ func mountGarminConnect(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"queued": true, "days": days})
-	})
+	}
+}
 
+// garminImportHealthDays parses ?days= (1..365), defaulting to 30.
+func garminImportHealthDays(d string) int {
+	if d == "" {
+		return 30
+	}
+	if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 365 {
+		return n
+	}
+	return 30
 }
 
 // startGarminCredsHandler serves cairn.creds.garmin.get: account_id →

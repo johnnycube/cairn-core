@@ -43,82 +43,99 @@ func newRotateKeyCmd() *cobra.Command {
 		Use:   "rotate-key",
 		Short: "Re-encrypt all secrets-at-rest under a new master encryption key",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if newKey == "" && !dryRun {
-				return errors.New("provide --new-key, or --dry-run to validate the current key")
-			}
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			oldBox, err := auth.NewSecretBoxFromMasterKey(cfg.Auth.MasterEncryptionKey)
-			if err != nil {
-				return fmt.Errorf("build old secretbox: %w", err)
-			}
-			newBox := oldBox // dry-run: encrypt step is never taken; new==old is fine
-			if newKey != "" {
-				newBox, err = auth.NewSecretBoxFromMasterKey(newKey)
-				if err != nil {
-					return fmt.Errorf("build new secretbox: %w", err)
-				}
-			}
-
-			ctx := cmd.Context()
-			pool, err := db.Open(ctx, db.Config{
-				URL:                      cfg.Database.URL,
-				MaxConns:                 cfg.Database.MaxConns,
-				MinConns:                 cfg.Database.MinConns,
-				StatementTimeout:         cfg.Database.StatementTimeout,
-				LockTimeout:              cfg.Database.LockTimeout,
-				IdleInTransactionTimeout: cfg.Database.IdleInTransactionTimeout,
-				ApplicationName:          "cairn-rotate-key",
-			})
-			if err != nil {
-				return fmt.Errorf("open database: %w", err)
-			}
-			defer pool.Close()
-
-			r := &rotator{pool: pool, oldBox: oldBox, newBox: newBox, dryRun: dryRun}
-			if dryRun {
-				fmt.Println("rotate-key: DRY RUN — validating the current key decrypts every secret (no writes)")
-			} else {
-				fmt.Println("rotate-key: re-encrypting all secrets-at-rest under the new key")
-			}
-
-			steps := []struct {
-				name string
-				fn   func(context.Context) error
-			}{
-				{"external_accounts (oauth tokens)", r.rotateOAuthTokens},
-				{"user_provider_configs (client secrets)", r.rotateUserProviderConfigs},
-				{"instance_signing_keys (account seed)", r.rotateSigningKeys},
-			}
-			for _, s := range steps {
-				if err := s.fn(ctx); err != nil {
-					return fmt.Errorf("%s: %w", s.name, err)
-				}
-			}
-
-			r.report()
-			if r.failed > 0 && !skipUnreadable {
-				return fmt.Errorf("%d ciphertext(s) could not be decrypted under the old OR new key — see above; "+
-					"re-enter those secrets, or pass --skip-unreadable to rotate the rest", r.failed)
-			}
-			if r.failed > 0 {
-				fmt.Printf("rotate-key: WARNING — %d unreadable ciphertext(s) left untouched (still under the old key); "+
-					"re-enter those secrets after rotating the master key.\n", r.failed)
-			}
-			if dryRun {
-				fmt.Println("rotate-key: dry run OK — the current key decrypts every secret.")
-			} else {
-				fmt.Println("rotate-key: done. Set CAIRN_AUTH_MASTER_ENCRYPTION_KEY to the new key and restart the server + workers.")
-			}
-			return nil
+			return runRotateKey(cmd.Context(), newKey, dryRun, skipUnreadable)
 		},
 	}
 	cmd.Flags().StringVar(&newKey, "new-key", "", "new master key (base64-encoded 32 bytes, or a passphrase)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the current key decrypts all secrets; make no changes")
 	cmd.Flags().BoolVar(&skipUnreadable, "skip-unreadable", false, "rotate readable secrets even if some can't be decrypted (those are left under the old key)")
 	return cmd
+}
+
+// runRotateKey is the rotate-key command body.
+func runRotateKey(ctx context.Context, newKey string, dryRun, skipUnreadable bool) error {
+	if newKey == "" && !dryRun {
+		return errors.New("provide --new-key, or --dry-run to validate the current key")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	oldBox, newBox, err := rotateKeyBoxes(cfg.Auth.MasterEncryptionKey, newKey)
+	if err != nil {
+		return err
+	}
+
+	pool, err := db.Open(ctx, db.Config{
+		URL:                      cfg.Database.URL,
+		MaxConns:                 cfg.Database.MaxConns,
+		MinConns:                 cfg.Database.MinConns,
+		StatementTimeout:         cfg.Database.StatementTimeout,
+		LockTimeout:              cfg.Database.LockTimeout,
+		IdleInTransactionTimeout: cfg.Database.IdleInTransactionTimeout,
+		ApplicationName:          "cairn-rotate-key",
+	})
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer pool.Close()
+
+	r := &rotator{pool: pool, oldBox: oldBox, newBox: newBox, dryRun: dryRun}
+	if dryRun {
+		fmt.Println("rotate-key: DRY RUN — validating the current key decrypts every secret (no writes)")
+	} else {
+		fmt.Println("rotate-key: re-encrypting all secrets-at-rest under the new key")
+	}
+
+	steps := []struct {
+		name string
+		fn   func(context.Context) error
+	}{
+		{"external_accounts (oauth tokens)", r.rotateOAuthTokens},
+		{"user_provider_configs (client secrets)", r.rotateUserProviderConfigs},
+		{"instance_signing_keys (account seed)", r.rotateSigningKeys},
+	}
+	for _, s := range steps {
+		if err := s.fn(ctx); err != nil {
+			return fmt.Errorf("%s: %w", s.name, err)
+		}
+	}
+	return r.finish(skipUnreadable)
+}
+
+// rotateKeyBoxes builds the old and new secretboxes; in dry-run (no new key) new==old.
+func rotateKeyBoxes(oldKey, newKey string) (*auth.SecretBox, *auth.SecretBox, error) {
+	oldBox, err := auth.NewSecretBoxFromMasterKey(oldKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build old secretbox: %w", err)
+	}
+	newBox := oldBox // dry-run: encrypt step is never taken; new==old is fine
+	if newKey != "" {
+		newBox, err = auth.NewSecretBoxFromMasterKey(newKey)
+		if err != nil {
+			return nil, nil, fmt.Errorf("build new secretbox: %w", err)
+		}
+	}
+	return oldBox, newBox, nil
+}
+
+// finish prints the summary and decides the command's outcome.
+func (r *rotator) finish(skipUnreadable bool) error {
+	r.report()
+	if r.failed > 0 && !skipUnreadable {
+		return fmt.Errorf("%d ciphertext(s) could not be decrypted under the old OR new key — see above; "+
+			"re-enter those secrets, or pass --skip-unreadable to rotate the rest", r.failed)
+	}
+	if r.failed > 0 {
+		fmt.Printf("rotate-key: WARNING — %d unreadable ciphertext(s) left untouched (still under the old key); "+
+			"re-enter those secrets after rotating the master key.\n", r.failed)
+	}
+	if r.dryRun {
+		fmt.Println("rotate-key: dry run OK — the current key decrypts every secret.")
+	} else {
+		fmt.Println("rotate-key: done. Set CAIRN_AUTH_MASTER_ENCRYPTION_KEY to the new key and restart the server + workers.")
+	}
+	return nil
 }
 
 type rotator struct {
@@ -182,27 +199,45 @@ func (r *rotator) update(ctx context.Context, sql string, args ...any) error {
 	return err
 }
 
-func (r *rotator) rotateOAuthTokens(ctx context.Context) error {
+// rotatorOAuthRow is one external_accounts token pair.
+type rotatorOAuthRow struct {
+	id          string
+	access, ref []byte
+}
+
+func (r *rotator) loadOAuthTokens(ctx context.Context) ([]rotatorOAuthRow, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, access_token_encrypted, refresh_token_encrypted FROM external_accounts`)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	type row struct {
-		id          string
-		access, ref []byte
-	}
-	var batch []row
+	var batch []rotatorOAuthRow
 	for rows.Next() {
-		var rr row
+		var rr rotatorOAuthRow
 		if err := rows.Scan(&rr.id, &rr.access, &rr.ref); err != nil {
 			rows.Close()
-			return err
+			return nil, err
 		}
 		batch = append(batch, rr)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return batch, nil
+}
+
+// rotatorPick returns the rotated ciphertext when status is "rotated", else the original.
+func rotatorPick(orig, rotated []byte, status string) []byte {
+	if status == "rotated" {
+		return rotated
+	}
+	return orig
+}
+
+func (r *rotator) rotateOAuthTokens(ctx context.Context) error {
+	batch, err := r.loadOAuthTokens(ctx)
+	if err != nil {
 		return err
 	}
 
@@ -212,20 +247,13 @@ func (r *rotator) rotateOAuthTokens(ctx context.Context) error {
 		newRef, sR := r.reencrypt(rr.ref, aad)
 		r.tally(sA, "external_accounts.access", rr.id)
 		r.tally(sR, "external_accounts.refresh", rr.id)
-		if sA == "rotated" || sR == "rotated" {
-			ca := rr.access
-			if sA == "rotated" {
-				ca = newAccess
-			}
-			cr := rr.ref
-			if sR == "rotated" {
-				cr = newRef
-			}
-			if err := r.update(ctx,
-				`UPDATE external_accounts SET access_token_encrypted=$1, refresh_token_encrypted=$2 WHERE id=$3`,
-				ca, cr, rr.id); err != nil {
-				return err
-			}
+		if sA != "rotated" && sR != "rotated" {
+			continue
+		}
+		if err := r.update(ctx,
+			`UPDATE external_accounts SET access_token_encrypted=$1, refresh_token_encrypted=$2 WHERE id=$3`,
+			rotatorPick(rr.access, newAccess, sA), rotatorPick(rr.ref, newRef, sR), rr.id); err != nil {
+			return err
 		}
 	}
 	return nil
