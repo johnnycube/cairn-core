@@ -34,6 +34,7 @@
 	// Group by activity type, preserving a sensible type order.
 	const TYPE_ORDER = ['ride', 'run', 'swim', 'walk', 'hike', 'workout'];
 	let byType = $derived.by(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- rebuilt inside $derived, never mutated after
 		const m = new Map<string, Record[]>();
 		for (const r of records) {
 			if (!m.has(r.activity_type)) m.set(r.activity_type, []);
@@ -56,23 +57,32 @@
 
 	function windowLabel(kind: string, value: number): string {
 		if (kind === 'distance') {
-			if (value >= 1000) return value % 1000 === 0 ? `${value / 1000} km` : `${(value / 1000).toFixed(2)} km`;
+			if (value >= 1000)
+				return value % 1000 === 0 ? `${value / 1000} km` : `${(value / 1000).toFixed(2)} km`;
 			return `${value} m`;
 		}
 		// duration (seconds)
-		if (value >= 3600) return value % 3600 === 0 ? `${value / 3600} h` : `${(value / 3600).toFixed(1)} h`;
-		if (value >= 60) return value % 60 === 0 ? `${value / 60} min` : `${Math.round(value / 60)} min`;
+		if (value >= 3600)
+			return value % 3600 === 0 ? `${value / 3600} h` : `${(value / 3600).toFixed(1)} h`;
+		if (value >= 60)
+			return value % 60 === 0 ? `${value / 60} min` : `${Math.round(value / 60)} min`;
 		return `${value} s`;
 	}
 
 	function metricLabel(metric: string): string {
 		switch (metric) {
-			case 'pace': return 'Fastest';
-			case 'speed': return 'Top speed';
-			case 'power': return 'Best power';
-			case 'heart_rate': return 'Peak HR';
-			case 'vam': return 'Best VAM';
-			default: return metric;
+			case 'pace':
+				return 'Fastest';
+			case 'speed':
+				return 'Top speed';
+			case 'power':
+				return 'Best power';
+			case 'heart_rate':
+				return 'Peak HR';
+			case 'vam':
+				return 'Best VAM';
+			default:
+				return metric;
 		}
 	}
 
@@ -83,11 +93,16 @@
 				const s = Math.round(v);
 				return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} /km`;
 			}
-			case 'speed': return formatSpeed(v);
-			case 'power': return formatPower(v);
-			case 'heart_rate': return formatHeartRate(v);
-			case 'vam': return `${Math.round(v)} m/h`;
-			default: return String(Math.round(v));
+			case 'speed':
+				return formatSpeed(v);
+			case 'power':
+				return formatPower(v);
+			case 'heart_rate':
+				return formatHeartRate(v);
+			case 'vam':
+				return `${Math.round(v)} m/h`;
+			default:
+				return String(Math.round(v));
 		}
 	}
 </script>
@@ -97,8 +112,8 @@
 <div class="mx-auto max-w-4xl px-4 py-6">
 	<h1 class="mb-1 text-xl font-semibold text-zinc-100">Personal records</h1>
 	<p class="mb-6 text-sm text-zinc-500">
-		Your all-time bests across every activity and every connected provider — a unified
-		view no single provider can produce.
+		Your all-time bests across every activity and every connected provider — a unified view no
+		single provider can produce.
 	</p>
 
 	{#if !loaded}
@@ -107,15 +122,17 @@
 		<p class="text-sm text-red-400">{error}</p>
 	{:else if records.length === 0}
 		<p class="text-sm text-zinc-500">
-			No records yet — they appear once you've imported activities with power, pace, or
-			heart-rate data.
+			No records yet — they appear once you've imported activities with power, pace, or heart-rate
+			data.
 		</p>
 	{:else}
 		<div class="space-y-8">
 			{#each byType as [type, list] (type)}
 				<section>
-					<h2 class="mb-3 flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-zinc-400">
-						<SportIcon type={type} size={16} />
+					<h2
+						class="mb-3 flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-zinc-400"
+					>
+						<SportIcon {type} size={16} />
 						{type}
 					</h2>
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">

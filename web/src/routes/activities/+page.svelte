@@ -39,7 +39,7 @@
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let debounceInit = false;
 	$effect(() => {
-		filter.textKey;
+		void filter.textKey;
 		if (!debounceInit) {
 			debounceInit = true;
 			return;
@@ -58,7 +58,9 @@
 	// Windowed pager: first, last, current ±1, with ellipsis gaps.
 	const pageList = $derived.by(() => {
 		const wanted = [1, pageNum - 1, pageNum, pageNum + 1, totalPages];
-		const pages = [...new Set(wanted)].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+		const pages = [...new Set(wanted)]
+			.filter((p) => p >= 1 && p <= totalPages)
+			.sort((a, b) => a - b);
 		const out: (number | '…')[] = [];
 		let prev = 0;
 		for (const p of pages) {
@@ -109,8 +111,8 @@
 	// Re-query (reset to page 1) whenever a filter or sort changes. Text-input
 	// filters (dates, ranges) arrive via the debounced counter.
 	$effect(() => {
-		filter.immediateKey;
-		debounced;
+		void filter.immediateKey;
+		void debounced;
 		pageNum = 1;
 		loadFeed(1);
 	});
@@ -191,7 +193,6 @@
 		</div>
 	</header>
 
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		role="button"
 		tabindex="0"
@@ -225,7 +226,9 @@
 		</div>
 	{/if}
 	{#if uploadOk}
-		<div class="rounded border border-emerald-700/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
+		<div
+			class="rounded border border-emerald-700/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300"
+		>
 			{uploadOk}
 		</div>
 	{/if}
@@ -233,7 +236,9 @@
 	<ActivityFilterBar {filter} facets={feed?.facets ?? null} />
 
 	{#if items.length === 0 && !loading}
-		<div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400">
+		<div
+			class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400"
+		>
 			{filter.active ? 'No activities match this filter.' : m.activities_empty()}
 		</div>
 	{:else}

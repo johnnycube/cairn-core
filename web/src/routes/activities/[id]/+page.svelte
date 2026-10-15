@@ -133,7 +133,8 @@
 		return z.total_seconds > 0 ? (seconds / z.total_seconds) * 100 : 0;
 	}
 	const hasZones = $derived(
-		!!zones && ((zones.hr && zones.hr.total_seconds > 0) || (zones.power && zones.power.total_seconds > 0))
+		!!zones &&
+			((zones.hr && zones.hr.total_seconds > 0) || (zones.power && zones.power.total_seconds > 0))
 	);
 
 	function formatEffortWindow(b: (typeof bestEfforts)[number]): string {
@@ -319,10 +320,22 @@
 				</p>
 				{#if a.isVirtual || a.isEbike || a.isCommute || a.isRace}
 					<div class="mt-1.5 flex flex-wrap gap-1.5">
-						{#if a.isRace}<span class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-300">Race</span>{/if}
-						{#if a.isVirtual}<span class="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-sky-300">Virtual</span>{/if}
-						{#if a.isCommute}<span class="rounded bg-zinc-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-300">Commute</span>{/if}
-						{#if a.isEbike}<span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-300">E-bike</span>{/if}
+						{#if a.isRace}<span
+								class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-300"
+								>Race</span
+							>{/if}
+						{#if a.isVirtual}<span
+								class="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-sky-300"
+								>Virtual</span
+							>{/if}
+						{#if a.isCommute}<span
+								class="rounded bg-zinc-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-300"
+								>Commute</span
+							>{/if}
+						{#if a.isEbike}<span
+								class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-300"
+								>E-bike</span
+							>{/if}
 					</div>
 				{/if}
 				<p class="mt-0.5 text-xs text-zinc-600">{a.timezone} · {sourcesLabel}</p>
@@ -331,7 +344,9 @@
 	</header>
 
 	<!-- Primary stats: the four headline numbers. -->
-	<dl class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-zinc-800 bg-zinc-800 sm:grid-cols-4">
+	<dl
+		class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-zinc-800 bg-zinc-800 sm:grid-cols-4"
+	>
 		{#each [{ label: m.detail_stat_distance(), value: formatDistance(a.summary.distanceM ?? null) }, { label: m.detail_stat_moving(), value: formatDuration(a.movingDurationS) }, { label: primaryPace.label, value: primaryPace.value }, { label: m.detail_stat_elevation(), value: formatElevation(a.summary.elevationGainM ?? null) }] as c (c.label)}
 			<div class="bg-zinc-900/60 p-4">
 				<dt class="text-xs uppercase tracking-wide text-zinc-500">{c.label}</dt>
@@ -363,7 +378,9 @@
 
 	<!-- Secondary stats: only those that carry a value. -->
 	{#if secondaryStats.length > 0}
-		<dl class="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 sm:grid-cols-3 lg:grid-cols-4">
+		<dl
+			class="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 sm:grid-cols-3 lg:grid-cols-4"
+		>
 			{#each secondaryStats as s (s.label)}
 				<div class="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5">
 					<dt class="text-xs text-zinc-500">{s.label}</dt>
@@ -379,10 +396,7 @@
 				<h2 class="text-sm font-medium uppercase tracking-wide text-zinc-400">
 					{m.detail_section_route()}
 				</h2>
-				<a
-					href={`/activities/${a.id}/map`}
-					class="text-xs text-accent-400 hover:text-accent-300"
-				>
+				<a href={`/activities/${a.id}/map`} class="text-xs text-accent-400 hover:text-accent-300">
 					Full screen ↗
 				</a>
 			</div>
@@ -475,9 +489,8 @@
 				class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 p-4 text-sm text-zinc-400"
 			>
 				<span>
-					No stream data for this activity{streamStatus === 'empty'
-						? ' yet'
-						: ''} — no GPS track, elevation or sensor charts to show.
+					No stream data for this activity{streamStatus === 'empty' ? ' yet' : ''} — no GPS track, elevation
+					or sensor charts to show.
 				</span>
 				<a
 					href={`/activities/${a.id}/manage`}
@@ -491,9 +504,7 @@
 
 	{#if bestEfforts.length > 0}
 		<section>
-			<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
-				Best Efforts
-			</h2>
+			<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">Best Efforts</h2>
 			<div class="overflow-hidden rounded-lg border border-zinc-800">
 				<table class="w-full text-sm">
 					<thead class="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-500">
@@ -507,7 +518,8 @@
 						{#each bestEfforts as b (b.id)}
 							<tr
 								class="cursor-pointer bg-zinc-900/30 transition-colors hover:bg-zinc-800/60"
-								onclick={() => goto(`/best-efforts/${a.type}/${b.metric}/${b.windowKind}/${b.windowValue}`)}
+								onclick={() =>
+									goto(`/best-efforts/${a.type}/${b.metric}/${b.windowKind}/${b.windowValue}`)}
 							>
 								<td class="px-4 py-2 font-mono text-xs uppercase text-accent-400">{b.metric}</td>
 								<td class="px-4 py-2 text-zinc-300">{formatEffortWindow(b)}</td>
@@ -542,12 +554,24 @@
 						{#each laps as l, i (i)}
 							<tr class="border-t border-zinc-800/70">
 								<td class="px-4 py-2 font-medium text-zinc-200">{l.label || `Lap ${l.index}`}</td>
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatDistance(l.distance_m)}</td>
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatDuration(l.moving_s || l.elapsed_s)}</td>
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatPace(l.avg_speed_mps)}</td>
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatHeartRate(l.avg_heart_rate)}</td>
-								{#if anyLapPower}<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatPower(l.avg_power)}</td>{/if}
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatElevation(l.elevation_gain_m)}</td>
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+									>{formatDistance(l.distance_m)}</td
+								>
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+									>{formatDuration(l.moving_s || l.elapsed_s)}</td
+								>
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+									>{formatPace(l.avg_speed_mps)}</td
+								>
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+									>{formatHeartRate(l.avg_heart_rate)}</td
+								>
+								{#if anyLapPower}<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+										>{formatPower(l.avg_power)}</td
+									>{/if}
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+									>{formatElevation(l.elevation_gain_m)}</td
+								>
 							</tr>
 						{/each}
 					</tbody>
@@ -560,15 +584,21 @@
 		{@const dc = zones.decoupling}
 		<section>
 			<h2 class="mb-3 text-sm font-medium text-zinc-300">Aerobic decoupling</h2>
-			<div class="flex flex-wrap items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-				<div class="text-3xl font-semibold tabular-nums {dc.coupled ? 'text-emerald-400' : 'text-amber-400'}">
+			<div
+				class="flex flex-wrap items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4"
+			>
+				<div
+					class="text-3xl font-semibold tabular-nums {dc.coupled
+						? 'text-emerald-400'
+						: 'text-amber-400'}"
+				>
 					{dc.pct > 0 ? '+' : ''}{dc.pct.toFixed(1)}%
 				</div>
 				<div class="text-xs text-zinc-400">
 					<div class="text-zinc-300">{dc.coupled ? 'Well coupled' : 'Notable drift'}</div>
 					<div>
-						{dc.basis === 'power' ? 'Power' : 'Pace'}:HR drift, 1st→2nd half. Lower is more aerobically
-						efficient; under 5% is strong.
+						{dc.basis === 'power' ? 'Power' : 'Pace'}:HR drift, 1st→2nd half. Lower is more
+						aerobically efficient; under 5% is strong.
 					</div>
 				</div>
 			</div>
@@ -608,8 +638,11 @@
 							<ul class="space-y-1">
 								{#each zset.zones as z, i (i)}
 									<li class="flex items-center gap-2 text-xs">
-										<span class="h-2.5 w-2.5 shrink-0 rounded-sm" style:background={ZONE_COLORS[i]}></span>
-										<span class="w-28 shrink-0 text-zinc-300 max-md:w-20 max-md:truncate">{z.label}</span>
+										<span class="h-2.5 w-2.5 shrink-0 rounded-sm" style:background={ZONE_COLORS[i]}
+										></span>
+										<span class="w-28 shrink-0 text-zinc-300 max-md:w-20 max-md:truncate"
+											>{z.label}</span
+										>
 										<span class="w-24 shrink-0 tabular-nums text-zinc-500 max-md:hidden">
 											{Math.round(z.low_pct * zset.reference)}{z.high_pct > 0
 												? `–${Math.round(z.high_pct * zset.reference)}`
@@ -623,8 +656,12 @@
 												style:background={ZONE_COLORS[i]}
 											></div>
 										</div>
-										<span class="w-16 shrink-0 text-right tabular-nums text-zinc-300">{formatDuration(z.seconds)}</span>
-										<span class="w-10 shrink-0 text-right tabular-nums text-zinc-500">{Math.round(zonePct(zset, z.seconds))}%</span>
+										<span class="w-16 shrink-0 text-right tabular-nums text-zinc-300"
+											>{formatDuration(z.seconds)}</span
+										>
+										<span class="w-10 shrink-0 text-right tabular-nums text-zinc-500"
+											>{Math.round(zonePct(zset, z.seconds))}%</span
+										>
 									</li>
 								{/each}
 							</ul>
@@ -644,7 +681,9 @@
 				{#if hasElevation}
 					<!-- Elevation profile pinned to the top of the scroll area; hovering a
 					     row shades the segment's span on it. -->
-					<div class="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-2 pt-2 backdrop-blur">
+					<div
+						class="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-2 pt-2 backdrop-blur"
+					>
 						<ElevationProfile {track} highlight={segHighlight} />
 					</div>
 				{/if}
@@ -665,7 +704,10 @@
 								onmouseleave={() => (hoveredSeg = null)}
 							>
 								<td class="px-4 py-2">
-									<a href={`/segment/${s.segment_id}`} class="text-accent-400 hover:text-accent-300 hover:underline">
+									<a
+										href={`/segment/${s.segment_id}`}
+										class="text-accent-400 hover:text-accent-300 hover:underline"
+									>
 										{s.segment_name}
 									</a>
 									{#if s.is_personal_record}
@@ -675,7 +717,9 @@
 										>
 									{/if}
 									{#if s.climb_category}
-										<span class="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
+										<span
+											class="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400"
+										>
 											{s.climb_category.replace('_', ' ')}
 										</span>
 									{/if}
@@ -710,12 +754,15 @@
 		<section>
 			<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">Sources</h2>
 			<p class="mb-3 text-xs text-zinc-500">
-				This activity is merged from {activeSources.length} source{activeSources.length === 1 ? '' : 's'}.
-				Detach a source if it was matched here by mistake — the activity re-merges from the rest, or is
-				deleted if it was the only one.
+				This activity is merged from {activeSources.length} source{activeSources.length === 1
+					? ''
+					: 's'}. Detach a source if it was matched here by mistake — the activity re-merges from
+				the rest, or is deleted if it was the only one.
 			</p>
 			{#if sourceError}
-				<div class="mb-2 rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+				<div
+					class="mb-2 rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300"
+				>
 					{sourceError}
 				</div>
 			{/if}
@@ -725,18 +772,29 @@
 						<div class="min-w-0">
 							<span class="font-medium text-zinc-200">{s.provider}</span>
 							{#if s.isPrimary}
-								<span class="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 text-xs text-accent-300" title="Maps and charts render from this source">primary</span>
+								<span
+									class="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 text-xs text-accent-300"
+									title="Maps and charts render from this source">primary</span
+								>
 							{/if}
 							{#if s.status === 'detached'}
-								<span class="ml-2 rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400">detached</span>
+								<span class="ml-2 rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400"
+									>detached</span
+								>
 							{:else if s.status !== 'active'}
-								<span class="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300">{humanizeStatus(s.status)}</span>
+								<span class="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300"
+									>{humanizeStatus(s.status)}</span
+								>
 							{/if}
 							{#if s.reimportStatus === 'update_available'}
-								<span class="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300">update available</span>
+								<span class="ml-2 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-300"
+									>update available</span
+								>
 							{/if}
 							<div class="mt-0.5 truncate text-xs text-zinc-600">
-								{s.externalId ? `#${s.externalId} · ` : ''}imported {formatDate(s.importedAt)}{s.statusReason ? ` · ${humanizeStatus(s.statusReason)}` : ''}
+								{s.externalId ? `#${s.externalId} · ` : ''}imported {formatDate(
+									s.importedAt
+								)}{s.statusReason ? ` · ${humanizeStatus(s.statusReason)}` : ''}
 							</div>
 						</div>
 						<div class="flex shrink-0 items-center gap-2">

@@ -115,11 +115,15 @@
 	<header>
 		<a href="/" class="text-xs text-accent-400 hover:text-accent-300">← Overview</a>
 		<h1 class="mt-2 text-2xl font-semibold tracking-tight">Best effort · {title}</h1>
-		<p class="mt-1 text-sm text-zinc-400">Your progression for this effort across all activities.</p>
+		<p class="mt-1 text-sm text-zinc-400">
+			Your progression for this effort across all activities.
+		</p>
 	</header>
 
 	{#if loadError}
-		<div class="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">{loadError}</div>
+		<div class="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">
+			{loadError}
+		</div>
 	{:else if payload && payload.count > 0}
 		<dl class="grid grid-cols-2 gap-4 sm:grid-cols-3">
 			<div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
@@ -139,7 +143,12 @@
 				<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
 					Over time (oldest → newest)
 				</h2>
-				<svg viewBox={`0 0 ${chart.W} ${chart.H}`} class="w-full" role="img" aria-label="Best-effort trend">
+				<svg
+					viewBox={`0 0 ${chart.W} ${chart.H}`}
+					class="w-full"
+					role="img"
+					aria-label="Best-effort trend"
+				>
 					{#each chart.bars as b (b.item.activity_id)}
 						<rect
 							x={b.x}
@@ -149,7 +158,12 @@
 							rx="1.5"
 							class={b.item.is_best ? 'fill-emerald-500' : 'fill-zinc-600'}
 						>
-							<title>{formatDateOnly(b.item.start_time)} · {fmtValue(b.item.achieved_value, payload.metric)}</title>
+							<title
+								>{formatDateOnly(b.item.start_time)} · {fmtValue(
+									b.item.achieved_value,
+									payload.metric
+								)}</title
+							>
 						</rect>
 					{/each}
 				</svg>
@@ -175,7 +189,10 @@
 							<tr class={it.is_best ? 'bg-emerald-500/5' : ''}>
 								<td class="px-3 py-2 tabular-nums">{formatDateOnly(it.start_time)}</td>
 								<td class="px-3 py-2">
-									<a href={`/activities/${it.activity_id}`} class="text-accent-400 hover:text-accent-300">
+									<a
+										href={`/activities/${it.activity_id}`}
+										class="text-accent-400 hover:text-accent-300"
+									>
 										{it.title || 'Activity'}
 									</a>
 								</td>
@@ -190,7 +207,9 @@
 			</div>
 		</section>
 	{:else if payload}
-		<div class="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center text-sm text-zinc-400">
+		<div
+			class="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center text-sm text-zinc-400"
+		>
 			No efforts recorded for this bucket.
 		</div>
 	{:else}

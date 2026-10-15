@@ -66,7 +66,9 @@
 
 	const linePath = $derived.by(() => {
 		if (!bounds) return '';
-		return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
+		return pts
+			.map((p, i) => `${i === 0 ? 'M' : 'L'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`)
+			.join(' ');
 	});
 	const areaPath = $derived(linePath ? `${linePath} L${W},${height} L0,${height} Z` : '');
 
@@ -80,7 +82,13 @@
 </script>
 
 {#if bounds}
-	<svg viewBox="0 0 {W} {height}" preserveAspectRatio="none" class="block h-24 w-full" role="img" aria-label="Elevation profile">
+	<svg
+		viewBox="0 0 {W} {height}"
+		preserveAspectRatio="none"
+		class="block h-24 w-full"
+		role="img"
+		aria-label="Elevation profile"
+	>
 		<defs>
 			<linearGradient id="ele-fill" x1="0" y1="0" x2="0" y2="1">
 				<stop offset="0%" stop-color="#a78bfa" stop-opacity="0.35" />
@@ -88,9 +96,15 @@
 			</linearGradient>
 		</defs>
 		{#if hi}
-			<rect x={hi.x} y="0" width={hi.w} height={height} fill="#ec7a45" fill-opacity="0.22" />
+			<rect x={hi.x} y="0" width={hi.w} {height} fill="#ec7a45" fill-opacity="0.22" />
 		{/if}
 		<path d={areaPath} fill="url(#ele-fill)" />
-		<path d={linePath} fill="none" stroke="#a78bfa" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+		<path
+			d={linePath}
+			fill="none"
+			stroke="#a78bfa"
+			stroke-width="1.5"
+			vector-effect="non-scaling-stroke"
+		/>
 	</svg>
 {/if}

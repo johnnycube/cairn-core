@@ -61,17 +61,19 @@
 
 	// Nearest track vertex to a time offset (binary search — track is sorted by t).
 	function nearestByTime(t: number): TrackPoint | null {
-		if (track.length === 0) return null;
 		let lo = 0;
 		let hi = track.length - 1;
 		while (lo < hi) {
 			const mid = (lo + hi) >> 1;
-			if (track[mid].t < t) lo = mid + 1;
+			if ((track[mid]?.t ?? Infinity) < t) lo = mid + 1;
 			else hi = mid;
 		}
 		// lo is the first >= t; check the neighbour for the true nearest.
-		if (lo > 0 && Math.abs(track[lo - 1].t - t) <= Math.abs(track[lo].t - t)) return track[lo - 1];
-		return track[lo];
+		const at = track[lo];
+		const prev = track[lo - 1];
+		if (!at) return null;
+		if (prev && Math.abs(prev.t - t) <= Math.abs(at.t - t)) return prev;
+		return at;
 	}
 
 	function setMarker(p: TrackPoint | null) {
@@ -83,17 +85,26 @@
 			features:
 				p == null
 					? []
-					: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }]
+					: [
+							{
+								type: 'Feature',
+								properties: {},
+								geometry: { type: 'Point', coordinates: [p.lon, p.lat] }
+							}
+						]
 		});
 	}
 
 	onMount(() => {
-		if (coordinates.length === 0) return;
+		const first = coordinates[0];
+		const last = coordinates.at(-1);
+		const center = coordinates[Math.floor(coordinates.length / 2)];
+		if (!first || !last || !center) return;
 
 		map = new MapLibreMap({
 			container,
 			style: basemapStyle(),
-			center: coordinates[Math.floor(coordinates.length / 2)],
+			center,
 			zoom: 12,
 			attributionControl: { compact: true }
 		});
@@ -140,12 +151,12 @@
 						{
 							type: 'Feature',
 							properties: { kind: 'start' },
-							geometry: { type: 'Point', coordinates: coordinates[0] }
+							geometry: { type: 'Point', coordinates: first }
 						},
 						{
 							type: 'Feature',
 							properties: { kind: 'finish' },
-							geometry: { type: 'Point', coordinates: coordinates[coordinates.length - 1] }
+							geometry: { type: 'Point', coordinates: last }
 						}
 					]
 				}
@@ -231,7 +242,10 @@
 </script>
 
 <div class="relative {heightClass} w-full">
-	<div bind:this={container} class="h-full w-full rounded-lg border border-zinc-800 bg-zinc-900"></div>
+	<div
+		bind:this={container}
+		class="h-full w-full rounded-lg border border-zinc-800 bg-zinc-900"
+	></div>
 
 	{#if hoverPoint}
 		<div

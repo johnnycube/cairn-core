@@ -124,17 +124,26 @@
 		</div>
 
 		{#if error}
-			<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">{error}</div>
+			<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+				{error}
+			</div>
 		{/if}
 
 		{#if newInvite}
-			<div class="rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-				<div class="font-medium">Invite created — copy the link now, the code won't be shown again:</div>
-				<code class="mt-1 block break-all rounded bg-zinc-950/60 px-2 py-1 font-mono text-amber-100">{newInvite.signup_url}</code>
+			<div
+				class="rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200"
+			>
+				<div class="font-medium">
+					Invite created — copy the link now, the code won't be shown again:
+				</div>
+				<code class="mt-1 block break-all rounded bg-zinc-950/60 px-2 py-1 font-mono text-amber-100"
+					>{newInvite.signup_url}</code
+				>
 				<button
 					type="button"
 					onclick={() => navigator.clipboard?.writeText(newInvite!.signup_url)}
-					class="mt-1 rounded border border-amber-700/50 px-2 py-0.5 text-amber-200 hover:bg-amber-900/30 max-md:py-2">Copy link</button
+					class="mt-1 rounded border border-amber-700/50 px-2 py-0.5 text-amber-200 hover:bg-amber-900/30 max-md:py-2"
+					>Copy link</button
 				>
 			</div>
 		{/if}
@@ -146,11 +155,15 @@
 					<li class="flex items-center justify-between gap-4 px-3 py-2 text-xs max-md:flex-wrap">
 						<div>
 							<span class="font-mono text-zinc-300">{i.prefix}</span>
-							<span class="ml-2 rounded px-1.5 py-0.5 {statusColor[i.status] ?? 'bg-zinc-800 text-zinc-400'}">{i.status}</span>
+							<span
+								class="ml-2 rounded px-1.5 py-0.5 {statusColor[i.status] ??
+									'bg-zinc-800 text-zinc-400'}">{i.status}</span
+							>
 							<span class="ml-2 rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-400">{i.role}</span>
 							{#if i.email}<span class="ml-2 text-zinc-500">{i.email}</span>{/if}
 							<div class="mt-0.5 text-zinc-600">
-								created {formatDate(i.created_at)}{#if i.expires_at} · expires {formatDate(i.expires_at)}{/if}
+								created {formatDate(i.created_at)}{#if i.expires_at}
+									· expires {formatDate(i.expires_at)}{/if}
 							</div>
 						</div>
 						{#if i.status === 'active'}

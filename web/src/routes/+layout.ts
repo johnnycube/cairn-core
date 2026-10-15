@@ -1,5 +1,11 @@
 import { connectClients, isUnauthenticated } from '$lib/connect';
-import { type User, UserRole, UnitSystem, DateFormat, TimeFormat } from '$proto/cairn/v1/auth_pb.js';
+import {
+	type User,
+	UserRole,
+	UnitSystem,
+	DateFormat,
+	TimeFormat
+} from '$proto/cairn/v1/auth_pb.js';
 import type { LayoutLoad } from './$types';
 
 // The whole app is a client-rendered SPA: prod ships as a static bundle
@@ -106,12 +112,7 @@ function userToView(u: User | undefined): UserView | null {
 		email: u.email,
 		emailVerified: u.emailVerified,
 		displayName: u.displayName,
-		role:
-			u.role === UserRole.ADMIN
-				? 'admin'
-				: u.role === UserRole.USER
-					? 'user'
-					: 'unknown',
+		role: u.role === UserRole.ADMIN ? 'admin' : u.role === UserRole.USER ? 'user' : 'unknown',
 		units: u.units === UnitSystem.IMPERIAL ? 'imperial' : 'metric',
 		dateFormat: dateFmt(u.dateFormat),
 		timeFormat: timeFmt(u.timeFormat)

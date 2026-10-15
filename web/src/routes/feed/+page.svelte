@@ -59,7 +59,9 @@
 	{#if items.length === 0 && !loading}
 		<div class="rounded-lg border border-dashed p-8 text-center text-sm text-zinc-400">
 			Nothing here yet. Follow other athletes to see their activities.
-			<div class="mt-2"><a href="/athlete" class="text-accent-400 hover:underline">Find athletes →</a></div>
+			<div class="mt-2">
+				<a href="/athlete" class="text-accent-400 hover:underline">Find athletes →</a>
+			</div>
 		</div>
 	{/if}
 
@@ -77,7 +79,11 @@
 					<SportIcon type={a.type} size={24} />
 					<div class="min-w-0 flex-1">
 						<div class="truncate font-medium">{a.title || 'Untitled'}</div>
-						{#if a.start_place}<div class="truncate text-xs text-zinc-400">{a.start_place}</div>{:else if a.start_location_redacted}<div class="truncate text-xs text-zinc-400">📍 Start location hidden</div>{/if}
+						{#if a.start_place}<div class="truncate text-xs text-zinc-400">
+								{a.start_place}
+							</div>{:else if a.start_location_redacted}<div class="truncate text-xs text-zinc-400">
+								📍 Start location hidden
+							</div>{/if}
 					</div>
 				</a>
 				<div class="mt-3 flex divide-x divide-zinc-800 rounded-md border border-zinc-800 text-sm">
@@ -113,8 +119,11 @@
 
 	{#if hasMore}
 		<div class="mt-4 text-center">
-			<button onclick={() => load(false)} disabled={loading}
-				class="rounded border px-4 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50">
+			<button
+				onclick={() => load(false)}
+				disabled={loading}
+				class="rounded border px-4 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
+			>
 				{loading ? 'Loading…' : 'Load more'}
 			</button>
 		</div>

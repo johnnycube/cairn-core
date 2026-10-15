@@ -10,7 +10,13 @@
     "preview": "vite preview",
     "paraglide": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "check": "npm run paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "npm run paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    "check:watch": "npm run paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "lint": "prettier --check . && eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "cover": "vitest run --coverage",
+    "licenses": "license-checker-rseidelsohn --production --excludePrivatePackages --onlyAllow 'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;MPL-2.0;BlueOak-1.0.0;CC0-1.0;Python-2.0'",
+    "unused": "knip --dependencies"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.0",
@@ -21,16 +27,29 @@
     "uplot": "^1.6.32"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@sveltejs/adapter-node": "^5.5.4",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.60.1",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.0",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^25.8.0",
+    "@vitest/coverage-v8": "^5.0.4",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-svelte": "^3.23.1",
+    "globals": "^17.13.0",
+    "knip": "^6.41.0",
+    "license-checker-rseidelsohn": "^5.0.1",
+    "prettier": "^3.9.10",
+    "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.55.7",
     "svelte-check": "^4.4.8",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
-    "vite": "^8.0.13"
+    "typescript-eslint": "^8.71.2",
+    "vite": "^8.0.13",
+    "vitest": "^5.0.4"
   }
 }

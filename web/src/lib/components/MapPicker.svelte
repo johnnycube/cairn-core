@@ -44,4 +44,7 @@
 	onDestroy(() => map?.remove());
 </script>
 
-<div bind:this={container} class="h-64 w-full overflow-hidden rounded-lg border border-zinc-800"></div>
+<div
+	bind:this={container}
+	class="h-64 w-full overflow-hidden rounded-lg border border-zinc-800"
+></div>

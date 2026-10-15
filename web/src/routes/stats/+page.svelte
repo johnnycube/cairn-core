@@ -27,7 +27,6 @@
 		records: { longest_distance: Record; longest_duration: Record };
 	};
 
-	let { data } = $props();
 	let s = $state<Stats | null>(null);
 	let loading = $state(true);
 
@@ -53,13 +52,17 @@
 <div class="space-y-8">
 	<header>
 		<h1 class="text-3xl font-semibold tracking-tight max-md:text-2xl">Stats</h1>
-		<p class="mt-1 text-sm text-zinc-400">The numbers, for the data geeks. Lifetime totals, year-by-year, and your records.</p>
+		<p class="mt-1 text-sm text-zinc-400">
+			The numbers, for the data geeks. Lifetime totals, year-by-year, and your records.
+		</p>
 	</header>
 
 	{#if loading}
 		<div class="text-sm text-zinc-500">Loading…</div>
 	{:else if !s || s.totals.count === 0}
-		<div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400">
+		<div
+			class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400"
+		>
 			No activities yet. Import some to see your stats.
 		</div>
 	{:else}
@@ -81,8 +84,13 @@
 					<div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
 						<div class="text-xs uppercase tracking-wide text-zinc-500">{card.label}</div>
 						{#if card.r}
-							<a href={`/activities/${card.r.id}`} class="mt-2 flex items-center gap-3 hover:text-accent-300">
-								<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-300">
+							<a
+								href={`/activities/${card.r.id}`}
+								class="mt-2 flex items-center gap-3 hover:text-accent-300"
+							>
+								<span
+									class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+								>
 									<SportIcon type={card.r.discipline || card.r.type} size={18} />
 								</span>
 								<div class="min-w-0 flex-1">
@@ -90,7 +98,9 @@
 										{card.r.title || `${humanize(card.r.discipline || card.r.type)} Activity`}
 									</div>
 								</div>
-								<div class="text-lg font-semibold tabular-nums text-zinc-100">{card.metric(card.r)}</div>
+								<div class="text-lg font-semibold tabular-nums text-zinc-100">
+									{card.metric(card.r)}
+								</div>
 							</a>
 						{:else}
 							<div class="mt-2 text-sm text-zinc-500">—</div>
@@ -106,37 +116,43 @@
 				<h2 class="mb-3 text-sm font-medium text-zinc-300">By year</h2>
 				<div class="overflow-hidden rounded-xl border border-zinc-800">
 					<div class="overflow-x-auto">
-					<table class="w-full text-sm">
-						<thead class="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-500">
-							<tr>
-								<th class="px-4 py-2 text-left font-medium">Year</th>
-								<th class="px-4 py-2 text-right font-medium">Activities</th>
-								<th class="px-4 py-2 text-right font-medium">Distance</th>
-								<th class="px-4 py-2 text-right font-medium">Moving</th>
-								<th class="px-4 py-2 text-right font-medium">Elevation</th>
-								<th class="w-1/4 px-4 py-2"></th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each s.by_year as y (y.year)}
-								<tr class="border-t border-zinc-800/70">
-									<td class="px-4 py-2 font-medium text-zinc-200">{y.year}</td>
-									<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{y.count}</td>
-									<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatDistance(y.distance_m)}</td>
-									<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatDuration(y.moving_s)}</td>
-									<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{formatElevation(y.elevation_gain_m)}</td>
-									<td class="px-4 py-2">
-										<div class="h-2 rounded-full bg-zinc-800">
-											<div
-												class="h-2 rounded-full bg-accent-500"
-												style:width={`${(y.distance_m / maxYearDist) * 100}%`}
-											></div>
-										</div>
-									</td>
+						<table class="w-full text-sm">
+							<thead class="bg-zinc-900/60 text-xs uppercase tracking-wide text-zinc-500">
+								<tr>
+									<th class="px-4 py-2 text-left font-medium">Year</th>
+									<th class="px-4 py-2 text-right font-medium">Activities</th>
+									<th class="px-4 py-2 text-right font-medium">Distance</th>
+									<th class="px-4 py-2 text-right font-medium">Moving</th>
+									<th class="px-4 py-2 text-right font-medium">Elevation</th>
+									<th class="w-1/4 px-4 py-2"></th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
+							</thead>
+							<tbody>
+								{#each s.by_year as y (y.year)}
+									<tr class="border-t border-zinc-800/70">
+										<td class="px-4 py-2 font-medium text-zinc-200">{y.year}</td>
+										<td class="px-4 py-2 text-right tabular-nums text-zinc-300">{y.count}</td>
+										<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+											>{formatDistance(y.distance_m)}</td
+										>
+										<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+											>{formatDuration(y.moving_s)}</td
+										>
+										<td class="px-4 py-2 text-right tabular-nums text-zinc-300"
+											>{formatElevation(y.elevation_gain_m)}</td
+										>
+										<td class="px-4 py-2">
+											<div class="h-2 rounded-full bg-zinc-800">
+												<div
+													class="h-2 rounded-full bg-accent-500"
+													style:width={`${(y.distance_m / maxYearDist) * 100}%`}
+												></div>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 					</div>
 				</div>
 			</section>
@@ -153,11 +169,18 @@
 							class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-2.5 hover:border-zinc-700 hover:bg-zinc-900/80"
 						>
 							<span class="text-accent-400"><SportIcon type={f.value} size={20} /></span>
-							<span class="w-32 shrink-0 text-sm text-zinc-200 max-md:w-24">{humanize(f.value)}</span>
+							<span class="w-32 shrink-0 text-sm text-zinc-200 max-md:w-24"
+								>{humanize(f.value)}</span
+							>
 							<div class="h-2 flex-1 rounded-full bg-zinc-800">
-								<div class="h-2 rounded-full bg-accent-500" style:width={`${(f.count / maxSport) * 100}%`}></div>
+								<div
+									class="h-2 rounded-full bg-accent-500"
+									style:width={`${(f.count / maxSport) * 100}%`}
+								></div>
 							</div>
-							<span class="w-12 shrink-0 text-right text-sm tabular-nums text-zinc-400">{f.count}</span>
+							<span class="w-12 shrink-0 text-right text-sm tabular-nums text-zinc-400"
+								>{f.count}</span
+							>
 						</a>
 					{/each}
 				</div>

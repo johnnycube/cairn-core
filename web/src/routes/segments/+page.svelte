@@ -39,6 +39,7 @@
 		error = null;
 		try {
 			const off = reset ? 0 : offset;
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local query builder
 			const params = new URLSearchParams({ limit: '50', offset: String(off) });
 			if (typeFilter) params.set('type', typeFilter);
 			const res = await fetch(`/api/segments?${params}`);
@@ -78,7 +79,9 @@
 	</header>
 
 	{#if error}
-		<div class="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">{error}</div>
+		<div class="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">
+			{error}
+		</div>
 	{/if}
 
 	{#if stats}
@@ -137,9 +140,15 @@
 								<div class="flex items-center gap-2">
 									<span class="truncate font-medium text-zinc-100">{s.name}</span>
 									{#if s.has_cr}
-										<span class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase text-amber-300">CR</span>
+										<span
+											class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase text-amber-300"
+											>CR</span
+										>
 									{:else if s.has_pr}
-										<span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] uppercase text-emerald-300">PR</span>
+										<span
+											class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] uppercase text-emerald-300"
+											>PR</span
+										>
 									{/if}
 								</div>
 								<div class="mt-0.5 text-xs text-zinc-500">
@@ -149,7 +158,9 @@
 								</div>
 							</div>
 							<div class="shrink-0 text-right">
-								<div class="font-semibold tabular-nums text-zinc-100">{formatDuration(s.best_elapsed_s)}</div>
+								<div class="font-semibold tabular-nums text-zinc-100">
+									{formatDuration(s.best_elapsed_s)}
+								</div>
 								<div class="text-xs text-zinc-500">
 									{s.effort_count} effort{s.effort_count === 1 ? '' : 's'}
 								</div>
@@ -174,8 +185,8 @@
 			<div
 				class="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center text-sm text-zinc-400"
 			>
-				No segment efforts yet. Segments are matched automatically when you import activities with GPS
-				tracks.
+				No segment efforts yet. Segments are matched automatically when you import activities with
+				GPS tracks.
 			</div>
 		{/if}
 	</section>

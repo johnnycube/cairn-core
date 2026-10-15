@@ -233,7 +233,9 @@
 			<h2 class="mb-1 text-sm font-medium text-zinc-300">Notification emails</h2>
 			<p class="mb-4 text-xs text-zinc-500">
 				The in-app feed always shows everything. Choose which also email you{#if !emailChannelAvailable}<span
-						class="text-amber-400"> (email isn't configured on this instance, so these won't send)</span
+						class="text-amber-400"
+					>
+						(email isn't configured on this instance, so these won't send)</span
 					>{/if}.
 			</p>
 			<ul class="divide-y divide-zinc-800 rounded border border-zinc-800">
@@ -244,6 +246,7 @@
 							type="button"
 							role="switch"
 							aria-checked={p.email_enabled}
+							aria-label={p.label}
 							onclick={() => toggleNotif(p)}
 							class="relative h-5 w-9 shrink-0 rounded-full transition-colors {p.email_enabled
 								? 'bg-accent-500'
@@ -272,7 +275,12 @@
 				alerts (connection broken, worker offline) always come through.
 			</p>
 			<label class="mb-4 flex items-center gap-2 text-sm text-zinc-300">
-				<input type="checkbox" bind:checked={quiet.enabled} onchange={saveQuiet} class="accent-accent-500" />
+				<input
+					type="checkbox"
+					bind:checked={quiet.enabled}
+					onchange={saveQuiet}
+					class="accent-accent-500"
+				/>
 				Enable quiet hours
 			</label>
 			{#if quiet.enabled}
@@ -340,9 +348,7 @@
 			{#if saved}<span class="text-xs text-emerald-400">saved</span>{/if}
 			{#if error}<span class="text-xs text-red-400">{error}</span>{/if}
 		</div>
-		<p class="mb-4 text-xs text-zinc-500">
-			Applied everywhere, on every device you sign in on.
-		</p>
+		<p class="mb-4 text-xs text-zinc-500">Applied everywhere, on every device you sign in on.</p>
 
 		<div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
 			<div>

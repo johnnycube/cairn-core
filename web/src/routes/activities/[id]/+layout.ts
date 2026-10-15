@@ -58,7 +58,9 @@ export const load: LayoutLoad = async ({ fetch, url, params, parent }) => {
 	// fetching when the activity has more than one source. Used by the charts;
 	// the map stays on the single primary stream.
 	const merged =
-		a.sources.length > 1 ? await loadMergedStream(fetch, url.origin, a) : { stream: null, provenance: [] };
+		a.sources.length > 1
+			? await loadMergedStream(fetch, url.origin, a)
+			: { stream: null, provenance: [] };
 
 	return {
 		activity: activityToView(a),
@@ -127,9 +129,8 @@ async function loadMergedStream(
 		};
 		const grid = b.grid ?? [];
 		const ch = b.channels ?? {};
-		if (grid.length === 0) return { stream: null, provenance: [] };
-
 		const base = grid[0];
+		if (base === undefined) return { stream: null, provenance: [] };
 		const offsets = grid.map((t) => t - base);
 		const pick = (name: string) => (ch[name] && ch[name].length ? ch[name] : null);
 		const hr = pick('heart_rate');
@@ -264,7 +265,7 @@ export interface BestEffortView {
 	windowKind: string;
 	windowValue: number;
 	achievedValue: number;
-	distanceM?: number;
+	distanceM?: number | undefined;
 	durationS: number;
 	startOffsetS: number;
 }
@@ -325,8 +326,7 @@ function activityToView(a: Activity): ActivityView {
 function streamToView(s: ActivityStream | undefined): ActivityStreamView | null {
 	if (!s) return null;
 	const channels = new Set<StreamChannel>(s.channels);
-	const hasGPS =
-		channels.has(StreamChannel.LATITUDE) && channels.has(StreamChannel.LONGITUDE);
+	const hasGPS = channels.has(StreamChannel.LATITUDE) && channels.has(StreamChannel.LONGITUDE);
 	const hasDist = channels.has(StreamChannel.DISTANCE);
 	const hasEle = channels.has(StreamChannel.ALTITUDE);
 	const hasSpeed = channels.has(StreamChannel.SPEED);
@@ -338,17 +338,20 @@ function streamToView(s: ActivityStream | undefined): ActivityStreamView | null 
 	const track: TrackPoint[] = [];
 	// floats use NaN for missing (but 0 is valid, e.g. distance at start);
 	// ints use 0 for missing.
-	const nf = (v: number) => (Number.isNaN(v) ? null : v);
-	const nz = (v: number) => (v === 0 ? null : v);
+	// Out-of-range samples count as missing too.
+	const nf = (v: number | undefined) => (v === undefined || Number.isNaN(v) ? null : v);
+	const nz = (v: number | undefined) => (v === undefined || v === 0 ? null : v);
 	if (hasGPS) {
 		for (let i = 0; i < s.sampleCount; i++) {
 			const lat = s.latitude[i];
 			const lon = s.longitude[i];
+			const t = s.timeS[i];
+			if (lat === undefined || lon === undefined || t === undefined) continue;
 			if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 			coordinates.push([lon, lat]);
 			const speedMps = hasSpeed ? nf(s.speedMps[i]) : null;
 			track.push({
-				t: s.timeS[i],
+				t,
 				lon,
 				lat,
 				distM: hasDist ? nf(s.distanceM[i]) : null,

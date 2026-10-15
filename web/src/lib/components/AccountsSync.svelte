@@ -8,7 +8,13 @@
 	// account's stats inside its connection card.
 	let { connectionId = '' }: { connectionId?: string } = $props();
 
-	type Queue = { pending: number; in_progress: number; done: number; failed: number; skipped: number };
+	type Queue = {
+		pending: number;
+		in_progress: number;
+		done: number;
+		failed: number;
+		skipped: number;
+	};
 	type BudgetWindow = { used: number; limit: number; resets_at: string };
 	type Account = {
 		id: string;
@@ -42,7 +48,8 @@
 	type Tone = 'live' | 'warn' | 'err' | 'idle';
 	function connStatus(a: Account): { label: string; tone: Tone } {
 		if (a.status === 'needs_reauth') return { label: 'Needs reauth', tone: 'err' };
-		if (a.status && a.status !== 'active') return { label: a.status.replace(/_/g, ' '), tone: 'warn' };
+		if (a.status && a.status !== 'active')
+			return { label: a.status.replace(/_/g, ' '), tone: 'warn' };
 		if (a.discovering) return { label: 'Discovering', tone: 'live' };
 		if (a.rate_limited) return { label: 'Rate limited', tone: 'warn' };
 		if (a.queue.in_progress > 0) return { label: 'Importing', tone: 'live' };
@@ -138,7 +145,9 @@
 	async function loadQueueItems(id: string) {
 		try {
 			const status = queueShowAll[id] ? 'all' : '';
-			const res = await fetch(`/api/accounts/${id}/queue/items?limit=100${status ? `&status=${status}` : ''}`);
+			const res = await fetch(
+				`/api/accounts/${id}/queue/items?limit=100${status ? `&status=${status}` : ''}`
+			);
 			if (res.ok) queueItems = { ...queueItems, [id]: (await res.json()).items ?? [] };
 		} catch {
 			/* ignore */
@@ -152,7 +161,11 @@
 	// Per-row queue actions: requeue a failed item, or bump a pending one to
 	// the front of the claim order. Both refresh the rows; requeue also moves
 	// the failed→pending counters, so reload the accounts too.
-	async function queueItemAction(accountId: string, itemId: string, action: 'requeue' | 'move-to-top') {
+	async function queueItemAction(
+		accountId: string,
+		itemId: string,
+		action: 'requeue' | 'move-to-top'
+	) {
 		try {
 			const res = await fetch(`/api/accounts/${accountId}/queue/items/${itemId}/${action}`, {
 				method: 'POST'
@@ -299,7 +312,8 @@
 		try {
 			const res = await fetch(`/api/accounts/${id}/import-health?days=30`, { method: 'POST' });
 			if (!res.ok) throw new Error(await errText(res));
-			notice = 'Health import queued (last 30 days) — data appears under Health as the worker processes it.';
+			notice =
+				'Health import queued (last 30 days) — data appears under Health as the worker processes it.';
 		} catch (e) {
 			error = (e as Error).message;
 		} finally {
@@ -321,7 +335,8 @@
 				if (res.status === 429) await loadAccounts();
 				throw new Error(msg);
 			}
-			const { [id]: _drop, ...rest } = previews;
+			const rest = { ...previews };
+			delete rest[id];
 			previews = rest;
 			await loadAccounts();
 		} catch (e) {
@@ -354,18 +369,23 @@
 			<h2 class="mb-3 text-sm font-medium text-zinc-300">Connected accounts</h2>
 		{/if}
 		{#if error}
-			<div class="mb-3 rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+			<div
+				class="mb-3 rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300"
+			>
 				{error}
 			</div>
 		{/if}
 		{#if notice}
-			<div class="mb-3 rounded border border-emerald-700/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
+			<div
+				class="mb-3 rounded border border-emerald-700/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300"
+			>
 				{notice}
 			</div>
 		{/if}
 		<ul class="space-y-3">
 			{#each shown as a (a.id)}
 				{@const st = connStatus(a)}
+				{@const pv = previews[a.id]}
 				<li class="rounded border border-zinc-800 bg-zinc-950/40 px-4 py-3">
 					<div class="flex items-center justify-between gap-4 max-md:flex-wrap">
 						<div class="text-sm">
@@ -389,7 +409,7 @@
 								</span>
 							{/if}
 							{#if a.queue.failed > 0}<span class="text-red-400">{a.queue.failed} failed</span>{/if}
-							{#if !previews[a.id]}
+							{#if !pv}
 								<button
 									type="button"
 									disabled={busy[a.id]}
@@ -421,7 +441,9 @@
 
 					{#if importOpen[a.id]}
 						<!-- Single-activity import: provider activity ID → import queue. -->
-						<div class="mt-2 flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900/60 p-2 text-xs max-md:flex-wrap">
+						<div
+							class="mt-2 flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900/60 p-2 text-xs max-md:flex-wrap"
+						>
 							<input
 								bind:value={importExtId[a.id]}
 								placeholder={`${a.provider} activity ID`}
@@ -444,8 +466,8 @@
 						<div>
 							<dt class="inline text-zinc-500">Imported:</dt>
 							<dd class="inline font-medium text-zinc-200">{a.imported}</dd>
-							{#if previews[a.id]}
-								<span class="text-zinc-500"> / {previews[a.id].total} on {a.provider}</span>
+							{#if pv}
+								<span class="text-zinc-500"> / {pv.total} on {a.provider}</span>
 							{:else if a.provider_total > 0}
 								<span class="text-zinc-500"> / {a.provider_total} on {a.provider}</span>
 							{/if}
@@ -455,7 +477,10 @@
 							<dd class="inline text-zinc-200">{a.queue.pending + a.queue.in_progress}</dd>
 						</div>
 						{#if a.queue.failed > 0}
-							<div><dt class="inline text-zinc-500">Failed:</dt> <dd class="inline text-red-400">{a.queue.failed}</dd></div>
+							<div>
+								<dt class="inline text-zinc-500">Failed:</dt>
+								<dd class="inline text-red-400">{a.queue.failed}</dd>
+							</div>
 						{/if}
 						{#if a.rate_limit_budget?.short || a.rate_limit_budget?.daily}
 							{@const b = a.rate_limit_budget}
@@ -463,13 +488,17 @@
 								<dt class="inline text-zinc-500">API budget:</dt>
 								<dd class="inline">
 									{#if b.short}
-										<span class={b.short.used >= b.short.limit ? 'text-amber-300' : 'text-zinc-200'}>
+										<span
+											class={b.short.used >= b.short.limit ? 'text-amber-300' : 'text-zinc-200'}
+										>
 											{b.short.used}/{b.short.limit}
 										</span>
 										<span class="text-zinc-600">·15min</span>
 									{/if}
 									{#if b.daily}
-										<span class={b.daily.used >= b.daily.limit ? 'text-amber-300' : 'text-zinc-200'}>
+										<span
+											class={b.daily.used >= b.daily.limit ? 'text-amber-300' : 'text-zinc-200'}
+										>
 											{b.daily.used}/{b.daily.limit}
 										</span>
 										<span class="text-zinc-600">·day</span>
@@ -528,7 +557,10 @@
 												{#if ev.kind === 'sync_started'}
 													<span class="text-zinc-200">— {ev.count} queued</span>
 												{:else if ev.activity_id}
-													<a href={`/activities/${ev.activity_id}`} class="text-accent-400 hover:text-accent-300 hover:underline">
+													<a
+														href={`/activities/${ev.activity_id}`}
+														class="text-accent-400 hover:text-accent-300 hover:underline"
+													>
 														{ev.detail || 'View activity'}
 													</a>
 												{:else}
@@ -578,7 +610,9 @@
 							</div>
 							{#if (queueItems[a.id] ?? []).length === 0}
 								<p class="text-zinc-500">
-									{queueShowAll[a.id] ? 'Queue is empty.' : 'Nothing pending, in progress, or failed.'}
+									{queueShowAll[a.id]
+										? 'Queue is empty.'
+										: 'Nothing pending, in progress, or failed.'}
 								</p>
 							{:else}
 								<div class="overflow-x-auto">
@@ -626,7 +660,9 @@
 														{/if}
 													</td>
 													<td class="py-1 pr-3 text-zinc-300">{it.attempts}</td>
-													<td class="py-1 pr-3 whitespace-nowrap text-zinc-400">{formatDate(it.created_at)}</td>
+													<td class="py-1 pr-3 whitespace-nowrap text-zinc-400"
+														>{formatDate(it.created_at)}</td
+													>
 													<td class="py-1 pr-3 whitespace-nowrap text-zinc-400">
 														{it.started_at ? formatDate(it.started_at) : '—'}
 													</td>
@@ -664,8 +700,12 @@
 					{/if}
 
 					{#if configOpen[a.id]}
-						<div class="mt-3 flex flex-wrap items-center gap-2 rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-xs">
-							<label for={`poll-${a.id}`} class="text-zinc-400">Check for new activities every</label>
+						<div
+							class="mt-3 flex flex-wrap items-center gap-2 rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-xs"
+						>
+							<label for={`poll-${a.id}`} class="text-zinc-400"
+								>Check for new activities every</label
+							>
 							<input
 								id={`poll-${a.id}`}
 								type="number"
@@ -677,8 +717,8 @@
 							/>
 							<span class="text-zinc-400">minutes</span>
 							<span class="text-zinc-600">
-							(0 = instance default{defaultPollLabel ? `: ${defaultPollLabel}` : ''})
-						</span>
+								(0 = instance default{defaultPollLabel ? `: ${defaultPollLabel}` : ''})
+							</span>
 							{#if savedCfg[a.id]}<span class="text-emerald-400">saved</span>{/if}
 
 							<label class="ml-auto flex items-center gap-2 text-zinc-300">
@@ -693,20 +733,26 @@
 					{/if}
 
 					{#if !a.auto_import_enabled}
-						<div class="mt-2 rounded border border-amber-700/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
-							Auto-import is paused for this account — scheduled syncs and incoming
-							webhooks are ignored. Manual sync still works. Re-enable it under the
-							gear/config toggle.
+						<div
+							class="mt-2 rounded border border-amber-700/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300"
+						>
+							Auto-import is paused for this account — scheduled syncs and incoming webhooks are
+							ignored. Manual sync still works. Re-enable it under the gear/config toggle.
 						</div>
 					{/if}
 
-					{#if previews[a.id]}
-						{@const p = previews[a.id]}
-						<div class="mt-3 rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300">
-							Found <b>{p.complete === false ? '≥' : ''}{p.total}</b> activities — <b>{p.new}</b> new,
+					{#if pv}
+						{@const p = pv}
+						<div
+							class="mt-3 rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300"
+						>
+							Found <b>{p.complete === false ? '≥' : ''}{p.total}</b> activities — <b>{p.new}</b>
+							new,
 							{p.already_present} already imported.
 							{#if p.complete === false}
-								<span class="text-amber-300">(rate-limited — the full sync discovers the rest in the background.)</span>
+								<span class="text-amber-300"
+									>(rate-limited — the full sync discovers the rest in the background.)</span
+								>
 							{/if}
 							<div class="mt-2 flex gap-2 max-md:flex-wrap">
 								<button
@@ -727,7 +773,10 @@
 								</button>
 								<button
 									type="button"
-									onclick={() => (previews = Object.fromEntries(Object.entries(previews).filter(([k]) => k !== a.id)))}
+									onclick={() =>
+										(previews = Object.fromEntries(
+											Object.entries(previews).filter(([k]) => k !== a.id)
+										))}
 									class="px-2 py-1 text-zinc-500 hover:text-zinc-300"
 								>
 									Cancel

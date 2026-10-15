@@ -112,9 +112,17 @@ function formatDatePart(d: Date): string {
 function formatTimePart(d: Date): string {
 	switch (prefs.timeFormat) {
 		case '24h':
-			return d.toLocaleTimeString(intlLocale(), { hour: '2-digit', minute: '2-digit', hour12: false });
+			return d.toLocaleTimeString(intlLocale(), {
+				hour: '2-digit',
+				minute: '2-digit',
+				hour12: false
+			});
 		case '12h':
-			return d.toLocaleTimeString(intlLocale(), { hour: 'numeric', minute: '2-digit', hour12: true });
+			return d.toLocaleTimeString(intlLocale(), {
+				hour: 'numeric',
+				minute: '2-digit',
+				hour12: true
+			});
 		default:
 			return d.toLocaleTimeString(intlLocale(), { timeStyle: 'short' });
 	}

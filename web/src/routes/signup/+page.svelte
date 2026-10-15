@@ -49,7 +49,9 @@
 
 	<form onsubmit={submit} class="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
 		{#if error}
-			<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">{error}</div>
+			<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+				{error}
+			</div>
 		{/if}
 		<label class="block">
 			<span class="text-xs text-zinc-400">Invite code</span>
@@ -69,7 +71,13 @@
 		</label>
 		<label class="block">
 			<span class="text-xs text-zinc-400">Password</span>
-			<input type="password" autocomplete="new-password" required bind:value={password} class={inputCls} />
+			<input
+				type="password"
+				autocomplete="new-password"
+				required
+				bind:value={password}
+				class={inputCls}
+			/>
 		</label>
 		<button
 			type="submit"
@@ -81,6 +89,8 @@
 	</form>
 
 	<p class="text-center text-xs text-zinc-500">
-		Already have an account? <a href="/login" class="text-accent-400 hover:text-accent-300">Sign in</a>
+		Already have an account? <a href="/login" class="text-accent-400 hover:text-accent-300"
+			>Sign in</a
+		>
 	</p>
 </div>

@@ -81,8 +81,8 @@
 		<SportIcon {type} size={24} /> New activity
 	</h1>
 	<p class="mt-1 text-sm text-zinc-500">
-		Log an activity by hand — no file or device needed. It becomes a normal activity you can
-		edit, share, and add data to later.
+		Log an activity by hand — no file or device needed. It becomes a normal activity you can edit,
+		share, and add data to later.
 	</p>
 
 	<form
@@ -107,7 +107,8 @@
 				</select>
 			</div>
 			<div>
-				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="disc">Discipline</label
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="disc"
+					>Discipline</label
 				>
 				<select
 					id="disc"
@@ -134,7 +135,8 @@
 		</div>
 
 		<div>
-			<label class="block text-xs uppercase tracking-wide text-zinc-500" for="desc">Description</label
+			<label class="block text-xs uppercase tracking-wide text-zinc-500" for="desc"
+				>Description</label
 			>
 			<textarea
 				id="desc"
@@ -254,8 +256,9 @@
 			>
 				{saving ? 'Creating…' : 'Create activity'}
 			</button>
-			<a href="/activities" class="rounded border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800"
-				>Cancel</a
+			<a
+				href="/activities"
+				class="rounded border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800">Cancel</a
 			>
 		</div>
 	</form>

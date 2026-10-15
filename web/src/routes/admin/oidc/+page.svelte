@@ -12,19 +12,23 @@
 			<p class="mt-1 text-sm text-zinc-400">
 				OIDC providers are configured entirely through <code class="text-zinc-300"
 					>CAIRN_OIDC_*</code
-				> environment variables and shown on the login page. This view is read-only — to add, change
-				or remove a provider, edit the environment and restart the server.
+				> environment variables and shown on the login page. This view is read-only — to add, change or
+				remove a provider, edit the environment and restart the server.
 			</p>
 		</div>
 	</header>
 
 	<section class="rounded-lg border border-zinc-800 bg-zinc-900/40">
-		<header class="border-b border-zinc-800 px-5 py-3 text-xs uppercase tracking-wide text-zinc-500">
+		<header
+			class="border-b border-zinc-800 px-5 py-3 text-xs uppercase tracking-wide text-zinc-500"
+		>
 			Configured providers
 		</header>
 		<ul class="divide-y divide-zinc-800">
 			{#each data.oidcClients as c (c.id)}
-				<li class="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-4 px-5 py-3 text-sm max-md:grid-cols-[auto_1fr] max-md:gap-3">
+				<li
+					class="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-4 px-5 py-3 text-sm max-md:grid-cols-[auto_1fr] max-md:gap-3"
+				>
 					<span
 						class="flex h-6 w-6 items-center justify-center rounded bg-accent-500/20 text-[10px] font-bold text-accent-300"
 					>

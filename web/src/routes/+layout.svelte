@@ -35,7 +35,7 @@
 	// Mobile off-canvas sidebar drawer. Closed on every navigation.
 	let mobileNavOpen = $state(false);
 	$effect(() => {
-		page.url.pathname;
+		void page.url.pathname;
 		mobileNavOpen = false;
 	});
 
@@ -137,9 +137,7 @@
 				? [
 						{
 							title: 'Admin',
-							items: [
-								{ href: '/admin/moderation', label: 'Moderation', icon: icons.moderation }
-							]
+							items: [{ href: '/admin/moderation', label: 'Moderation', icon: icons.moderation }]
 						}
 					]
 				: [])

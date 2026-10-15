@@ -60,7 +60,9 @@
 <section class="space-y-6">
 	<header class="flex items-baseline justify-between gap-4 max-md:flex-col">
 		<div>
-			<h1 class="text-3xl font-semibold tracking-tight max-md:text-2xl">{m.notifications_title()}</h1>
+			<h1 class="text-3xl font-semibold tracking-tight max-md:text-2xl">
+				{m.notifications_title()}
+			</h1>
 			<p class="mt-1 text-sm text-zinc-400">{m.notifications_intro()}</p>
 		</div>
 
@@ -109,7 +111,9 @@
 							<div class="flex items-center gap-2 font-medium">
 								<span class="font-mono text-xs uppercase tracking-wide">{n.type}</span>
 								{#if n.coalesceCount > 1}
-									<span class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">
+									<span
+										class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300"
+									>
 										×{n.coalesceCount}
 									</span>
 								{/if}
@@ -119,7 +123,8 @@
 								{#if Object.keys(n.params).length > 0}
 									<details class="mt-1 text-xs text-zinc-500">
 										<summary class="cursor-pointer">params</summary>
-										<pre class="mt-1 rounded bg-black/30 p-2 text-[11px] leading-relaxed">{JSON.stringify(
+										<pre
+											class="mt-1 rounded bg-black/30 p-2 text-[11px] leading-relaxed">{JSON.stringify(
 												n.params,
 												null,
 												2

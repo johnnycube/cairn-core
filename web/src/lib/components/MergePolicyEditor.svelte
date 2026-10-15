@@ -79,14 +79,14 @@
 <section class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
 	<h2 class="text-sm font-semibold text-zinc-200">Merge priority</h2>
 	<p class="mt-1 text-xs text-zinc-500">
-		When several providers report the same activity, the first provider in the list that has a
-		value wins each field. Use <code class="text-zinc-400">_any</code> as a catch-all. Leave a row
-		blank to use the instance default.
+		When several providers report the same activity, the first provider in the list that has a value
+		wins each field. Use <code class="text-zinc-400">_any</code> as a catch-all. Leave a row blank to
+		use the instance default.
 	</p>
 
 	{#if loaded}
 		<div class="mt-3 space-y-2">
-			{#each TYPES as t}
+			{#each TYPES as t (t)}
 				<div class="flex items-center gap-3">
 					<label class="w-20 shrink-0 text-xs capitalize text-zinc-400" for="mp-{t}">{t}</label>
 					<input

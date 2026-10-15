@@ -40,7 +40,7 @@
 
 	// Full x-extent of the data; used to detect zoom state and to reset.
 	function fullRange(): [number, number] {
-		return [offsets[0], offsets[offsets.length - 1]];
+		return [offsets[0] ?? 0, offsets.at(-1) ?? 0];
 	}
 
 	function resetZoom() {
@@ -92,7 +92,7 @@
 					stroke: s.color,
 					width: s.fill ? 1 : 1.5,
 					// hex + alpha → translucent area fill for the mountain look.
-					fill: s.fill ? s.color + '2e' : undefined,
+					...(s.fill ? { fill: s.color + '2e' } : {}),
 					scale: `y${i}`,
 					points: { show: false }
 				}))
@@ -102,13 +102,13 @@
 				// narrows it; double-click / reset restores the full extent).
 				setScale: [
 					(u, key) => {
-						if (key !== 'x') return;
-						const { min, max } = u.scales.x;
+						const x = u.scales.x;
+						if (key !== 'x' || !x) return;
+						const { min, max } = x;
 						const [full0, full1] = fullRange();
 						const span = full1 - full0 || 1;
 						const eps = span * 1e-6;
-						zoomed =
-							min != null && max != null && (min > full0 + eps || max < full1 - eps);
+						zoomed = min != null && max != null && (min > full0 + eps || max < full1 - eps);
 					}
 				],
 				// Emit the hovered time so a parent can sync a map marker. Skipped
@@ -117,7 +117,7 @@
 					(u) => {
 						if (applyingExternal || !onHover) return;
 						const idx = u.cursor.idx;
-						onHover(idx == null ? null : offsets[idx]);
+						onHover(idx == null ? null : (offsets[idx] ?? null));
 					}
 				]
 			}
@@ -153,8 +153,8 @@
 
 	$effect(() => {
 		// Rebuild when offsets or series identity changes.
-		offsets;
-		series;
+		void offsets;
+		void series;
 		build();
 	});
 
