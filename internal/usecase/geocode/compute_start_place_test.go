@@ -100,3 +100,17 @@ func TestExecuteForActivity_GeocoderError_LeavesNull(t *testing.T) {
 		t.Fatal("a transport error must NOT persist anything (so the row is retried)")
 	}
 }
+
+func TestExecuteForActivity_NoPlace_MarksAttempted(t *testing.T) {
+	ar := &fakeActivityRepo{}
+	sr := &fakeStreamRepo{lat: 1, lon: 2, found: true}
+	gc := &fakeGeocoder{place: port.Place{Country: "Atlantis"}, err: port.ErrNoPlace}
+	uc := NewComputeStartPlace(ar, sr, gc, nil)
+
+	if err := uc.ExecuteForActivity(context.Background(), cand()); err != nil {
+		t.Fatalf("ErrNoPlace is a final answer, got %v", err)
+	}
+	if !ar.setCalled || ar.place != "" || ar.lat == nil || *ar.lat != 1 || ar.lng == nil || *ar.lng != 2 {
+		t.Fatalf("no place should store coords and \"\", got (%v,%v,%q) called=%v", ar.lat, ar.lng, ar.place, ar.setCalled)
+	}
+}

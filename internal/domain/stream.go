@@ -124,6 +124,54 @@ func (c StreamChannel) Valid() bool {
 	return false
 }
 
+// KeepChannels returns a copy of s holding only the given channels; nil keeps all.
+func (s Stream) KeepChannels(chs []StreamChannel) Stream {
+	if chs == nil {
+		return s
+	}
+	keep := make(map[StreamChannel]bool, len(chs))
+	for _, c := range chs {
+		keep[c] = true
+	}
+	out := s
+	out.Samples = make([]StreamSample, len(s.Samples))
+	for i, in := range s.Samples {
+		out.Samples[i] = in.keepChannels(keep)
+	}
+	return out
+}
+
+func (in StreamSample) keepChannels(keep map[StreamChannel]bool) StreamSample {
+	out := StreamSample{Timestamp: in.Timestamp}
+	pick(&out.Latitude, in.Latitude, keep[StreamChannelLatitude])
+	pick(&out.Longitude, in.Longitude, keep[StreamChannelLongitude])
+	pick(&out.AltitudeM, in.AltitudeM, keep[StreamChannelAltitude])
+	pick(&out.DistanceM, in.DistanceM, keep[StreamChannelDistance])
+	pick(&out.SpeedMps, in.SpeedMps, keep[StreamChannelSpeed])
+	pick(&out.HeartRateBpm, in.HeartRateBpm, keep[StreamChannelHeartRate])
+	pick(&out.PowerW, in.PowerW, keep[StreamChannelPower])
+	pick(&out.Cadence, in.Cadence, keep[StreamChannelCadence])
+	pick(&out.TemperatureC, in.TemperatureC, keep[StreamChannelTemperature])
+	pick(&out.Grade, in.Grade, keep[StreamChannelGrade])
+	pick(&out.LeftRightBalance, in.LeftRightBalance, keep[StreamChannelLeftRightBalance])
+	pick(&out.LeftTorqueEffectiveness, in.LeftTorqueEffectiveness, keep[StreamChannelLeftTorqueEffectiveness])
+	pick(&out.RightTorqueEffectiveness, in.RightTorqueEffectiveness, keep[StreamChannelRightTorqueEffectiveness])
+	pick(&out.LeftPedalSmoothness, in.LeftPedalSmoothness, keep[StreamChannelLeftPedalSmoothness])
+	pick(&out.RightPedalSmoothness, in.RightPedalSmoothness, keep[StreamChannelRightPedalSmoothness])
+	pick(&out.VerticalOscillationMm, in.VerticalOscillationMm, keep[StreamChannelVerticalOscillation])
+	pick(&out.GroundContactTimeMs, in.GroundContactTimeMs, keep[StreamChannelGroundContactTime])
+	pick(&out.StrideLengthM, in.StrideLengthM, keep[StreamChannelStrideLength])
+	pick(&out.RespirationRateBrpm, in.RespirationRateBrpm, keep[StreamChannelRespirationRate])
+	pick(&out.CoreTemperatureC, in.CoreTemperatureC, keep[StreamChannelCoreTemperature])
+	return out
+}
+
+func pick[T any](dst **T, src *T, keep bool) {
+	if keep {
+		*dst = src
+	}
+}
+
 // ---------------------------------------------------------------------------
 // StreamResolution
 //
@@ -159,7 +207,8 @@ func (r StreamResolution) Valid() bool {
 // ---------------------------------------------------------------------------
 // StreamQuery
 //
-// Parameters for fetching a Stream. Channels=nil means "all channels".
+// Parameters for fetching a Stream. Channels=nil means "all channels";
+// a non-nil empty slice means "timestamps only".
 // Time-bounded queries are used by lap-boundary computations and segment
 // matching; full-stream queries (StartTime/EndTime both zero) are used
 // for chart rendering.

@@ -8,6 +8,7 @@ package geocode
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/johnnycube/cairn-core/internal/port"
@@ -63,6 +64,9 @@ func (uc *ComputeStartPlace) ExecuteForActivity(ctx context.Context, c port.Star
 	}
 
 	place, err := uc.geocoder.ReverseGeocode(ctx, lat, lon)
+	if errors.Is(err, port.ErrNoPlace) {
+		place, err = port.Place{}, nil
+	}
 	if err != nil {
 		return err // transient — leave NULL, retry next tick
 	}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -69,7 +70,11 @@ func TestLoadErrors(t *testing.T) {
 		unset   []string
 		wantMsg string
 	}{
-		{"missing database url", nil, []string{"CAIRN_DATABASE_URL", "URL"}, "required key"},
+		{"missing database url", nil, []string{"CAIRN_DATABASE_URL"}, "CAIRN_DATABASE_URL"},
+		{"empty database url", map[string]string{"CAIRN_DATABASE_URL": ""}, nil, "CAIRN_DATABASE_URL"},
+		{"empty session secret", map[string]string{"CAIRN_AUTH_SESSION_SECRET": ""}, nil, "CAIRN_AUTH_SESSION_SECRET"},
+		{"empty master key", map[string]string{"CAIRN_AUTH_MASTER_ENCRYPTION_KEY": ""}, nil, "CAIRN_AUTH_MASTER_ENCRYPTION_KEY"},
+		{"bare name ignored", map[string]string{"URL": "postgres://host/db", "SESSION_SECRET": "s"}, []string{"CAIRN_DATABASE_URL"}, "CAIRN_DATABASE_URL"},
 		{"unparseable int", map[string]string{"CAIRN_DATABASE_MAX_CONNS": "many"}, nil, "load config"},
 		{"unparseable duration", map[string]string{"CAIRN_GEOCODER_MIN_INTERVAL": "soon"}, nil, "load config"},
 		{"bad log level", map[string]string{"CAIRN_LOG_LEVEL": "trace"}, nil, "validate config: LOG_LEVEL"},
@@ -88,6 +93,72 @@ func TestLoadErrors(t *testing.T) {
 				t.Fatalf("Load() = %v, %v; want error containing %q", cfg, err, tt.wantMsg)
 			}
 		})
+	}
+}
+
+func TestLoadIgnoresBareNames(t *testing.T) {
+	setBaseEnv(t)
+	for k, v := range map[string]string{
+		"USERNAME": "host-user", "PASSWORD": "host-pass", "URL": "nats://evil:4222",
+		"ENDPOINT": "http://evil", "LEVEL": "error", "ADDR": "0.0.0.0:1",
+	} {
+		t.Setenv(k, v)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NATS.Username != "" || cfg.NATS.Password != "" || cfg.NATS.URL != "nats://localhost:4222" {
+		t.Errorf("nats = %+v", cfg.NATS)
+	}
+	if cfg.Storage.Endpoint != "http://minio:9000" || cfg.Log.Level != "debug" || cfg.HTTP.Addr != "0.0.0.0:8080" {
+		t.Errorf("bare names leaked: storage=%q level=%q addr=%q", cfg.Storage.Endpoint, cfg.Log.Level, cfg.HTTP.Addr)
+	}
+}
+
+func TestLoadDefaultsAndPrefixedKeys(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("CAIRN_NATS_USERNAME", "u")
+	t.Setenv("CAIRN_AUTH_ARGON2_THREADS", "4")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NATS.Username != "u" || cfg.Auth.Argon2Threads != 4 || cfg.NATS.MaxReconnects != -1 ||
+		cfg.Auth.SessionTTL != 720*time.Hour || !cfg.Storage.UsePathStyle || len(cfg.Instance.TrustedProxies) != 0 {
+		t.Errorf("cfg = %+v", cfg)
+	}
+}
+
+func TestLoadEmptyKeepsEmpty(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("CAIRN_NATS_URL", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NATS.URL != "" {
+		t.Errorf("empty CAIRN_NATS_URL must disable NATS, got %q", cfg.NATS.URL)
+	}
+}
+
+func TestEnvVars(t *testing.T) {
+	vars := envVars(reflect.ValueOf(&Config{}).Elem(), "CAIRN_")
+	byKey := map[string]envVar{}
+	for _, v := range vars {
+		byKey[v.Key] = v
+	}
+	if v := byKey["CAIRN_DATABASE_URL"]; !v.Required || v.Default != "" {
+		t.Errorf("database url = %+v", v)
+	}
+	if v := byKey["CAIRN_MAP_TILE_URL"]; v.Default != "https://tile.openstreetmap.org/{z}/{x}/{y}.png" {
+		t.Errorf("tile url default = %q", v.Default)
+	}
+	if v := byKey["CAIRN_NATS_MAX_RECONNECTS"]; v.Default != "-1" || v.Required {
+		t.Errorf("max reconnects = %+v", v)
+	}
+	if len(vars) < 80 {
+		t.Errorf("only %d vars", len(vars))
 	}
 }
 
