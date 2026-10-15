@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# Container jobs default to sh; the steps rely on bash (pipefail).
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
