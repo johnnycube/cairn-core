@@ -14,7 +14,7 @@ production dependencies, all available under permissive licenses:
   * github.com/pressly/goose/v3        — MIT
   * github.com/google/uuid             — BSD-3-Clause
   * github.com/spf13/cobra             — Apache-2.0
-  * github.com/kelseyhightower/envconfig — MIT
+  * github.com/caarlos0/env/v11        — MIT
   * github.com/vgarvardt/pgx-google-uuid/v5 — MIT
   * golang.org/x/crypto                — BSD-3-Clause (Argon2id)
 

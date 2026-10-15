@@ -77,16 +77,16 @@ func cacheKey(lat, lon float64) string {
 }
 
 // ReverseGeocode resolves a coordinate to a place name. A successful HTTP
-// response with no usable place is cached and returned as an empty-Name Place
-// (not an error) so the caller can mark the activity "attempted, no place".
-// Transport/HTTP errors are returned as errors so the caller can retry later.
+// response with no usable place is cached and returned as port.ErrNoPlace so
+// the caller can mark the activity "attempted, no place". Transport/HTTP
+// errors are returned as other errors so the caller can retry later.
 func (n *Nominatim) ReverseGeocode(ctx context.Context, lat, lon float64) (port.Place, error) {
 	key := cacheKey(lat, lon)
 
 	n.mu.Lock()
 	if p, ok := n.cache[key]; ok {
 		n.mu.Unlock()
-		return p, nil
+		return placeResult(p)
 	}
 	n.mu.Unlock()
 
@@ -139,7 +139,15 @@ func (n *Nominatim) ReverseGeocode(ctx context.Context, lat, lon float64) (port.
 	n.cache[key] = place
 	n.mu.Unlock()
 
-	return place, nil
+	return placeResult(place)
+}
+
+// placeResult maps a place without a name to port.ErrNoPlace.
+func placeResult(p port.Place) (port.Place, error) {
+	if p.Name == "" {
+		return p, port.ErrNoPlace
+	}
+	return p, nil
 }
 
 // pickPlaceName chooses the most specific populated-place name from a Nominatim

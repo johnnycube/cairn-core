@@ -691,15 +691,14 @@ func notificationSeverityToProto(s domain.NotificationSeverity) v1.NotificationS
 	return v1.NotificationSeverity_NOTIFICATION_SEVERITY_UNSPECIFIED
 }
 
-// channelsFromProto maps the requested channels back to the domain enum.
-// Unknown channel values are silently dropped; the repo treats nil/empty
-// as "all channels".
+// channelsFromProto maps the requested channels to the domain enum: nil means
+// all channels, empty means TIME only. Unknown values are dropped.
 func channelsFromProto(chs []v1.StreamChannel) []domain.StreamChannel {
-	if len(chs) == 0 {
-		return nil
-	}
-	out := make([]domain.StreamChannel, 0, len(chs))
+	var out []domain.StreamChannel
 	for _, c := range chs {
+		if c == v1.StreamChannel_STREAM_CHANNEL_TIME && out == nil {
+			out = []domain.StreamChannel{} // timestamps are always returned
+		}
 		if mapped, ok := streamChannelFromProto(c); ok {
 			out = append(out, mapped)
 		}
@@ -707,28 +706,31 @@ func channelsFromProto(chs []v1.StreamChannel) []domain.StreamChannel {
 	return out
 }
 
+// streamChannelsByProto maps every value channel; TIME has no domain channel.
+var streamChannelsByProto = map[v1.StreamChannel]domain.StreamChannel{
+	v1.StreamChannel_STREAM_CHANNEL_LATITUDE:                   domain.StreamChannelLatitude,
+	v1.StreamChannel_STREAM_CHANNEL_LONGITUDE:                  domain.StreamChannelLongitude,
+	v1.StreamChannel_STREAM_CHANNEL_ALTITUDE:                   domain.StreamChannelAltitude,
+	v1.StreamChannel_STREAM_CHANNEL_DISTANCE:                   domain.StreamChannelDistance,
+	v1.StreamChannel_STREAM_CHANNEL_SPEED:                      domain.StreamChannelSpeed,
+	v1.StreamChannel_STREAM_CHANNEL_HEART_RATE:                 domain.StreamChannelHeartRate,
+	v1.StreamChannel_STREAM_CHANNEL_POWER:                      domain.StreamChannelPower,
+	v1.StreamChannel_STREAM_CHANNEL_CADENCE:                    domain.StreamChannelCadence,
+	v1.StreamChannel_STREAM_CHANNEL_TEMPERATURE:                domain.StreamChannelTemperature,
+	v1.StreamChannel_STREAM_CHANNEL_GRADE:                      domain.StreamChannelGrade,
+	v1.StreamChannel_STREAM_CHANNEL_LEFT_RIGHT_BALANCE:         domain.StreamChannelLeftRightBalance,
+	v1.StreamChannel_STREAM_CHANNEL_LEFT_TORQUE_EFFECTIVENESS:  domain.StreamChannelLeftTorqueEffectiveness,
+	v1.StreamChannel_STREAM_CHANNEL_RIGHT_TORQUE_EFFECTIVENESS: domain.StreamChannelRightTorqueEffectiveness,
+	v1.StreamChannel_STREAM_CHANNEL_LEFT_PEDAL_SMOOTHNESS:      domain.StreamChannelLeftPedalSmoothness,
+	v1.StreamChannel_STREAM_CHANNEL_RIGHT_PEDAL_SMOOTHNESS:     domain.StreamChannelRightPedalSmoothness,
+	v1.StreamChannel_STREAM_CHANNEL_VERTICAL_OSCILLATION:       domain.StreamChannelVerticalOscillation,
+	v1.StreamChannel_STREAM_CHANNEL_GROUND_CONTACT_TIME:        domain.StreamChannelGroundContactTime,
+	v1.StreamChannel_STREAM_CHANNEL_STRIDE_LENGTH:              domain.StreamChannelStrideLength,
+	v1.StreamChannel_STREAM_CHANNEL_RESPIRATION_RATE:           domain.StreamChannelRespirationRate,
+	v1.StreamChannel_STREAM_CHANNEL_CORE_TEMPERATURE:           domain.StreamChannelCoreTemperature,
+}
+
 func streamChannelFromProto(c v1.StreamChannel) (domain.StreamChannel, bool) {
-	switch c {
-	case v1.StreamChannel_STREAM_CHANNEL_LATITUDE:
-		return domain.StreamChannelLatitude, true
-	case v1.StreamChannel_STREAM_CHANNEL_LONGITUDE:
-		return domain.StreamChannelLongitude, true
-	case v1.StreamChannel_STREAM_CHANNEL_ALTITUDE:
-		return domain.StreamChannelAltitude, true
-	case v1.StreamChannel_STREAM_CHANNEL_DISTANCE:
-		return domain.StreamChannelDistance, true
-	case v1.StreamChannel_STREAM_CHANNEL_SPEED:
-		return domain.StreamChannelSpeed, true
-	case v1.StreamChannel_STREAM_CHANNEL_HEART_RATE:
-		return domain.StreamChannelHeartRate, true
-	case v1.StreamChannel_STREAM_CHANNEL_POWER:
-		return domain.StreamChannelPower, true
-	case v1.StreamChannel_STREAM_CHANNEL_CADENCE:
-		return domain.StreamChannelCadence, true
-	case v1.StreamChannel_STREAM_CHANNEL_TEMPERATURE:
-		return domain.StreamChannelTemperature, true
-	case v1.StreamChannel_STREAM_CHANNEL_GRADE:
-		return domain.StreamChannelGrade, true
-	}
-	return "", false
+	ch, ok := streamChannelsByProto[c]
+	return ch, ok
 }

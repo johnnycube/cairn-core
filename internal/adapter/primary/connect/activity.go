@@ -494,9 +494,10 @@ func (s *ActivityServer) GetActivityStream(
 			errors.New("not found"))
 	}
 
+	channels := channelsFromProto(req.Msg.GetChannels())
 	stream, err := s.Streams.QueryStream(ctx, domain.StreamQuery{
 		ActivitySourceID: sourceID,
-		Channels:         channelsFromProto(req.Msg.GetChannels()),
+		Channels:         channels,
 		Resolution:       chooseResolution(req.Msg.GetMaxResolutionHz()),
 	})
 	if err != nil {
@@ -504,8 +505,9 @@ func (s *ActivityServer) GetActivityStream(
 			fmt.Errorf("query stream: %w", err))
 	}
 
+	// The repository treats Channels as advisory; enforce the subset here.
 	return connectrpc.NewResponse(&v1.GetActivityStreamResponse{
-		Stream: streamToProto(stream),
+		Stream: streamToProto(stream.KeepChannels(channels)),
 	}), nil
 }
 
