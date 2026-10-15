@@ -5,7 +5,7 @@ name: Build & push build-base toolchain image
 #   * docker/Dockerfile.core references it as its `FROM ${BUILD_BASE}` build
 #     stage (and runs `make proto` in-image, fully offline — no buf.build / BSR
 #     rate limits).
-#   * The core test job and web-check run their steps INSIDE this image
+#   * The check job (check.yml: make check) runs its steps INSIDE this image
 #     (jobs.<id>.container), so they need no setup-go/-node/buf.
 #   * cairn-provider-strava (a separate repo) pulls this published image for its
 #     CI + Docker build (pinned Go 1.26; its proto stubs are committed, so it
@@ -57,6 +57,7 @@ jobs:
   build-push:
     name: Build & push cairn-build-base
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # id-token/attestations for keyless cosign signing + GitHub provenance.
     permissions:
       contents: read
@@ -65,15 +66,17 @@ jobs:
       attestations: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Pinned major tag (:1) + short SHA always, + latest on the default branch.
       - name: Compute tags & labels
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -86,7 +89,7 @@ jobs:
       # only matters for the push, so it's gated the same way.
       - name: Log in to GitHub Container Registry
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -94,7 +97,7 @@ jobs:
 
       - name: Build & push (BuildKit)
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: docker/Dockerfile.build-base
@@ -109,19 +112,20 @@ jobs:
       # every tag of this push. Gated like `push:` so it never runs unpushed.
       - name: Install cosign
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image (keyless)
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         env:
           COSIGN_YES: "true"
-        run: cosign sign "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign "${IMAGE}@${DIGEST}"
 
       # GitHub-native provenance attestation (Attestations tab, `gh attestation
       # verify`), stored alongside the image in ghcr.
       - name: Attest build provenance
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
