@@ -9,7 +9,7 @@ module github.com/johnnycube/cairn-core
 go 1.26.0
 
 // Minimum patched toolchain: CI and the release build switch to it when their image lags.
-toolchain go1.26.9
+toolchain go1.27.2
 
 require (
 	// Direct dependencies pinned to current stable as of May 2026.
@@ -38,7 +38,6 @@ require (
 
 require (
 	connectrpc.com/connect v1.21.1
-	connectrpc.com/connect/v2 v2.0.1
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
