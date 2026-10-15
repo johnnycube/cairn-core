@@ -181,6 +181,9 @@ func activitySummaryFromProto(s *cairnv1.ActivitySummary) domain.ActivitySummary
 	}
 }
 
+// MaxStreamSamples bounds a decoded stream: 1 Hz for ~48 days.
+const MaxStreamSamples = 1 << 22
+
 // ActivityStreamSamplesFromProto pivots the column-oriented wire stream into
 // the domain's row-based samples. start is the activity start (the wire form
 // carries time_s = seconds-since-start; the domain stores absolute time).
@@ -193,6 +196,10 @@ func ActivityStreamSamplesFromProto(s *cairnv1.ActivityStream, start time.Time) 
 		return nil
 	}
 	n := int(s.GetSampleCount())
+	// sample_count is wire input: refuse sizes no real activity reaches instead of allocating them.
+	if n > MaxStreamSamples {
+		return nil
+	}
 	samples := make([]domain.StreamSample, n)
 
 	for i := 0; i < n; i++ {
