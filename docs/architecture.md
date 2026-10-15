@@ -474,45 +474,42 @@ Cairn recommends one-shot or N-shot for production. Long-lived is for
 hobbyist self-hosted setups, where token rotation is operationally more expensive than
 the marginal security plus justifies.
 
-### The NATS server config: minimal
+### The NATS server config
 
-```hcl
-# nats-server.conf
-listen: 0.0.0.0:4222
-jetstream {
-  store_dir: "/data/jetstream"
-}
+The working config is `docker/nats-auth-callout.conf` (server config mode,
+no operator). The essentials:
 
-# THIS is the only trick: auth-callout with cairn-server as provider
-authorization {
-  auth_callout {
-    # cairn-server has this key pair; does not share it. NATS validates
-    # the auth response with the account public key. Nobody else can
-    # mint JWTs that this nats-server accepts.
-    issuer: "AABC...XYZ"                # cairn-server's account public key
-
-    # subjects of the callout request. nats-server publishes here,
-    # cairn-server subscribes.
-    auth_users: ["auth"]                # internal NATS user the
-                                         # callout-subscriber connects as
+```
+accounts {
+  CAIRN {
+    jetstream: enabled
+    users: [
+      { user: cairn-core, password: $CAIRN_NATS_PASSWORD }    # core itself
+      { nkey: U... }    # seedless; makes nats-server send the connect nonce
+    ]
   }
 }
-
-# Single shared account; cairn-server mints all user JWTs for this
-# account. Workers NEVER see each other — permissions limit
-# subjects, not accounts.
-accounts: {
-  CAIRN: {
-    # account public key as above — the same.
-    # nats-server accepts JWTs signed by cairn-server as
-    # valid members of this account.
+authorization {
+  auth_callout {
+    issuer: $CAIRN_NATS_AUTH_ISSUER   # POST /api/admin/nats/bootstrap-account-key
+    account: CAIRN
+    auth_users: [ cairn-core ]        # bypass the callout
   }
 }
 ```
 
-In production the NATS server config (`nats-server.conf`) references an
-`auth.conf` volume, whose account public key the Cairn server generates at
-bootstrap (from `instance_signing_keys`).
+Core runs with `CAIRN_NATS_USERNAME=cairn-core`, `CAIRN_NATS_PASSWORD`,
+`CAIRN_NATS_AUTH_CALLOUT=true` and `CAIRN_NATS_WORKER_ACCOUNT=CAIRN`. Every
+other connection goes through the callout: core replies with a response
+whose `aud` is the requesting server's ID, carrying a user JWT signed by the
+account key (`iss`), with `aud` = the worker account and no `issuer_account`
+(nats-server refuses it in config mode). Workers and core share the CAIRN
+account; the per-worker permissions keep workers apart. Admitted users are
+also denied publishing to `$SYS.REQ.USER.AUTH` by nats-server.
+
+A worker that cannot present an enrollment token (the Garmin worker) needs a
+static user in the CAIRN account, listed in `auth_users`, with the standard
+template's subjects as its permissions.
 
 ### Backward-compat path: HTTP enrollment
 

@@ -460,7 +460,7 @@ func serveStartBusHandlers(ctx context.Context, app *App, logger *slog.Logger, c
 		}
 		cleanup.add(sub, logger, "auth-callout: close error")
 	} else {
-		logger.Info("auth-callout subscriber not started: NATS adapter not wired")
+		logger.Info("auth-callout subscriber not started: NATS or CAIRN_NATS_AUTH_CALLOUT off")
 	}
 
 	// ------------------------------------------------------------------

@@ -60,6 +60,12 @@ func newPermissionedWorker(t *testing.T) (admin, worker *Bus) {
 
 func TestWorkerTemplateAllowsWorkerJetStreamUse(t *testing.T) {
 	admin, worker := newPermissionedWorker(t)
+	assertWorkerAllowed(t, admin, worker)
+}
+
+// assertWorkerAllowed runs what a w1-strava worker does under the standard template.
+func assertWorkerAllowed(t *testing.T, admin, worker *Bus) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -146,6 +152,12 @@ func TestWorkerTemplateAllowsWorkerJetStreamUse(t *testing.T) {
 
 func TestWorkerTemplateDeniesForeignJetStreamUse(t *testing.T) {
 	_, worker := newPermissionedWorker(t)
+	assertWorkerDenied(t, worker)
+}
+
+// assertWorkerDenied checks a w1-strava worker cannot reach beyond its template.
+func assertWorkerDenied(t *testing.T, worker *Bus) {
+	t.Helper()
 	// Denied requests surface as timeouts; keep each one short.
 	short := func() context.Context {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)

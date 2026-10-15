@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -26,6 +27,13 @@ type fakeEnrollments struct {
 	mu     sync.Mutex
 	rows   []domain.WorkerEnrollment
 	grants []domain.WorkerCredentialGrant
+}
+
+func (f *fakeEnrollments) CreateEnrollment(_ context.Context, e domain.WorkerEnrollment) (domain.WorkerEnrollment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rows = append(f.rows, e)
+	return e, nil
 }
 
 func (f *fakeEnrollments) FindEnrollmentByTokenHash(_ context.Context, hash []byte) (domain.WorkerEnrollment, error) {
@@ -107,12 +115,48 @@ func (c *capturingIssuer) minted() []string {
 	return slices.Clone(c.jwts)
 }
 
-// calloutEnv is an embedded nats-server delegating client auth to core's auth-callout subscriber.
+// logRecorder keeps the attributes of every log record.
+type logRecorder struct {
+	mu      sync.Mutex
+	records []map[string]string
+}
+
+func (l *logRecorder) Enabled(context.Context, slog.Level) bool { return true }
+func (l *logRecorder) WithAttrs([]slog.Attr) slog.Handler       { return l }
+func (l *logRecorder) WithGroup(string) slog.Handler            { return l }
+func (l *logRecorder) Handle(_ context.Context, r slog.Record) error {
+	m := map[string]string{"msg": r.Message}
+	r.Attrs(func(a slog.Attr) bool { m[a.Key] = a.Value.String(); return true })
+	l.mu.Lock()
+	l.records = append(l.records, m)
+	l.mu.Unlock()
+	return nil
+}
+
+func (l *logRecorder) find(msg string) []map[string]string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []map[string]string
+	for _, r := range l.records {
+		if r["msg"] == msg {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// calloutEnv is an embedded nats-server running docker/nats-auth-callout.conf,
+// with core's auth-callout subscriber wired as in cmd/server/wire.go.
 type calloutEnv struct {
 	srv         *server.Server
+	core        *Bus
 	enrollments *fakeEnrollments
 	issuer      *capturingIssuer
+	create      *enrollment.CreateWorkerEnrollment
+	logs        *logRecorder
 }
+
+const calloutCorePassword = "core-secret"
 
 func newCalloutEnv(t *testing.T) *calloutEnv {
 	t.Helper()
@@ -126,30 +170,33 @@ func newCalloutEnv(t *testing.T) *calloutEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issuer := NewCredentialIssuer(keys, box)
-	env := &calloutEnv{enrollments: &fakeEnrollments{}, issuer: &capturingIssuer{NATSCredentialIssuer: issuer}}
-
-	authAcc, appAcc := server.NewAccount("AUTH"), server.NewAccount("APP")
-	env.srv = startServer(t, &server.Options{
-		Accounts: []*server.Account{authAcc, appAcc},
-		Users:    []*server.User{{Username: "core", Password: "core", Account: authAcc}},
-		AuthCallout: &server.AuthCallout{
-			Issuer:    sk.PublicKey,
-			Account:   "AUTH",
-			AuthUsers: []string{"core"},
-		},
-	})
-	nc, err := nats.Connect(env.srv.ClientURL(), nats.UserInfo("core", "core"))
+	t.Setenv("CAIRN_NATS_AUTH_ISSUER", sk.PublicKey)
+	t.Setenv("CAIRN_NATS_PASSWORD", calloutCorePassword)
+	opts, err := server.ProcessConfigFile("../../../../docker/nats-auth-callout.conf")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bus, err := NewBusFromConn(nc, "core", nil)
+	issuer := NewCredentialIssuer(keys, box, "CAIRN")
+	env := &calloutEnv{
+		srv:         startServer(t, opts),
+		enrollments: &fakeEnrollments{},
+		issuer:      &capturingIssuer{NATSCredentialIssuer: issuer},
+		logs:        &logRecorder{},
+	}
+	env.create = enrollment.NewCreateWorkerEnrollment(env.enrollments, nil, nil, nil)
+	nc, err := nats.Connect(env.srv.ClientURL(), nats.UserInfo("cairn-core", calloutCorePassword))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(bus.Close)
+	if env.core, err = NewBusFromConn(nc, "cairn-server", nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(env.core.Close)
+	if err := env.core.BootstrapStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
 	proc := enrollment.NewProcessAuthCallout(env.enrollments, env.issuer, noTx{}, nil, nil, time.Hour)
-	sub, err := NewAuthCalloutSubscriber(bus, proc, issuer, nil).Start(ctx)
+	sub, err := NewAuthCalloutSubscriber(env.core, proc, issuer, slog.New(env.logs)).Start(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,11 +207,24 @@ func newCalloutEnv(t *testing.T) *calloutEnv {
 	return env
 }
 
+// enroll creates an enrollment through the use case, as the admin API does.
+func (e *calloutEnv) enroll(t *testing.T, name, provider string) string {
+	t.Helper()
+	res, err := e.create.Execute(context.Background(), enrollment.CreateEnrollmentInput{
+		Name: name, Provider: provider, ExpiresIn: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Token
+}
+
 // storeEnrollment writes a row directly, as a pre-v0.3.1 admin API call left it.
-func (e *calloutEnv) storeEnrollment(name, provider string) string {
+func (e *calloutEnv) storeEnrollment(name, provider string) (domain.WorkerEnrollmentID, string) {
 	token := "enroll-" + name + "-" + provider
+	id := domain.WorkerEnrollmentID(uuid.New())
 	e.enrollments.rows = append(e.enrollments.rows, domain.WorkerEnrollment{
-		ID:                domain.WorkerEnrollmentID(uuid.New()),
+		ID:                id,
 		TokenHash:         enrollment.HashEnrollmentToken(token),
 		Name:              name,
 		Provider:          provider,
@@ -172,71 +232,149 @@ func (e *calloutEnv) storeEnrollment(name, provider string) string {
 		WorkerNamePattern: "*",
 		ExpiresAt:         time.Now().Add(time.Hour),
 	})
-	return token
+	return id, token
 }
 
+// connectWorker connects like cairn-provider-strava's connectBus: token plus a fresh user nkey.
 func (e *calloutEnv) connectWorker(name, token string) (*nats.Conn, error) {
+	kp, err := nkeys.CreateUser()
+	if err != nil {
+		return nil, err
+	}
+	pub, err := kp.PublicKey()
+	if err != nil {
+		return nil, err
+	}
 	return nats.Connect(e.srv.ClientURL(), nats.Token(token), nats.Name(name),
-		nats.NoReconnect(), nats.ErrorHandler(func(*nats.Conn, *nats.Subscription, error) {}))
+		nats.Nkey(pub, kp.Sign), nats.NoReconnect(),
+		nats.ErrorHandler(func(*nats.Conn, *nats.Subscription, error) {}))
+}
+
+// permitted reports whether the server accepts op without a permissions violation.
+func permitted(t *testing.T, nc *nats.Conn, op func() error) bool {
+	t.Helper()
+	denied := make(chan struct{}, 1)
+	nc.SetErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+		if errors.Is(err, nats.ErrPermissionViolation) {
+			select {
+			case denied <- struct{}{}:
+			default:
+			}
+		}
+	})
+	if err := op(); err != nil {
+		return false
+	}
+	if err := nc.Flush(); err != nil {
+		return false
+	}
+	select {
+	case <-denied:
+		return false
+	case <-time.After(300 * time.Millisecond):
+		return true
+	}
+}
+
+func canSubscribe(t *testing.T, nc *nats.Conn, subj string) bool {
+	t.Helper()
+	return permitted(t, nc, func() error {
+		sub, err := nc.SubscribeSync(subj)
+		if err == nil {
+			t.Cleanup(func() { _ = sub.Unsubscribe() })
+		}
+		return err
+	})
+}
+
+func canPublish(t *testing.T, nc *nats.Conn, subj string) bool {
+	t.Helper()
+	return permitted(t, nc, func() error { return nc.Publish(subj, []byte("{}")) })
+}
+
+func TestAuthCalloutAdmitsEnrolledWorkerWithinTemplate(t *testing.T) {
+	env := newCalloutEnv(t)
+	nc, err := env.connectWorker("w1", env.enroll(t, "w1", "strava"))
+	if err != nil {
+		t.Fatalf("enrolled worker must be admitted: %v", err)
+	}
+	worker, err := NewBusFromConn(nc, "w1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(worker.Close)
+	if n := env.enrollments.grantCount(); n != 1 {
+		t.Errorf("want one credential grant, got %d", n)
+	}
+
+	assertWorkerAllowed(t, env.core, worker)
+	assertWorkerDenied(t, worker)
+	if !canSubscribe(t, nc, "cairn.jobs.fetch_source.strava") {
+		t.Error("own job subject must be allowed")
+	}
+	for _, subj := range []string{"cairn.tokens.>", "cairn.creds.>", "cairn.jobs.fetch_source.garmin", "cairn.results.>", ">"} {
+		if canSubscribe(t, nc, subj) {
+			t.Errorf("subscribe %s must be denied", subj)
+		}
+	}
+	if !canPublish(t, nc, "cairn.tokens.strava.get") {
+		t.Error("own token subject must be allowed")
+	}
+	for _, subj := range []string{"cairn.tokens.garmin.get", "cairn.creds.garmin.get", AuthCalloutSubject, "cairn.results.fetch_source.garmin"} {
+		if canPublish(t, nc, subj) {
+			t.Errorf("publish %s must be denied", subj)
+		}
+	}
 }
 
 // Reproduces the v0.3.0 bug: an enrollment without provider got a user JWT
-// with empty allow lists, which NATS treats as unrestricted (cairn.tokens.>,
-// cairn.creds.>, other providers' jobs).
+// with empty allow lists, which NATS treats as unrestricted.
 func TestAuthCalloutRejectsEnrollmentWithoutProvider(t *testing.T) {
 	env := newCalloutEnv(t)
-	nc, err := env.connectWorker("w1", env.storeEnrollment("w1", ""))
-	if err == nil {
-		nc.Close()
+	id, token := env.storeEnrollment("w1", "")
+	if nc, err := env.connectWorker("w1", token); err == nil {
+		defer nc.Close()
+		for _, subj := range []string{"cairn.tokens.>", "cairn.creds.>"} {
+			if canSubscribe(t, nc, subj) {
+				t.Errorf("worker without provider could subscribe to %s", subj)
+			}
+		}
 		t.Error("enrollment without provider must not be admitted")
 	}
-	for _, tok := range env.issuer.minted() {
-		uc, err := jwt.DecodeUserClaims(tok)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Errorf("minted user JWT for an enrollment without provider: pub allow %v, sub allow %v (empty = unrestricted)",
-			uc.Pub.Allow, uc.Sub.Allow)
+	if minted := env.issuer.minted(); len(minted) != 0 {
+		t.Errorf("no user JWT may be minted, got %d", len(minted))
 	}
 	if n := env.enrollments.grantCount(); n != 0 {
 		t.Errorf("no credential grant may be recorded, got %d", n)
 	}
+	rej := env.logs.find("auth rejected")
+	if len(rej) != 1 || rej[0]["reason"] != "enrollment_missing_provider" || rej[0]["enrollment_id"] != id.String() {
+		t.Errorf("want one enrollment_missing_provider rejection logged with the enrollment id, got %v", rej)
+	}
 }
 
-func TestAuthCalloutIssuesScopedJWTForProvider(t *testing.T) {
+func TestAuthCalloutRejectsUnknownToken(t *testing.T) {
 	env := newCalloutEnv(t)
-	if nc, err := env.connectWorker("w1", env.storeEnrollment("w1", "strava")); err == nil {
+	if nc, err := env.connectWorker("w1", "not-a-token"); err == nil {
 		nc.Close()
+		t.Fatal("unknown token must not be admitted")
 	}
-	minted := env.issuer.minted()
-	if len(minted) != 1 {
-		t.Fatalf("want one minted JWT, got %d", len(minted))
-	}
-	uc, err := jwt.DecodeUserClaims(minted[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !uc.Sub.Allow.Contains("cairn.jobs.fetch_source.strava") {
-		t.Errorf("sub allow lacks own job subject: %v", uc.Sub.Allow)
-	}
-	for _, subj := range []string{"cairn.tokens.>", "cairn.creds.>", "cairn.jobs.fetch_source.garmin"} {
-		if uc.Sub.Allow.Contains(subj) || uc.Pub.Allow.Contains(subj) {
-			t.Errorf("%s must not be granted", subj)
-		}
+	if rej := env.logs.find("auth rejected"); len(rej) != 1 || rej[0]["reason"] != "unknown_token" {
+		t.Errorf("rejections = %v", rej)
 	}
 }
 
-func TestIssueWorkerCredentialRefusesEmptyAllowLists(t *testing.T) {
+func TestIssueWorkerCredential(t *testing.T) {
 	ctx := context.Background()
 	box, err := auth.NewSecretBoxFromMasterKey("auth-callout-test-master-key-material-0123456789")
 	if err != nil {
 		t.Fatal(err)
 	}
 	keys := &fakeSigningKeys{}
-	if _, err := BootstrapAccountKey(ctx, keys, box, nil); err != nil {
+	sk, err := BootstrapAccountKey(ctx, keys, box, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	issuer := NewCredentialIssuer(keys, box)
 	ukp, err := nkeys.CreateUser()
 	if err != nil {
 		t.Fatal(err)
@@ -246,6 +384,7 @@ func TestIssueWorkerCredentialRefusesEmptyAllowLists(t *testing.T) {
 		t.Fatal(err)
 	}
 	strava := domain.StandardPermissionTemplate("strava", "w1-strava")
+	issuer := NewCredentialIssuer(keys, box, "CAIRN")
 	for name, perms := range map[string]domain.WorkerPermissionTemplate{
 		"no provider":  domain.StandardPermissionTemplate("", "w1"),
 		"no publish":   {AllowSubscribe: strava.AllowSubscribe},
@@ -257,7 +396,20 @@ func TestIssueWorkerCredentialRefusesEmptyAllowLists(t *testing.T) {
 			t.Errorf("%s: want permissions validation error, got %v", name, err)
 		}
 	}
-	if _, err := issuer.IssueWorkerCredential(ctx, port.IssueCredentialInput{UserNKeyPublic: upub, Permissions: strava}); err != nil {
-		t.Errorf("standard template: %v", err)
+	out, err := issuer.IssueWorkerCredential(ctx, port.IssueCredentialInput{UserNKeyPublic: upub, Permissions: strava})
+	if err != nil {
+		t.Fatalf("standard template: %v", err)
+	}
+	uc, err := jwt.DecodeUserClaims(out.UserJWT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uc.Issuer != sk.PublicKey || uc.IssuerAccount != "" || uc.Audience != "CAIRN" || uc.Subject != upub {
+		t.Errorf("claims iss=%s issuer_account=%q aud=%q sub=%s", uc.Issuer, uc.IssuerAccount, uc.Audience, uc.Subject)
+	}
+	if _, err := NewCredentialIssuer(keys, box, "").IssueWorkerCredential(ctx, port.IssueCredentialInput{
+		UserNKeyPublic: upub, Permissions: strava,
+	}); err == nil {
+		t.Error("issuer without worker account must refuse")
 	}
 }

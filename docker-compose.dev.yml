@@ -102,8 +102,9 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # NATS 2.14 with JetStream (>= 2.10 is required for auth-callout, which
-  # the worker-enrollment flow uses — see docs/architecture.md §4.5).
+  # NATS with JetStream, unauthenticated (dev workers connect anonymously).
+  # Worker enrollment (auth-callout) uses docker/nats-auth-callout.conf
+  # instead — see docs/architecture.md §4.5.
   # ---------------------------------------------------------------------------
   nats:
     image: nats:2.15.1-alpine

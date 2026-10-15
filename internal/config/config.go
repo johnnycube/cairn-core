@@ -173,6 +173,15 @@ type NATSConfig struct {
 	// JetStream parks it in the dead-letter consumer. Cairn dispatches
 	// a JobFailedFinal notification when this fires.
 	JobMaxDeliver int `env:"JOB_MAX_DELIVER, default=5"`
+
+	// AuthCallout makes core answer NATS auth-callout requests, admitting
+	// enrolled workers (nats.conf authorization.auth_callout, issuer = the
+	// key from POST /api/admin/nats/bootstrap-account-key).
+	AuthCallout bool `env:"AUTH_CALLOUT, default=false"`
+
+	// WorkerAccount is the nats.conf account admitted workers are placed in;
+	// it must be the account core itself connects to. Required with AuthCallout.
+	WorkerAccount string `env:"WORKER_ACCOUNT"`
 }
 
 // StorageConfig points at the S3-compatible object store. Defaults assume
@@ -454,6 +463,15 @@ func (c *Config) Validate() error {
 
 	if (c.HTTP.TLSCertFile == "") != (c.HTTP.TLSKeyFile == "") {
 		return fmt.Errorf("HTTP_TLS_CERT_FILE and HTTP_TLS_KEY_FILE must be set together")
+	}
+
+	if c.NATS.URL != "" && c.NATS.AuthCallout {
+		if c.NATS.WorkerAccount == "" {
+			return fmt.Errorf("NATS_WORKER_ACCOUNT required when NATS_AUTH_CALLOUT=true")
+		}
+		if strings.ContainsAny(c.NATS.WorkerAccount, " \t\r\n.*>") {
+			return fmt.Errorf("NATS_WORKER_ACCOUNT must be a NATS account name, got %q", c.NATS.WorkerAccount)
+		}
 	}
 
 	if c.Database.MaxConns < c.Database.MinConns {

@@ -105,7 +105,7 @@ func (s *AuthCalloutSubscriber) handleAuthRequest(ctx context.Context, msg *nats
 	req, err := jwt.DecodeAuthorizationRequestClaims(string(msg.Data))
 	if err != nil {
 		s.logger.Warn("decode auth request failed", "error", err)
-		s.replyError(ctx, msg, "", "invalid_request: decode failed")
+		s.replyError(ctx, msg, "", "", "invalid_request: decode failed")
 		return
 	}
 
@@ -134,11 +134,11 @@ func (s *AuthCalloutSubscriber) handleAuthRequest(ctx context.Context, msg *nats
 				attrs = append(attrs, "enrollment_id", rejection.EnrollmentID.String())
 			}
 			s.logger.Info("auth rejected", attrs...)
-			s.replyError(ctx, msg, req.UserNkey, rejection.Reason)
+			s.replyError(ctx, msg, req.UserNkey, req.Server.ID, rejection.Reason)
 			return
 		}
 		s.logger.Error("auth-callout internal error", "error", err)
-		s.replyError(ctx, msg, req.UserNkey, "internal_error")
+		s.replyError(ctx, msg, req.UserNkey, req.Server.ID, "internal_error")
 		return
 	}
 
@@ -148,19 +148,19 @@ func (s *AuthCalloutSubscriber) handleAuthRequest(ctx context.Context, msg *nats
 		"worker_name", in.WorkerName,
 		"expires_at", res.ExpiresAt,
 	)
-	s.replyAdmit(ctx, msg, req.UserNkey, res.UserJWT, res.AccountPublicKey)
+	s.replyAdmit(ctx, msg, req.UserNkey, req.Server.ID, res.UserJWT)
 }
 
 // replyAdmit signs and publishes an AuthorizationResponseClaims with the
 // user JWT embedded. NATS server validates the response signature
-// against the auth account it's configured to trust.
+// against the auth account it's configured to trust; aud must be its server ID.
 func (s *AuthCalloutSubscriber) replyAdmit(
 	ctx context.Context,
 	msg *nats.Msg,
-	userNKey, userJWT, accountPub string,
+	userNKey, serverID, userJWT string,
 ) {
 	resp := jwt.NewAuthorizationResponseClaims(userNKey)
-	resp.Audience = accountPub
+	resp.Audience = serverID
 	resp.Jwt = userJWT
 
 	s.publishResponse(ctx, msg, resp)
@@ -172,7 +172,7 @@ func (s *AuthCalloutSubscriber) replyAdmit(
 func (s *AuthCalloutSubscriber) replyError(
 	ctx context.Context,
 	msg *nats.Msg,
-	userNKey, reason string,
+	userNKey, serverID, reason string,
 ) {
 	sub := userNKey
 	if sub == "" {
@@ -181,6 +181,7 @@ func (s *AuthCalloutSubscriber) replyError(
 		sub = "UAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" // 56 chars
 	}
 	resp := jwt.NewAuthorizationResponseClaims(sub)
+	resp.Audience = serverID
 	resp.Error = reason
 	s.publishResponse(ctx, msg, resp)
 }

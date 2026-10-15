@@ -235,38 +235,20 @@ curl -s -X POST "$BASE/api/admin/nats/bootstrap-account-key" $ADMIN | jq
 # }
 ```
 
-Put the returned key into your `nats-server.conf` so NATS delegates
-auth to the cairn server:
+Run NATS with `docker/nats-auth-callout.conf`, which delegates auth to the
+cairn server. It reads the returned key from `CAIRN_NATS_AUTH_ISSUER` and
+core's password from `CAIRN_NATS_PASSWORD`; core and admitted workers share
+its `CAIRN` account. Then start core with:
 
-```hocon
-# nats-server.conf
-jetstream: {
-  store_dir: "/var/lib/nats/jetstream"
-}
-
-# The SYS account hosts the auth-callout subscriber; the AUTH account is
-# the dedicated callout-receiver. Workers join account "CAIRN" after the
-# callout admits them.
-accounts: {
-  SYS:   { users: [ { user: "sys", password: "..." } ] }
-  AUTH:  { }
-  CAIRN: { jetstream: enabled }
-}
-system_account: SYS
-
-authorization {
-  auth_callout {
-    # Issuer key from POST /api/admin/nats/bootstrap-account-key above.
-    issuer:     AAEKQGTAR2GW6FRYKCQI3UQYNCBLP7XQAEFMQNNKGN5IH7BBFOAVTJTV
-    auth_users: [ "cairn-server" ]   # the only account NOT routed through callout
-    account:    AUTH
-  }
-}
+```sh
+CAIRN_NATS_USERNAME=cairn-core
+CAIRN_NATS_PASSWORD=...            # same as nats-server's
+CAIRN_NATS_AUTH_CALLOUT=true
+CAIRN_NATS_WORKER_ACCOUNT=CAIRN
 ```
 
-Restart NATS. From now on, every CONNECT (except `cairn-server` itself)
-hits the auth-callout subject, which routes to the worker-enrollment
-flow.
+From now on, every CONNECT except `cairn-core` itself hits the auth-callout
+subject, which routes to the worker-enrollment flow.
 
 ## Worker enrollment smoketest
 
@@ -275,11 +257,12 @@ flow lives in `docs/architecture.md §4.5`; this is the operator-facing
 piece you'll actually invoke.
 
 ```sh
-# Generate a 7-day token. Provider and version are reported by the worker
-# itself; the name must equal CAIRN_WORKER_NAME on the worker.
+# Generate a 7-day token. The provider scopes the worker's NATS permissions;
+# the name must equal CAIRN_WORKER_NAME on the worker.
 curl -s -X POST "$BASE/api/admin/worker-enrollments" $ADMIN \
   -H 'content-type: application/json' -d '{
     "name":             "strava-fetcher",
+    "provider":         "strava",
     "expires_in_hours": 168,
     "note":             "prod cluster A pod-12"
   }' | jq

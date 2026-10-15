@@ -40,9 +40,11 @@ validation, not architectural.
 - [ ] **Email** — point `CAIRN_EMAIL_SMTP_*` at a real relay
       (`STARTTLS=true` + `SMTP_USERNAME/PASSWORD`), not the dev Mailpit catcher.
 - [ ] **NATS auth-callout** — bootstrap the account key
-      (`POST /api/admin/nats/bootstrap-account-key`), put the returned public
-      key in `nats-server.conf`, and onboard workers via enrollment tokens
-      (not the dev anonymous path). See README "Going to production".
+      (`POST /api/admin/nats/bootstrap-account-key`), run NATS with
+      `docker/nats-auth-callout.conf` (issuer = the returned public key), set
+      `CAIRN_NATS_AUTH_CALLOUT=true` + `CAIRN_NATS_WORKER_ACCOUNT=CAIRN` on
+      core, and onboard workers via enrollment tokens (not the dev anonymous
+      path). See `docs/architecture.md` §4.5.
 
 ## Migrate-on-deploy
 
