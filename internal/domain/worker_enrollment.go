@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -227,6 +228,10 @@ type WorkerPermissionTemplate struct {
 // (Full per-worker isolation of job/token subjects is a follow-up; doing it
 // requires the server to resolve provider→worker-key at dispatch time.)
 //
+// JetStream: workers pull jobs and webhook events through durable consumers
+// and use three KV buckets, so the template adds the JetStream API subjects
+// for exactly those (see workerJetStreamPublish).
+//
 // The function is pure (no I/O, no shared state) so the auth-callout can call
 // it on the hot path without coordination.
 func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemplate {
@@ -238,9 +243,16 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 	if wk == "" {
 		wk = p
 	}
+	jobs := []string{
+		fmt.Sprintf("cairn.jobs.fetch_source.%s.>", p),
+		fmt.Sprintf("cairn.jobs.parse_blob.%s", p),
+		fmt.Sprintf("cairn.jobs.backfill.%s", p),
+		fmt.Sprintf("cairn.jobs.reconcile.%s", p),
+	}
+	webhookEvent := fmt.Sprintf("cairn.webhooks.%s.event", wk)
 	return WorkerPermissionTemplate{
 		Name: "standard",
-		AllowPublish: []string{
+		AllowPublish: append([]string{
 			fmt.Sprintf("cairn.results.fetch_source.%s", p),
 			fmt.Sprintf("cairn.results.parse_blob.%s", p),
 			fmt.Sprintf("cairn.results.backfill.%s", p),
@@ -251,20 +263,61 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 			fmt.Sprintf("cairn.blobs.presign_download.%s", p),
 			"cairn.accounts.lookup_by_provider_ext", // webhook → account resolution
 			"_INBOX.>",                              // request/reply replies the worker initiates
-		},
-		AllowSubscribe: []string{
-			fmt.Sprintf("cairn.jobs.fetch_source.%s.>", p),
-			fmt.Sprintf("cairn.jobs.parse_blob.%s", p),
-			fmt.Sprintf("cairn.jobs.backfill.%s", p),
-			fmt.Sprintf("cairn.jobs.reconcile.%s", p),
+		}, workerJetStreamPublish(jobs, webhookEvent)...),
+		AllowSubscribe: append(slices.Clone(jobs),
 			fmt.Sprintf("cairn.cmd.worker.%s.>", wk),
-			fmt.Sprintf("cairn.webhooks.%s.event", wk),
+			webhookEvent,
 			fmt.Sprintf("cairn.webhooks.%s.verify", wk),
 			"_INBOX.>",
-		},
+		),
 		AllowResponseMaxMsgs: 0, // unlimited
 		AllowResponseTTL:     0,
 	}
+}
+
+// JetStream names the standard template grants access to; they mirror the
+// server's bootstrap (internal/adapter/secondary/nats/bootstrap_streams.go).
+const (
+	WorkerJobStream      = "CAIRN_JOBS"
+	WorkerWebhookStream  = "CAIRN_WEBHOOKS"
+	WorkerPresenceBucket = "cairn_worker_presence"
+	WorkerManifestBucket = "cairn_worker_manifests"
+	WorkerRateBucket     = "cairn_rate_limits"
+)
+
+// workerJetStreamPublish lists the JetStream API subjects a worker needs:
+//   - $JS.API.STREAM.NAMES to tell stream from core subjects before publishing
+//   - consumer create filtered to its own job/webhook subjects (nats.go), plus
+//     the legacy durable create on the job stream (nats-py), info, fetch, ack
+//   - info, get and put on the presence, manifest and rate-limit KV buckets
+//
+// Consumer names stay a wildcard token because the SDKs name durables
+// differently, so a worker can address other durables on these two streams.
+func workerJetStreamPublish(jobs []string, webhookEvent string) []string {
+	out := []string{"$JS.API.STREAM.NAMES"}
+	for _, f := range jobs {
+		out = append(out, "$JS.API.CONSUMER.CREATE."+WorkerJobStream+".*."+f)
+	}
+	out = append(out,
+		"$JS.API.CONSUMER.DURABLE.CREATE."+WorkerJobStream+".*",
+		"$JS.API.CONSUMER.CREATE."+WorkerWebhookStream+".*."+webhookEvent,
+	)
+	for _, st := range []string{WorkerJobStream, WorkerWebhookStream} {
+		out = append(out,
+			"$JS.API.CONSUMER.INFO."+st+".*",
+			"$JS.API.CONSUMER.MSG.NEXT."+st+".*",
+			"$JS.ACK."+st+".>",
+		)
+	}
+	for _, b := range []string{WorkerPresenceBucket, WorkerManifestBucket, WorkerRateBucket} {
+		out = append(out,
+			"$JS.API.STREAM.INFO.KV_"+b,
+			"$JS.API.DIRECT.GET.KV_"+b+".>",
+			"$JS.API.STREAM.MSG.GET.KV_"+b,
+			"$KV."+b+".>",
+		)
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

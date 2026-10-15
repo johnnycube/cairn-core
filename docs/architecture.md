@@ -245,6 +245,25 @@ accounts: {
 }
 ```
 
+Enrolled workers get these allow-lists from
+`domain.StandardPermissionTemplate` through the auth-callout. Besides the
+subjects above, the template grants the JetStream API subjects workers need,
+and nothing broader than `$JS.API.STREAM.NAMES`:
+
+- `$JS.API.STREAM.NAMES`, so the bus can tell stream from core subjects
+  before publishing.
+- Consumer create on `CAIRN_JOBS` / `CAIRN_WEBHOOKS` with the filter limited
+  to the worker's own job and webhook-event subjects; the legacy
+  `CONSUMER.DURABLE.CREATE.CAIRN_JOBS.*` for nats-py; consumer info,
+  `MSG.NEXT` and `$JS.ACK.<stream>.>` on those two streams.
+- Info, direct/message get and `$KV.<bucket>.>` put on the
+  `cairn_worker_presence`, `cairn_worker_manifests` and `cairn_rate_limits`
+  buckets.
+
+The consumer-name token is a wildcard because the SDKs name durables
+differently, so a worker can address other durables on those two streams;
+scoping it needs deterministic per-worker durable names.
+
 NATS rejects every publish and every subscribe on disallowed subjects
 with `-ERR 'Permissions Violation'`. If `worker-strava` tries to
 publish `cairn.tokens.garmin.fetch` — it is not even accepted by the
