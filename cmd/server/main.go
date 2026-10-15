@@ -32,6 +32,14 @@ import (
 )
 
 func main() {
+	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "cairn: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// newRootCmd assembles the cairn CLI.
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "cairn",
 		Short:         "Cairn — self-hosted activity tracker",
@@ -45,11 +53,7 @@ func main() {
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newRotateKeyCmd())
 	root.AddCommand(newGenSecretsCmd())
-
-	if err := root.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "cairn: %v\n", err)
-		os.Exit(1)
-	}
+	return root
 }
 
 // newConfigCmd hosts the small `config help` helper. Lives here rather
