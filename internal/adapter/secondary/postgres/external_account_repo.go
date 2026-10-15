@@ -147,20 +147,7 @@ func (r *ExternalAccountRepo) ListAccountsForUser(
 	if err != nil {
 		return nil, fmt.Errorf("list accounts for user %s: %w", userID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.ExternalAccount
-	for rows.Next() {
-		a, err := scanExternalAccountRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan external account row: %w", err)
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate external accounts: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanExternalAccountRow, "scan external account row", "iterate external accounts")
 }
 
 // FindByProviderAndExternalID resolves an account by its provider-side
@@ -326,20 +313,7 @@ func (r *ExternalAccountRepo) ListAccountsDueForReconcile(
 	if err != nil {
 		return nil, fmt.Errorf("list accounts due for reconcile: %w", err)
 	}
-	defer rows.Close()
-
-	var out []domain.ExternalAccount
-	for rows.Next() {
-		a, err := scanExternalAccountRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan due-account row: %w", err)
-		}
-		out = append(out, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate due accounts: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanExternalAccountRow, "scan due-account row", "iterate due accounts")
 }
 
 // ListKnownExternalIDs returns external_ids of sources already imported for
@@ -516,56 +490,34 @@ func (r *ExternalAccountRepo) UpdateRateLimit(
 
 func scanExternalAccountRow(row rowScanner) (domain.ExternalAccount, error) {
 	var (
-		id, userID           uuid.UUID
-		provider             string
-		providerAccountID    *string
-		connectionID         *uuid.UUID
-		displayLabel         string
-		assignedWorkerName   *string
-		status               string
-		statusReason         *string
-		configRaw            []byte
-		grantedScopes        []string
-		webhookSubscribed    bool
-		webhookSubscribedAt  *time.Time
-		webhookSubID         *string
-		rateLimitRaw         []byte
-		syncWatermark        *time.Time
-		lastSyncAt           *time.Time
-		lastSuccessfulSyncAt *time.Time
-		createdAt, updatedAt time.Time
-		autoImportEnabled    bool
+		a                  domain.ExternalAccount
+		id, userID         uuid.UUID
+		providerAccountID  *string
+		connectionID       *uuid.UUID
+		assignedWorkerName *string
+		status             string
+		statusReason       *string
+		configRaw          []byte
+		webhookSubID       *string
+		rateLimitRaw       []byte
 	)
 	if err := row.Scan(
-		&id, &userID, &provider, &providerAccountID, &connectionID,
-		&displayLabel, &assignedWorkerName,
+		&id, &userID, &a.Provider, &providerAccountID, &connectionID,
+		&a.DisplayLabel, &assignedWorkerName,
 		&status, &statusReason,
-		&configRaw, &grantedScopes,
-		&webhookSubscribed, &webhookSubscribedAt, &webhookSubID,
+		&configRaw, &a.GrantedScopes,
+		&a.WebhookSubscribed, &a.WebhookSubscribedAt, &webhookSubID,
 		&rateLimitRaw,
-		&syncWatermark, &lastSyncAt, &lastSuccessfulSyncAt,
-		&createdAt, &updatedAt,
-		&autoImportEnabled,
+		&a.SyncWatermark, &a.LastSyncAt, &a.LastSuccessfulSyncAt,
+		&a.CreatedAt, &a.UpdatedAt,
+		&a.AutoImportEnabled,
 	); err != nil {
 		return domain.ExternalAccount{}, err
 	}
 
-	a := domain.ExternalAccount{
-		ID:                   domain.ExternalAccountID(id),
-		UserID:               domain.UserID(userID),
-		Provider:             provider,
-		DisplayLabel:         displayLabel,
-		Status:               domain.ExternalAccountStatus(status),
-		GrantedScopes:        grantedScopes,
-		WebhookSubscribed:    webhookSubscribed,
-		WebhookSubscribedAt:  webhookSubscribedAt,
-		SyncWatermark:        syncWatermark,
-		LastSyncAt:           lastSyncAt,
-		LastSuccessfulSyncAt: lastSuccessfulSyncAt,
-		CreatedAt:            createdAt,
-		UpdatedAt:            updatedAt,
-		AutoImportEnabled:    autoImportEnabled,
-	}
+	a.ID = domain.ExternalAccountID(id)
+	a.UserID = domain.UserID(userID)
+	a.Status = domain.ExternalAccountStatus(status)
 	if providerAccountID != nil {
 		a.ProviderAccountID = *providerAccountID
 	}

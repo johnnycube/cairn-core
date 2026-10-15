@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -46,7 +47,43 @@ const (
 func (b *Bus) BootstrapStreams(ctx context.Context) error {
 	replicas := 1 // adjust via config; single-node default
 
-	streams := []jetstream.StreamConfig{
+	streams := natsBootstrapStreamConfigs(replicas)
+
+	for _, sc := range streams {
+		if _, err := b.js.CreateOrUpdateStream(ctx, sc); err != nil {
+			return fmt.Errorf("bootstrap stream %s: %w", sc.Name, err)
+		}
+		b.logger.Info("nats: stream ready",
+			"stream", sc.Name,
+			"retention", sc.Retention.String(),
+			"storage", sc.Storage.String(),
+		)
+	}
+
+	kvBuckets := natsBootstrapKVConfigs(replicas)
+
+	for _, bc := range kvBuckets {
+		if _, err := b.js.CreateOrUpdateKeyValue(ctx, bc); err != nil {
+			return fmt.Errorf("bootstrap kv %s: %w", bc.Bucket, err)
+		}
+		b.logger.Info("nats: kv bucket ready", "bucket", bc.Bucket, "ttl", bc.TTL)
+	}
+
+	osBuckets := natsBootstrapObjectStoreConfigs(replicas)
+
+	for _, oc := range osBuckets {
+		if _, err := b.js.CreateOrUpdateObjectStore(ctx, oc); err != nil {
+			return fmt.Errorf("bootstrap object store %s: %w", oc.Bucket, err)
+		}
+		b.logger.Info("nats: object store ready", "bucket", oc.Bucket, "max_bytes", oc.MaxBytes)
+	}
+
+	return nil
+}
+
+// natsBootstrapStreamConfigs declares the canonical JetStream streams.
+func natsBootstrapStreamConfigs(replicas int) []jetstream.StreamConfig {
+	return []jetstream.StreamConfig{
 		{
 			Name:        StreamJobs,
 			Description: "Outbound work the server enqueues for workers; message is deleted on ACK.",
@@ -102,19 +139,11 @@ func (b *Bus) BootstrapStreams(ctx context.Context) error {
 			Replicas:   replicas,
 		},
 	}
+}
 
-	for _, sc := range streams {
-		if _, err := b.js.CreateOrUpdateStream(ctx, sc); err != nil {
-			return fmt.Errorf("bootstrap stream %s: %w", sc.Name, err)
-		}
-		b.logger.Info("nats: stream ready",
-			"stream", sc.Name,
-			"retention", sc.Retention.String(),
-			"storage", sc.Storage.String(),
-		)
-	}
-
-	kvBuckets := []jetstream.KeyValueConfig{
+// natsBootstrapKVConfigs declares the canonical KV buckets.
+func natsBootstrapKVConfigs(replicas int) []jetstream.KeyValueConfig {
+	return []jetstream.KeyValueConfig{
 		{
 			Bucket:      KVWorkerPresence,
 			Description: "Per-worker heartbeat record; 60s TTL evicts crashed instances.",
@@ -149,15 +178,11 @@ func (b *Bus) BootstrapStreams(ctx context.Context) error {
 			Replicas:    replicas,
 		},
 	}
+}
 
-	for _, bc := range kvBuckets {
-		if _, err := b.js.CreateOrUpdateKeyValue(ctx, bc); err != nil {
-			return fmt.Errorf("bootstrap kv %s: %w", bc.Bucket, err)
-		}
-		b.logger.Info("nats: kv bucket ready", "bucket", bc.Bucket, "ttl", bc.TTL)
-	}
-
-	osBuckets := []jetstream.ObjectStoreConfig{
+// natsBootstrapObjectStoreConfigs declares the canonical Object-Store buckets.
+func natsBootstrapObjectStoreConfigs(replicas int) []jetstream.ObjectStoreConfig {
+	return []jetstream.ObjectStoreConfig{
 		{
 			Bucket:      OSTransient,
 			Description: "Transport-spillover for oversized JetStream payloads; not for long-term storage.",
@@ -166,15 +191,6 @@ func (b *Bus) BootstrapStreams(ctx context.Context) error {
 			Replicas:    replicas,
 		},
 	}
-
-	for _, oc := range osBuckets {
-		if _, err := b.js.CreateOrUpdateObjectStore(ctx, oc); err != nil {
-			return fmt.Errorf("bootstrap object store %s: %w", oc.Bucket, err)
-		}
-		b.logger.Info("nats: object store ready", "bucket", oc.Bucket, "max_bytes", oc.MaxBytes)
-	}
-
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -356,9 +372,9 @@ func (h *objectStoreHandle) Get(
 		SizeBytes: int64(len(data)),
 	}
 	if info != nil {
-		meta.SizeBytes = int64(info.Size)
-		if info.ObjectMeta.Metadata != nil {
-			meta.Headers = info.ObjectMeta.Metadata
+		meta.SizeBytes = int64(min(info.Size, math.MaxInt64))
+		if info.Metadata != nil {
+			meta.Headers = info.Metadata
 		}
 	}
 	return data, meta, nil

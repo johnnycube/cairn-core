@@ -190,25 +190,30 @@ func drawTiles(ctx context.Context, canvas *image.RGBA, z int, originX, originY 
 	firstTY := int(math.Floor(originY / tileSize))
 	lastTX := int(math.Floor((originX + float64(opts.Width)) / tileSize))
 	lastTY := int(math.Floor((originY + float64(opts.Height)) / tileSize))
-	dstTile := tileSize * s
 	for tx := firstTX; tx <= lastTX; tx++ {
 		for ty := firstTY; ty <= lastTY; ty++ {
 			if tx < 0 || ty < 0 || tx > maxIdx || ty > maxIdx {
 				continue
 			}
-			tile, err := fetch(ctx, z, tx, ty)
-			if err != nil || tile == nil {
-				continue // graceful: leave the background showing
-			}
-			dx := int(math.Round((float64(tx*tileSize) - originX) * float64(s)))
-			dy := int(math.Round((float64(ty*tileSize) - originY) * float64(s)))
-			dst := image.Rect(dx, dy, dx+dstTile, dy+dstTile)
-			if tile.Bounds().Dx() == dstTile && tile.Bounds().Dy() == dstTile {
-				draw.Draw(canvas, dst, tile, tile.Bounds().Min, draw.Over)
-			} else {
-				drawTileScaled(canvas, dst, tile)
-			}
+			drawOneTile(ctx, canvas, z, tx, ty, originX, originY, s, fetch)
 		}
+	}
+}
+
+// drawOneTile fetches tile (tx,ty) and draws it at its canvas position.
+func drawOneTile(ctx context.Context, canvas *image.RGBA, z, tx, ty int, originX, originY float64, s int, fetch TileFetcher) {
+	tile, err := fetch(ctx, z, tx, ty)
+	if err != nil || tile == nil {
+		return // graceful: leave the background showing
+	}
+	dstTile := tileSize * s
+	dx := int(math.Round((float64(tx*tileSize) - originX) * float64(s)))
+	dy := int(math.Round((float64(ty*tileSize) - originY) * float64(s)))
+	dst := image.Rect(dx, dy, dx+dstTile, dy+dstTile)
+	if tile.Bounds().Dx() == dstTile && tile.Bounds().Dy() == dstTile {
+		draw.Draw(canvas, dst, tile, tile.Bounds().Min, draw.Over)
+	} else {
+		drawTileScaled(canvas, dst, tile)
 	}
 }
 
@@ -332,7 +337,7 @@ func fillDisc(img *image.RGBA, cx, cy, radius int, col color.Color) {
 func blend(dst color.RGBA, src color.Color) color.RGBA {
 	sr, sg, sb, sa := src.RGBA() // 16-bit pre-multiplied
 	if sa == 0xffff {
-		return color.RGBA{uint8(sr >> 8), uint8(sg >> 8), uint8(sb >> 8), 0xff}
+		return color.RGBA{uint8(sr >> 8), uint8(sg >> 8), uint8(sb >> 8), 0xff} //nolint:gosec // G115: 16-bit channel >> 8 is 0..255
 	}
 	if sa == 0 {
 		return dst
@@ -342,7 +347,7 @@ func blend(dst color.RGBA, src color.Color) color.RGBA {
 	r := (sr*0xffff + uint32(dst.R)*257*inv) / 0xffff / 257
 	g := (sg*0xffff + uint32(dst.G)*257*inv) / 0xffff / 257
 	b := (sb*0xffff + uint32(dst.B)*257*inv) / 0xffff / 257
-	return color.RGBA{uint8(r), uint8(g), uint8(b), 0xff}
+	return color.RGBA{uint8(r), uint8(g), uint8(b), 0xff} //nolint:gosec // G115: weighted mean of 8-bit channels is 0..255
 }
 
 // boxDownscale averages each s×s block — exact area resampling for an integer
@@ -351,7 +356,7 @@ func boxDownscale(src *image.RGBA, s int) *image.RGBA {
 	b := src.Bounds()
 	ow, oh := b.Dx()/s, b.Dy()/s
 	out := image.NewRGBA(image.Rect(0, 0, ow, oh))
-	n := uint32(s * s)
+	n := uint32(s * s) //nolint:gosec // G115: s is the small supersample factor (s>1)
 	for oy := 0; oy < oh; oy++ {
 		for ox := 0; ox < ow; ox++ {
 			var rr, gg, bb, aa uint32
@@ -365,7 +370,7 @@ func boxDownscale(src *image.RGBA, s int) *image.RGBA {
 				}
 			}
 			out.SetRGBA(ox, oy, color.RGBA{
-				uint8(rr / n), uint8(gg / n), uint8(bb / n), uint8(aa / n),
+				uint8(rr / n), uint8(gg / n), uint8(bb / n), uint8(aa / n), //nolint:gosec // G115: mean of n uint8 samples is 0..255
 			})
 		}
 	}

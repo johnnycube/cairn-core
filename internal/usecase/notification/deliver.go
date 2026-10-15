@@ -210,18 +210,8 @@ func (uc *DeliverNotifications) deliverEmail(ctx context.Context, notifs []domai
 			})
 			continue
 		}
-		user, ok := userCache[n.UserID]
-		if !ok {
-			u, err := uc.users.GetUser(ctx, n.UserID)
-			if err != nil {
-				uc.logger.Warn("deliver: user lookup failed", "user", n.UserID, "error", err)
-				userCache[n.UserID] = domain.User{} // negative-cache
-				continue
-			}
-			user = u
-			userCache[n.UserID] = u
-		}
-		if user.Email == "" {
+		user, ok := uc.deliverEmailUser(ctx, userCache, n.UserID)
+		if !ok || user.Email == "" {
 			continue
 		}
 		subject, text := uc.render(n)
@@ -237,6 +227,21 @@ func (uc *DeliverNotifications) deliverEmail(ctx context.Context, notifs []domai
 		}
 		uc.record(ctx, d)
 	}
+}
+
+// deliverEmailUser loads a user through the batch cache; false on lookup error.
+func (uc *DeliverNotifications) deliverEmailUser(ctx context.Context, cache map[domain.UserID]domain.User, id domain.UserID) (domain.User, bool) {
+	if u, ok := cache[id]; ok {
+		return u, true
+	}
+	u, err := uc.users.GetUser(ctx, id)
+	if err != nil {
+		uc.logger.Warn("deliver: user lookup failed", "user", id, "error", err)
+		cache[id] = domain.User{} // negative-cache
+		return domain.User{}, false
+	}
+	cache[id] = u
+	return u, true
 }
 
 func (uc *DeliverNotifications) deliverWebhooks(ctx context.Context, notifs []domain.Notification, quiet *quietCache) {
@@ -309,7 +314,7 @@ func (uc *DeliverNotifications) sendWebhookOnce(ctx context.Context, ep domain.W
 	if err != nil {
 		return 0, err.Error()
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp.StatusCode, "non-2xx response"
 	}

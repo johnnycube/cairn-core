@@ -156,7 +156,6 @@ func (r *WorkerEnrollmentRepo) ListEnrollments(
 	if !filter.IncludeExpired {
 		wheres = append(wheres, fmt.Sprintf("expires_at > $%d", idx))
 		args = append(args, time.Now().UTC())
-		idx++
 	}
 
 	whereClause := ""
@@ -181,20 +180,7 @@ func (r *WorkerEnrollmentRepo) ListEnrollments(
 	if err != nil {
 		return nil, fmt.Errorf("list enrollments: %w", err)
 	}
-	defer rows.Close()
-
-	var out []domain.WorkerEnrollment
-	for rows.Next() {
-		e, err := scanEnrollmentRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan enrollment row: %w", err)
-		}
-		out = append(out, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate enrollment rows: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanEnrollmentRow, "scan enrollment row", "iterate enrollment rows")
 }
 
 // IncrementUses atomically bumps the uses counter. Called inside the
@@ -462,20 +448,7 @@ func (r *WorkerEnrollmentRepo) ListGrantsForEnrollment(
 	if err != nil {
 		return nil, fmt.Errorf("list grants for enrollment %s: %w", id, err)
 	}
-	defer rows.Close()
-
-	var out []domain.WorkerCredentialGrant
-	for rows.Next() {
-		g, err := scanGrantRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan grant row: %w", err)
-		}
-		out = append(out, g)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate grant rows: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanGrantRow, "scan grant row", "iterate grant rows")
 }
 
 // ---------------------------------------------------------------------------

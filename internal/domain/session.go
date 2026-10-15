@@ -49,7 +49,7 @@ type SessionAuthMethod string
 const (
 	SessionAuthPassword             SessionAuthMethod = "password"
 	SessionAuthPasswordWithWebauthn SessionAuthMethod = "password_with_webauthn_2fa"
-	SessionAuthPasskey              SessionAuthMethod = "webauthn_passkey"
+	SessionAuthPasskey              SessionAuthMethod = "webauthn_passkey" //nolint:gosec // G101: auth-method enum label, not a secret
 	SessionAuthOIDC                 SessionAuthMethod = "oidc"
 	SessionAuthPAT                  SessionAuthMethod = "personal_access_token"
 )

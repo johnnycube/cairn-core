@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/johnnycube/cairn-core/internal/domain"
 	"github.com/johnnycube/cairn-core/internal/port"
 )
 
@@ -132,26 +133,37 @@ func parseActivityFilter(q url.Values) port.ActivityListFilter {
 }
 
 func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
-	mux.HandleFunc("GET /api/activities/feed", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/activities/feed", activitiesFeedHandler(app, logger))
+
+	logger.Info("activities feed endpoint mounted")
+}
+
+// activitiesFeedPaging reads limit/offset: default 50, capped at 200, so the feed pages instead of
+// returning the (potentially huge) full set.
+func activitiesFeedPaging(q url.Values) (limit, offset int) {
+	limit, _ = strconv.Atoi(q.Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset, _ = strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+func activitiesFeedHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
 		q := r.URL.Query()
-		limit, _ := strconv.Atoi(q.Get("limit"))
-		// Page size: default 50, capped at 200, so the feed pages instead of
-		// returning the (potentially huge) full set.
-		if limit <= 0 {
-			limit = 50
-		}
-		if limit > 200 {
-			limit = 200
-		}
-		offset, _ := strconv.Atoi(q.Get("offset"))
-		if offset < 0 {
-			offset = 0
-		}
+		limit, offset := activitiesFeedPaging(q)
 		filter := parseActivityFilter(q)
 		filter.Limit = limit
 		filter.Offset = offset
@@ -177,22 +189,7 @@ func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			years = append(years, feedFacet{Value: strconv.Itoa(y.Year), Count: y.Count})
 		}
 
-		out := make([]feedActivity, 0, len(acts))
-		for _, a := range acts {
-			out = append(out, feedActivity{
-				ID:               a.ID.String(),
-				Title:            a.Title,
-				Type:             string(a.Type),
-				Discipline:       string(a.Discipline),
-				StartTime:        a.StartTime.UTC().Format("2006-01-02T15:04:05Z07:00"),
-				Timezone:         a.Timezone,
-				ElapsedDurationS: int64(a.ElapsedDuration.Seconds()),
-				DistanceM:        a.Summary.DistanceM,
-				ElevationGainM:   a.Summary.ElevationGainM,
-				TSS:              a.Summary.TSS,
-				StartPlace:       a.StartPlace,
-			})
-		}
+		out := activitiesFeedItems(acts)
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"total":   total,
@@ -207,7 +204,26 @@ func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			"limit":      limit,
 			"has_more":   offset+len(out) < matched,
 		})
-	})
+	}
+}
 
-	logger.Info("activities feed endpoint mounted")
+// activitiesFeedItems projects activities into the feed's row shape.
+func activitiesFeedItems(acts []domain.Activity) []feedActivity {
+	out := make([]feedActivity, 0, len(acts))
+	for _, a := range acts {
+		out = append(out, feedActivity{
+			ID:               a.ID.String(),
+			Title:            a.Title,
+			Type:             string(a.Type),
+			Discipline:       string(a.Discipline),
+			StartTime:        a.StartTime.UTC().Format("2006-01-02T15:04:05Z07:00"),
+			Timezone:         a.Timezone,
+			ElapsedDurationS: int64(a.ElapsedDuration.Seconds()),
+			DistanceM:        a.Summary.DistanceM,
+			ElevationGainM:   a.Summary.ElevationGainM,
+			TSS:              a.Summary.TSS,
+			StartPlace:       a.StartPlace,
+		})
+	}
+	return out
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"time"
 
@@ -42,11 +43,11 @@ import (
 // production wire-up goes through here.
 type App struct {
 	// Adapters
-	QuotaMaxActivities     int
+	QuotaMaxActivities int
 	// DefaultPollInterval is the instance-wide reconcile cadence
 	// (SchedulerConfig.PollingInterval) — surfaced to the UI so the
 	// per-connection override setting can say what "instance default" means.
-	DefaultPollInterval time.Duration
+	DefaultPollInterval    time.Duration
 	Tx                     *postgres.TxManager
 	Activities             *postgres.ActivityRepo
 	UserSettings           *postgres.UserSettingsRepo
@@ -176,33 +177,13 @@ type App struct {
 }
 
 func newApp(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, logger *slog.Logger) (*App, error) {
-	tx := postgres.NewTxManager(pool)
-	activities := postgres.NewActivityRepo(pool)
-	settings := postgres.NewUserSettingsRepo(pool)
-	users := postgres.NewUserRepo(pool)
-	streams := postgres.NewStreamRepo(pool)
-	bestEffortRepo := postgres.NewBestEffortRepo(pool)
-	segmentRepo := postgres.NewSegmentRepo(pool)
-	metricRepo := postgres.NewMetricRepo(pool)
-	notificationRepo := postgres.NewNotificationRepo(pool)
-	followRepo := postgres.NewFollowRepo(pool)
-	visibilityRepo := postgres.NewVisibilityRepo(pool)
-	shareLinkRepo := postgres.NewShareLinkRepo(pool)
-	engagementRepo := postgres.NewEngagementRepo(pool)
-	blockRepo := postgres.NewBlockRepo(pool)
-	reportRepo := postgres.NewReportRepo(pool)
-	moderationRepo := postgres.NewModerationRepo(pool)
-	quotaRepo := postgres.NewQuotaRepo(pool)
-	clubRepo := postgres.NewClubRepo(pool)
-	externalAccountRepo := postgres.NewExternalAccountRepo(
-		pool,
-		cfg.Scheduler.PollingInterval,
-		cfg.Scheduler.WebhookDriftInterval,
-	)
-	workerEnrollmentRepo := postgres.NewWorkerEnrollmentRepo(pool)
-	signingKeyRepo := postgres.NewSigningKeyRepo(pool)
-	sessionRepo := postgres.NewSessionRepo(pool)
-	linkedIdentityRepo := postgres.NewLinkedIdentityRepo(pool)
+	app := &App{
+		QuotaMaxActivities:  cfg.Quota.MaxActivitiesPerUser,
+		DefaultPollInterval: cfg.Scheduler.PollingInterval,
+		PublicBaseURL:       cfg.HTTP.PublicBaseURL,
+		FederationEnabled:   cfg.Federation.Enabled,
+	}
+	wireAppCoreRepos(app, pool, cfg)
 
 	// OIDC providers come from CAIRN_OIDC_* env vars (no client DB). Each
 	// warning names a provider entry that was skipped due to missing config.
@@ -210,8 +191,9 @@ func newApp(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, logger 
 	for _, w := range oidcWarnings {
 		logger.Warn("oidc provider config", "detail", w)
 	}
+	app.OIDCProviders = oidcProviders
 
-	hasher := auth.NewPasswordHasher(auth.PasswordParams{
+	app.PasswordHasher = auth.NewPasswordHasher(auth.PasswordParams{
 		Time:    cfg.Auth.Argon2Time,
 		Memory:  cfg.Auth.Argon2Memory,
 		Threads: cfg.Auth.Argon2Threads,
@@ -222,375 +204,368 @@ func newApp(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, logger 
 	if err != nil {
 		return nil, err
 	}
+	app.SecretBox = secretBox
 
-	oauthTokenRepo := postgres.NewOAuthTokenRepo(pool, secretBox)
-	federationKeyRepo := postgres.NewFederationKeyRepo(pool, secretBox)
-	federationActorRepo := postgres.NewFederationActorRepo(pool)
-	federationFollowRepo := postgres.NewFederationFollowRepo(pool)
-	federationDeliveryRepo := postgres.NewFederationDeliveryRepo(pool)
-	federationBlockRepo := postgres.NewFederationBlockRepo(pool)
-	inboxDedupRepo := postgres.NewInboxDedupRepo(pool)
-	federationFeedRepo := postgres.NewFederationFeedRepo(pool)
-	deadLetterRepo := postgres.NewDeadLetterRepo(pool)
-	importQueueRepo := postgres.NewImportQueueRepo(pool)
-	userProviderConfigRepo := postgres.NewUserProviderConfigRepo(pool, secretBox)
-	importEventRepo := postgres.NewImportEventRepo(pool)
-	athleteProfileRepo := postgres.NewAthleteProfileRepo(pool)
-	passkeyRepo := postgres.NewPasskeyRepo(pool)
-	fieldOverrides := postgres.NewFieldOverrideRepo(pool)
-	classOverrides := postgres.NewClassificationOverrideRepo(pool)
-	attachments := postgres.NewAttachmentRepo(pool)
-	sourceDenylist := postgres.NewSourceDenylistRepo(pool)
-	healthRepo := postgres.NewHealthRepo(pool)
+	wireAppSecondaryRepos(app, pool, secretBox)
+	wireAppIngestUseCases(app, logger)
+	if err := wireAppNotifications(app, pool, cfg, secretBox, logger); err != nil {
+		return nil, err
+	}
+	wireAppAccountUseCases(app, pool)
+	if err := wireAppNATS(ctx, app, cfg, logger); err != nil {
+		return nil, err
+	}
 
-	recompute := activity.NewRecomputeActivityFromSources(
-		activities,
-		settings,
-		athleteProfileRepo,
-		fieldOverrides,
-		classOverrides,
-		tx,
+	// OIDC login use case. Constructed only when at least one provider is
+	// configured; the HTTP layer gates route registration on OIDCLogin being
+	// non-nil.
+	if len(oidcProviders) > 0 {
+		app.OIDCLogin = authuc.NewOIDCLogin(
+			oidcProviders,
+			app.LinkedIdentities,
+			app.Sessions,
+			app.Users,
+			cfg.Auth.SessionTTL,
+			cfg.HTTP.PublicBaseURL,
+		)
+	}
+
+	if err := wireAppBlobStore(ctx, app, cfg, logger); err != nil {
+		return nil, err
+	}
+	wireAppGeocoder(app, cfg, logger)
+	return app, nil
+}
+
+// wireAppCoreRepos builds the pool-only postgres repositories.
+func wireAppCoreRepos(app *App, pool *pgxpool.Pool, cfg *config.Config) {
+	app.Tx = postgres.NewTxManager(pool)
+	app.Activities = postgres.NewActivityRepo(pool)
+	app.UserSettings = postgres.NewUserSettingsRepo(pool)
+	app.Users = postgres.NewUserRepo(pool)
+	app.Streams = postgres.NewStreamRepo(pool)
+	app.BestEfforts = postgres.NewBestEffortRepo(pool)
+	app.Segments = postgres.NewSegmentRepo(pool)
+	app.Metrics = postgres.NewMetricRepo(pool)
+	app.Notifications = postgres.NewNotificationRepo(pool)
+	app.Follows = postgres.NewFollowRepo(pool)
+	app.Visibility = postgres.NewVisibilityRepo(pool)
+	app.ShareLinks = postgres.NewShareLinkRepo(pool)
+	app.Engagement = postgres.NewEngagementRepo(pool)
+	app.Blocks = postgres.NewBlockRepo(pool)
+	app.Reports = postgres.NewReportRepo(pool)
+	app.Moderation = postgres.NewModerationRepo(pool)
+	app.Quotas = postgres.NewQuotaRepo(pool)
+	app.Clubs = postgres.NewClubRepo(pool)
+	app.ExternalAccounts = postgres.NewExternalAccountRepo(
+		pool,
+		cfg.Scheduler.PollingInterval,
+		cfg.Scheduler.WebhookDriftInterval,
+	)
+	app.WorkerEnrollments = postgres.NewWorkerEnrollmentRepo(pool)
+	app.SigningKeys = postgres.NewSigningKeyRepo(pool)
+	app.Sessions = postgres.NewSessionRepo(pool)
+	app.LinkedIdentities = postgres.NewLinkedIdentityRepo(pool)
+}
+
+// wireAppSecondaryRepos builds the repositories created after the secretbox.
+func wireAppSecondaryRepos(app *App, pool *pgxpool.Pool, secretBox *auth.SecretBox) {
+	app.OAuthTokens = postgres.NewOAuthTokenRepo(pool, secretBox)
+	app.FederationKeys = postgres.NewFederationKeyRepo(pool, secretBox)
+	app.FederationActors = postgres.NewFederationActorRepo(pool)
+	app.FederationFollows = postgres.NewFederationFollowRepo(pool)
+	app.FederationDeliveries = postgres.NewFederationDeliveryRepo(pool)
+	app.FederationBlocks = postgres.NewFederationBlockRepo(pool)
+	app.InboxDedup = postgres.NewInboxDedupRepo(pool)
+	app.FederationFeed = postgres.NewFederationFeedRepo(pool)
+	app.DeadLetters = postgres.NewDeadLetterRepo(pool)
+	app.ImportQueue = postgres.NewImportQueueRepo(pool)
+	app.UserProviderConfigs = postgres.NewUserProviderConfigRepo(pool, secretBox)
+	app.ImportEvents = postgres.NewImportEventRepo(pool)
+	app.AthleteProfiles = postgres.NewAthleteProfileRepo(pool)
+	app.Passkeys = postgres.NewPasskeyRepo(pool)
+	app.FieldOverrides = postgres.NewFieldOverrideRepo(pool)
+	app.ClassOverrides = postgres.NewClassificationOverrideRepo(pool)
+	app.Attachments = postgres.NewAttachmentRepo(pool)
+	app.SourceDenylist = postgres.NewSourceDenylistRepo(pool)
+	app.Health = postgres.NewHealthRepo(pool)
+}
+
+// wireAppIngestUseCases builds the ingest, recluster and post-ingest compute use cases.
+func wireAppIngestUseCases(app *App, logger *slog.Logger) {
+	app.RecomputeActivity = activity.NewRecomputeActivityFromSources(
+		app.Activities,
+		app.UserSettings,
+		app.AthleteProfiles,
+		app.FieldOverrides,
+		app.ClassOverrides,
+		app.Tx,
 		nil, // default time.Now
 	)
-	ingest := activity.NewIngestActivityFromWorker(
-		activities,
-		streams,
-		settings,
-		recompute,
-		tx,
+	app.IngestActivity = activity.NewIngestActivityFromWorker(
+		app.Activities,
+		app.Streams,
+		app.UserSettings,
+		app.RecomputeActivity,
+		app.Tx,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	reclusterBucket := matchuc.NewReclusterBucket(
-		activities,
-		recompute,
-		sourceDenylist,
-		tx,
+	app.ReclusterBucket = matchuc.NewReclusterBucket(
+		app.Activities,
+		app.RecomputeActivity,
+		app.SourceDenylist,
+		app.Tx,
 		nil, // default uuid.NewV7
 		dmatch.DefaultOptions(),
 		logger,
 	)
-	computeBestEfforts := besteffort.NewComputeBestEffortsForSource(
-		activities,
-		streams,
-		bestEffortRepo,
-		tx,
+	app.ComputeBestEfforts = besteffort.NewComputeBestEffortsForSource(
+		app.Activities,
+		app.Streams,
+		app.BestEfforts,
+		app.Tx,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	computeSegmentRanks := segmentrank.NewComputeSegmentRanks(segmentRepo, tx)
-	matchSegments := segment.NewMatchSegmentsForActivity(
-		activities,
-		streams,
-		segmentRepo,
-		tx,
-		computeSegmentRanks,
+	app.ComputeSegmentRanks = segmentrank.NewComputeSegmentRanks(app.Segments, app.Tx)
+	app.MatchSegments = segment.NewMatchSegmentsForActivity(
+		app.Activities,
+		app.Streams,
+		app.Segments,
+		app.Tx,
+		app.ComputeSegmentRanks,
 		nil,                      // default time.Now
 		nil,                      // default uuid.NewV7
 		domain.MatchTolerances{}, // zero → DefaultMatchTolerances
 		nil,                      // default slog.Default
 	)
-	computeTrainingLoad := trainingload.NewComputeTrainingLoadForUser(
-		activities,
-		metricRepo,
-		tx,
+	app.ComputeTrainingLoad = trainingload.NewComputeTrainingLoadForUser(
+		app.Activities,
+		app.Metrics,
+		app.Tx,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	// Email sender (gated on EMAIL_ADAPTER) + notification side-channel delivery.
-	// Built here so DispatchPR can fan PR notifications out to email.
-	var emailSender port.EmailSender
+}
+
+// wireAppEmail builds the email sender (gated on EMAIL_ADAPTER); nil when disabled.
+func wireAppEmail(cfg *config.Config, logger *slog.Logger) (port.EmailSender, error) {
 	switch cfg.Email.Adapter {
 	case "smtp":
 		es, err := emailadapter.NewSMTP(cfg.Email)
 		if err != nil {
 			return nil, err
 		}
-		emailSender = es
 		logger.Info("email wired", "adapter", "smtp", "host", cfg.Email.SMTPHost, "from", cfg.Email.FromAddress)
+		return es, nil
 	case "", "none":
 		logger.Info("email disabled: EMAIL_ADAPTER=none")
 	default:
 		logger.Warn("email adapter not implemented; disabling", "adapter", cfg.Email.Adapter)
 	}
-	notificationPrefRepo := postgres.NewNotificationPreferenceRepo(pool)
-	webhookEndpointRepo := postgres.NewWebhookEndpointRepo(pool, secretBox)
-	quietHoursRepo := postgres.NewQuietHoursRepo(pool)
-	notificationDeliveryRepo := postgres.NewNotificationDeliveryRepo(pool)
-	deliverNotifs := notification.NewDeliverNotifications(
-		users, notificationRepo, notificationPrefRepo, emailSender, webhookEndpointRepo, quietHoursRepo, notificationDeliveryRepo, cfg.HTTP.PublicBaseURL, logger,
+	return nil, nil
+}
+
+// wireAppNotifications builds email + notification side-channel delivery and
+// the notification use cases. Built here so DispatchPR can fan PR notifications out to email.
+func wireAppNotifications(app *App, pool *pgxpool.Pool, cfg *config.Config, secretBox *auth.SecretBox, logger *slog.Logger) error {
+	emailSender, err := wireAppEmail(cfg, logger)
+	if err != nil {
+		return err
+	}
+	app.Email = emailSender
+	app.NotificationPrefs = postgres.NewNotificationPreferenceRepo(pool)
+	app.WebhookEndpoints = postgres.NewWebhookEndpointRepo(pool, secretBox)
+	app.QuietHours = postgres.NewQuietHoursRepo(pool)
+	app.NotificationDeliveries = postgres.NewNotificationDeliveryRepo(pool)
+	app.DeliverNotifications = notification.NewDeliverNotifications(
+		app.Users, app.Notifications, app.NotificationPrefs, emailSender, app.WebhookEndpoints, app.QuietHours, app.NotificationDeliveries, cfg.HTTP.PublicBaseURL, logger,
 	)
 
-	dispatchPR := notification.NewDispatchPRNotifications(
-		segmentRepo,
-		notificationRepo,
-		tx,
-		deliverNotifs,
+	app.DispatchPR = notification.NewDispatchPRNotifications(
+		app.Segments,
+		app.Notifications,
+		app.Tx,
+		app.DeliverNotifications,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	notifyReauth := notification.NewNotifyAccountNeedsReauth(
-		externalAccountRepo,
-		notificationRepo,
-		tx,
-		deliverNotifs,
+	app.NotifyAccountNeedsReauth = notification.NewNotifyAccountNeedsReauth(
+		app.ExternalAccounts,
+		app.Notifications,
+		app.Tx,
+		app.DeliverNotifications,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	notifyWorkerOffline := notification.NewNotifyWorkerOffline(
-		users,
-		notificationRepo,
-		tx,
-		deliverNotifs,
+	app.NotifyWorkerOffline = notification.NewNotifyWorkerOffline(
+		app.Users,
+		app.Notifications,
+		app.Tx,
+		app.DeliverNotifications,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	createUser := admin.NewCreateUser(users, hasher, nil, nil)
-	bootstrap := admin.NewBootstrapAdmin(users, createUser)
-	inviteRepo := postgres.NewInviteRepo(pool)
-	createInvite := invite.NewCreateInvite(inviteRepo, nil)
-	redeemInvite := invite.NewRedeemInvite(inviteRepo, createUser, nil)
-	patRepo := postgres.NewPATRepo(pool)
-	authTokenRepo := postgres.NewAuthTokenRepo(pool)
-	oauthServerRepo := postgres.NewOAuthServerRepo(pool)
+	return nil
+}
+
+// wireAppAccountUseCases builds user/invite/token repos and use cases plus worker enrollment.
+func wireAppAccountUseCases(app *App, pool *pgxpool.Pool) {
+	app.CreateUser = admin.NewCreateUser(app.Users, app.PasswordHasher, nil, nil)
+	app.BootstrapAdmin = admin.NewBootstrapAdmin(app.Users, app.CreateUser)
+	app.Invites = postgres.NewInviteRepo(pool)
+	app.CreateInvite = invite.NewCreateInvite(app.Invites, nil)
+	app.RedeemInvite = invite.NewRedeemInvite(app.Invites, app.CreateUser, nil)
+	app.PATs = postgres.NewPATRepo(pool)
+	app.AuthTokens = postgres.NewAuthTokenRepo(pool)
+	app.OAuth = postgres.NewOAuthServerRepo(pool)
 
 	// Worker-enrollment use cases. CreateWorkerEnrollment is the
 	// admin-side flow ("generate a token I can put in a worker's env").
 	// RevokeWorkerEnrollment is the kill-switch. ProcessAuthCallout
 	// (built but not constructed here) needs a NATSCredentialIssuer
 	// adapter from the NATS layer; we'll wire it once that exists.
-	createEnrollment := enrollment.NewCreateWorkerEnrollment(
-		workerEnrollmentRepo,
+	app.CreateWorkerEnrollment = enrollment.NewCreateWorkerEnrollment(
+		app.WorkerEnrollments,
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 		nil, // default crypto/rand
 	)
-	revokeEnrollment := enrollment.NewRevokeWorkerEnrollment(
-		workerEnrollmentRepo,
+	app.RevokeWorkerEnrollment = enrollment.NewRevokeWorkerEnrollment(
+		app.WorkerEnrollments,
 		nil, // default time.Now
 	)
+}
 
-	// ------------------------------------------------------------------
-	// NATS adapter wiring (gated on cfg.NATS.URL)
-	//
-	// When CAIRN_NATS_URL is unset, the bus stays nil and every
-	// dependent capability (reconcile scheduler, auth-callout subscriber,
-	// rate limiter, request/reply token-fetch) silently skips. This
-	// keeps single-binary dev setups runnable without NATS.
-	//
-	// When set, we:
-	//   1. Connect (eager).
-	//   2. Bootstrap canonical streams + KV/OS buckets (idempotent).
-	//   3. Construct CredentialIssuer + AuthCalloutSubscriber.
-	//   4. Build the rate limiter on the cairn_rate_limits KV bucket.
-	//   5. Build ProcessAuthCallout (use case) on top of the issuer.
-	//   6. Build ReconcileExternalAccount on top of the bus.
-	// ------------------------------------------------------------------
-	var (
-		bus              *natsadapter.Bus
-		credentialIssuer *natsadapter.CredentialIssuer
-		authCallout      *natsadapter.AuthCalloutSubscriber
-		rateLimiter      port.RateLimiter
-		processAuth      *enrollment.ProcessAuthCallout
-		reconcile        *syncuc.ReconcileExternalAccount
+// wireAppNATS wires the NATS adapter (gated on cfg.NATS.URL).
+//
+// When CAIRN_NATS_URL is unset, the bus stays nil and every
+// dependent capability (reconcile scheduler, auth-callout subscriber,
+// rate limiter, request/reply token-fetch) silently skips. This
+// keeps single-binary dev setups runnable without NATS.
+//
+// When set, we:
+//  1. Connect (eager).
+//  2. Bootstrap canonical streams + KV/OS buckets (idempotent).
+//  3. Construct CredentialIssuer + AuthCalloutSubscriber.
+//  4. Build the rate limiter on the cairn_rate_limits KV bucket.
+//  5. Build ProcessAuthCallout (use case) on top of the issuer.
+//  6. Build ReconcileExternalAccount on top of the bus.
+func wireAppNATS(ctx context.Context, app *App, cfg *config.Config, logger *slog.Logger) error {
+	if cfg.NATS.URL == "" {
+		logger.Info("nats: CAIRN_NATS_URL unset — async layer disabled, single-process mode")
+		return nil
+	}
+	bus, err := natsadapter.NewBus(ctx, cfg.NATS, logger)
+	if err != nil {
+		return err
+	}
+
+	// Stream / KV / Object-Store bootstrap. Idempotent — see
+	// docs/architecture.md §2 for the configs.
+	if err := bus.BootstrapStreams(ctx); err != nil {
+		return err
+	}
+
+	credentialIssuer := natsadapter.NewCredentialIssuer(app.SigningKeys, app.SecretBox)
+
+	// Build the rate limiter on the rate-limits KV bucket. The
+	// server-side limiter is intentionally permissive (nil
+	// capacities = no buckets configured = always allow). Workers
+	// pass their own per-provider capacities at construction —
+	// rate-limit policy is a worker concern, not a core concern.
+	rlKV, kvErr := bus.KV(natsadapter.KVRateLimits)
+	if kvErr != nil {
+		return kvErr
+	}
+
+	// Worker auth-callout use case. Needs the issuer.
+	processAuth := enrollment.NewProcessAuthCallout(
+		app.WorkerEnrollments,
+		credentialIssuer,
+		app.Tx,
+		nil,                 // default time.Now
+		nil,                 // default uuid.NewV7
+		cfg.NATS.JobAckWait, // reuse as JWT TTL — typically 5min-24h
 	)
 
-	if cfg.NATS.URL != "" {
-		bus, err = natsadapter.NewBus(ctx, cfg.NATS, logger)
-		if err != nil {
-			return nil, err
-		}
+	app.NATSBus = bus
+	app.NATSCredentialIssuer = credentialIssuer
+	app.RateLimiter = natsadapter.NewRateLimiter(rlKV, nil)
+	app.ProcessAuthCallout = processAuth
+	// Start() is invoked from serve.go so the subscription's
+	// lifecycle matches the HTTP server's.
+	app.NATSAuthCallout = natsadapter.NewAuthCalloutSubscriber(
+		bus, processAuth, credentialIssuer, logger,
+	)
 
-		// Stream / KV / Object-Store bootstrap. Idempotent — see
-		// docs/architecture.md §2 for the configs.
-		if err := bus.BootstrapStreams(ctx); err != nil {
-			return nil, err
-		}
+	// Reconciliation scheduler use case now has a real bus. The budget
+	// gate skips accounts whose provider API budget is spent (live KV
+	// state the workers sync from real usage headers) — polling an
+	// exhausted provider only burns budget the backfill needs.
+	app.ReconcileAccount = syncuc.NewReconcileExternalAccount(
+		app.ExternalAccounts,
+		bus,
+		func(ctx context.Context, provider string) bool {
+			_, exhausted := providerBudget(ctx, bus, provider)
+			return exhausted
+		},
+		nil, // default time.Now
+		nil, // default uuid.NewV7
+	)
+	return nil
+}
 
-		credentialIssuer = natsadapter.NewCredentialIssuer(signingKeyRepo, secretBox)
-
-		// Build the rate limiter on the rate-limits KV bucket. The
-		// server-side limiter is intentionally permissive (nil
-		// capacities = no buckets configured = always allow). Workers
-		// pass their own per-provider capacities at construction —
-		// rate-limit policy is a worker concern, not a core concern.
-		rlKV, kvErr := bus.KV(natsadapter.KVRateLimits)
-		if kvErr != nil {
-			return nil, kvErr
-		}
-		rateLimiter = natsadapter.NewRateLimiter(rlKV, nil)
-
-		// Worker auth-callout use case. Needs the issuer.
-		processAuth = enrollment.NewProcessAuthCallout(
-			workerEnrollmentRepo,
-			credentialIssuer,
-			tx,
-			nil,                 // default time.Now
-			nil,                 // default uuid.NewV7
-			cfg.NATS.JobAckWait, // reuse as JWT TTL — typically 5min-24h
-		)
-
-		authCallout = natsadapter.NewAuthCalloutSubscriber(
-			bus, processAuth, credentialIssuer, logger,
-		)
-		// Start() is invoked from serve.go so the subscription's
-		// lifecycle matches the HTTP server's.
-
-		// Reconciliation scheduler use case now has a real bus. The budget
-		// gate skips accounts whose provider API budget is spent (live KV
-		// state the workers sync from real usage headers) — polling an
-		// exhausted provider only burns budget the backfill needs.
-		reconcile = syncuc.NewReconcileExternalAccount(
-			externalAccountRepo,
-			bus,
-			func(ctx context.Context, provider string) bool {
-				_, exhausted := providerBudget(ctx, bus, provider)
-				return exhausted
-			},
-			nil, // default time.Now
-			nil, // default uuid.NewV7
-		)
-	} else {
-		logger.Info("nats: CAIRN_NATS_URL unset — async layer disabled, single-process mode")
-	}
-
-	// OIDC login use case. Constructed only when at least one provider is
-	// configured; the HTTP layer gates route registration on OIDCLogin being
-	// non-nil.
-	var oidcLogin *authuc.OIDCLogin
-	if len(oidcProviders) > 0 {
-		oidcLogin = authuc.NewOIDCLogin(
-			oidcProviders,
-			linkedIdentityRepo,
-			sessionRepo,
-			users,
-			cfg.Auth.SessionTTL,
-			cfg.HTTP.PublicBaseURL,
-		)
-	}
-
-	// S3-compatible blob store. Gated on storage credentials being set —
-	// instances that don't yet have object storage configured come up
-	// in a "no raw blobs" mode; ingest pipelines still run end-to-end.
-	var blobStore port.BlobStore
-	if cfg.Storage.Configured() {
-		bs, err := s3adapter.New(cfg.Storage)
-		if err != nil {
-			return nil, err
-		}
-		// Create the configured bucket (CAIRN_STORAGE_BUCKET) if it's missing —
-		// part of core bootstrap so a fresh deployment needs no out-of-band step.
-		if err := bs.EnsureBucket(ctx); err != nil {
-			return nil, fmt.Errorf("ensure storage bucket: %w", err)
-		}
-		if err := bs.EnsureLifecycleRule(ctx, "cairn-transfer-expiry", transferPrefix, int32(cfg.Storage.TransferExpiryDays)); err != nil {
-			return nil, fmt.Errorf("ensure transfer lifecycle: %w", err)
-		}
-		blobStore = bs
-		logger.Info("blob store wired",
-			"endpoint", cfg.Storage.Endpoint,
-			"bucket", cfg.Storage.Bucket,
-			"path_style", cfg.Storage.UsePathStyle)
-	} else {
+// wireAppBlobStore wires the S3-compatible blob store. Gated on storage
+// credentials being set — instances that don't yet have object storage
+// configured come up in a "no raw blobs" mode; ingest pipelines still run end-to-end.
+func wireAppBlobStore(ctx context.Context, app *App, cfg *config.Config, logger *slog.Logger) error {
+	if !cfg.Storage.Configured() {
 		logger.Info("blob store not configured: CAIRN_STORAGE_ACCESS_KEY_ID/SECRET_ACCESS_KEY unset")
+		return nil
 	}
+	bs, err := s3adapter.New(cfg.Storage)
+	if err != nil {
+		return err
+	}
+	// Create the configured bucket (CAIRN_STORAGE_BUCKET) if it's missing —
+	// part of core bootstrap so a fresh deployment needs no out-of-band step.
+	if err := bs.EnsureBucket(ctx); err != nil {
+		return fmt.Errorf("ensure storage bucket: %w", err)
+	}
+	if err := bs.EnsureLifecycleRule(ctx, "cairn-transfer-expiry", transferPrefix, wireClampInt32(cfg.Storage.TransferExpiryDays)); err != nil {
+		return fmt.Errorf("ensure transfer lifecycle: %w", err)
+	}
+	app.BlobStore = bs
+	logger.Info("blob store wired",
+		"endpoint", cfg.Storage.Endpoint,
+		"bucket", cfg.Storage.Bucket,
+		"path_style", cfg.Storage.UsePathStyle)
+	return nil
+}
 
-	// Reverse-geocoder for activity start-location subtitles. Gated on
-	// CAIRN_GEOCODER_ENABLED (default true). The adapter enforces the
-	// provider's usage policy internally; the backfiller in serve.go drives it.
-	var computeStartPlace *geocodeuc.ComputeStartPlace
-	if cfg.Geocoder.Enabled {
-		geocoder := geocodeadapter.New(cfg.Geocoder)
-		computeStartPlace = geocodeuc.NewComputeStartPlace(activities, streams, geocoder, logger)
-		logger.Info("geocoder wired", "url", cfg.Geocoder.URL, "min_interval", cfg.Geocoder.MinInterval)
-	} else {
+// wireClampInt32 converts n to int32, saturating at the int32 bounds.
+func wireClampInt32(n int) int32 {
+	switch {
+	case n > math.MaxInt32:
+		return math.MaxInt32
+	case n < math.MinInt32:
+		return math.MinInt32
+	default:
+		return int32(n)
+	}
+}
+
+// wireAppGeocoder wires the reverse-geocoder for activity start-location
+// subtitles. Gated on CAIRN_GEOCODER_ENABLED (default true). The adapter
+// enforces the provider's usage policy internally; the backfiller in serve.go drives it.
+func wireAppGeocoder(app *App, cfg *config.Config, logger *slog.Logger) {
+	if !cfg.Geocoder.Enabled {
 		logger.Info("geocoder disabled: CAIRN_GEOCODER_ENABLED=false")
+		return
 	}
-
-	return &App{
-		Tx:                       tx,
-		Activities:               activities,
-		UserSettings:             settings,
-		Users:                    users,
-		Streams:                  streams,
-		BestEfforts:              bestEffortRepo,
-		Segments:                 segmentRepo,
-		Metrics:                  metricRepo,
-		Notifications:            notificationRepo,
-		NotificationPrefs:        notificationPrefRepo,
-		WebhookEndpoints:         webhookEndpointRepo,
-		QuietHours:               quietHoursRepo,
-		NotificationDeliveries:   notificationDeliveryRepo,
-		Follows:                  followRepo,
-		FederationKeys:           federationKeyRepo,
-		FederationActors:         federationActorRepo,
-		FederationFollows:        federationFollowRepo,
-		FederationDeliveries:     federationDeliveryRepo,
-		FederationBlocks:         federationBlockRepo,
-		InboxDedup:               inboxDedupRepo,
-		FederationFeed:           federationFeedRepo,
-		Visibility:               visibilityRepo,
-		ShareLinks:               shareLinkRepo,
-		Engagement:               engagementRepo,
-		Blocks:                   blockRepo,
-		Reports:                  reportRepo,
-		Moderation:               moderationRepo,
-		Quotas:                   quotaRepo,
-		QuotaMaxActivities:       cfg.Quota.MaxActivitiesPerUser,
-		DefaultPollInterval:      cfg.Scheduler.PollingInterval,
-		Clubs:                    clubRepo,
-		ExternalAccounts:         externalAccountRepo,
-		WorkerEnrollments:        workerEnrollmentRepo,
-		SigningKeys:              signingKeyRepo,
-		OAuthTokens:              oauthTokenRepo,
-		DeadLetters:              deadLetterRepo,
-		ImportQueue:              importQueueRepo,
-		UserProviderConfigs:      userProviderConfigRepo,
-		AthleteProfiles:          athleteProfileRepo,
-		Passkeys:                 passkeyRepo,
-		ImportEvents:             importEventRepo,
-		PasswordHasher:           hasher,
-		SecretBox:                secretBox,
-		NATSBus:                  bus,
-		NATSCredentialIssuer:     credentialIssuer,
-		NATSAuthCallout:          authCallout,
-		RateLimiter:              rateLimiter,
-		BlobStore:                blobStore,
-		Email:                    emailSender,
-		Sessions:                 sessionRepo,
-		OIDCProviders:            oidcProviders,
-		LinkedIdentities:         linkedIdentityRepo,
-		OIDCLogin:                oidcLogin,
-		RecomputeActivity:        recompute,
-		IngestActivity:           ingest,
-		ReclusterBucket:          reclusterBucket,
-		FieldOverrides:           fieldOverrides,
-		ClassOverrides:           classOverrides,
-		Attachments:              attachments,
-		SourceDenylist:           sourceDenylist,
-		Health:                   healthRepo,
-		ComputeBestEfforts:       computeBestEfforts,
-		MatchSegments:            matchSegments,
-		ComputeSegmentRanks:      computeSegmentRanks,
-		ComputeTrainingLoad:      computeTrainingLoad,
-		DispatchPR:               dispatchPR,
-		DeliverNotifications:     deliverNotifs,
-		NotifyAccountNeedsReauth: notifyReauth,
-		NotifyWorkerOffline:      notifyWorkerOffline,
-		ComputeStartPlace:        computeStartPlace,
-		ReconcileAccount:         reconcile,
-		CreateWorkerEnrollment:   createEnrollment,
-		RevokeWorkerEnrollment:   revokeEnrollment,
-		ProcessAuthCallout:       processAuth,
-		CreateUser:               createUser,
-		BootstrapAdmin:           bootstrap,
-		Invites:                  inviteRepo,
-		CreateInvite:             createInvite,
-		RedeemInvite:             redeemInvite,
-		PATs:                     patRepo,
-		AuthTokens:               authTokenRepo,
-		OAuth:                    oauthServerRepo,
-		PublicBaseURL:            cfg.HTTP.PublicBaseURL,
-		FederationEnabled:        cfg.Federation.Enabled,
-	}, nil
+	geocoder := geocodeadapter.New(cfg.Geocoder)
+	app.ComputeStartPlace = geocodeuc.NewComputeStartPlace(app.Activities, app.Streams, geocoder, logger)
+	logger.Info("geocoder wired", "url", cfg.Geocoder.URL, "min_interval", cfg.Geocoder.MinInterval)
 }

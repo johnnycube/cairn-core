@@ -6,11 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/johnnycube/cairn-core/internal/domain"
 	"github.com/johnnycube/cairn-core/internal/port"
@@ -56,455 +53,55 @@ func mountSyncEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		logger.Info("sync endpoints not mounted: NATS not wired")
 		return
 	}
-
-	queueCounts := func(ctx context.Context, id domain.ExternalAccountID) map[string]int {
-		c, _ := app.ImportQueue.CountByStatus(ctx, id)
-		return map[string]int{
-			"pending":     c[domain.ImportStatusPending],
-			"in_progress": c[domain.ImportStatusInProgress],
-			"done":        c[domain.ImportStatusDone],
-			"failed":      c[domain.ImportStatusFailed],
-			"skipped":     c[domain.ImportStatusSkipped],
-		}
-	}
-
-	ownAccount := func(r *http.Request) (domain.ExternalAccount, bool) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			return domain.ExternalAccount{}, false
-		}
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			return domain.ExternalAccount{}, false
-		}
-		a, err := app.ExternalAccounts.GetExternalAccount(r.Context(), domain.ExternalAccountID(id))
-		if err != nil || a.UserID != userID {
-			return domain.ExternalAccount{}, false
-		}
-		return a, true
-	}
+	h := syncHandlers{app: app, logger: logger}
 
 	// GET /api/accounts — the user's connected accounts + per-account queue.
-	mux.HandleFunc("GET /api/accounts", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		accts, err := app.ExternalAccounts.ListAccountsForUser(r.Context(), userID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		out := make([]map[string]any, 0, len(accts))
-		// Live API budget per provider (memoised — accounts often share one).
-		budgets := map[string]map[string]any{}
-		budgetLimited := map[string]bool{}
-		for _, a := range accts {
-			if _, seen := budgets[a.Provider]; !seen {
-				budgets[a.Provider], budgetLimited[a.Provider] = providerBudget(r.Context(), app.NATSBus, a.Provider)
-			}
-		}
-		for _, a := range accts {
-			// Total activities already imported from this account (count of
-			// its sources). Cheap for single-user instances.
-			imported := 0
-			if existing, e := app.Activities.ExistingExternalIDs(r.Context(), a.Provider, a.ID); e == nil {
-				imported = len(existing)
-			}
-			var lastSync any
-			if a.LastSyncAt != nil {
-				lastSync = a.LastSyncAt.UTC().Format(time.RFC3339)
-			}
-			var watermark any
-			if a.SyncWatermark != nil {
-				watermark = a.SyncWatermark.UTC().Format(time.RFC3339)
-			}
-			// Per-connection config (currently the poll interval). 0 = use the
-			// instance default.
-			pollInterval := 0
-			providerTotal := 0
-			discovering := false
-			rateLimited := rateLimitedNow(a.RateLimit) || budgetLimited[a.Provider]
-			if len(a.Config) > 0 {
-				var cfg map[string]any
-				if json.Unmarshal(a.Config, &cfg) == nil {
-					if v, ok := cfg["poll_interval_seconds"].(float64); ok {
-						pollInterval = int(v)
-					}
-					if v, ok := cfg["last_discovered_total"].(float64); ok {
-						providerTotal = int(v)
-					}
-					if v, ok := cfg["discovering"].(bool); ok {
-						discovering = v
-					}
-					// Worker-reported budget exhaustion (set by sync/preview|start
-					// on a rate-limit error) — surfaced until the cooldown lapses.
-					if v, ok := cfg["rate_limited_until"].(string); ok && v != "" {
-						if until, err := time.Parse(time.RFC3339, v); err == nil && time.Now().Before(until) {
-							rateLimited = true
-						}
-					}
-				}
-			}
-			// last_discovered_total is a snapshot from the last user-driven
-			// discovery; reconcile imports activities without refreshing it,
-			// so the live imported count can overtake it ("906 / 905"). An
-			// imported external id is proof the provider had at least that
-			// many — clamp instead of showing an impossible ratio. Zero stays
-			// zero: it means "never discovered" and the UI hides the total.
-			if providerTotal > 0 && imported > providerTotal {
-				providerTotal = imported
-			}
-			var connectionID any
-			if a.ConnectionID != nil {
-				connectionID = a.ConnectionID.String()
-			}
-			out = append(out, map[string]any{
-				"id": a.ID.String(), "provider": a.Provider,
-				"connection_id":       connectionID,
-				"provider_account_id": a.ProviderAccountID,
-				"label":               a.DisplayLabel, "status": string(a.Status),
-				"imported":              imported,
-				"provider_total":        providerTotal,
-				"last_sync_at":          lastSync,
-				"watermark":             watermark,
-				"rate_limited":          rateLimited,
-				"rate_limit_budget":     budgets[a.Provider],
-				"discovering":           discovering,
-				"poll_interval_seconds": pollInterval,
-				"auto_import_enabled":   a.AutoImportEnabled,
-				"queue":                 queueCounts(r.Context(), a.ID),
-			})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"accounts": out,
-			// Instance-wide reconcile cadence — shown next to the per-connection
-			// override so "0 = instance default" names a concrete number.
-			"default_poll_interval_seconds": int(app.DefaultPollInterval.Seconds()),
-		})
-	})
+	mux.HandleFunc("GET /api/accounts", h.listAccounts)
 
 	// PUT /api/accounts/{id}/auto-import {enabled} — suspend/resume automatic
 	// imports (reconcile + webhook fetch) for this account (#93).
-	mux.HandleFunc("PUT /api/accounts/{id}/auto-import", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		var body struct {
-			Enabled bool `json:"enabled"`
-		}
-		if err := decodeJSONBody(r, &body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		if err := app.ExternalAccounts.SetAutoImport(r.Context(), a.ID, body.Enabled); err != nil {
-			http.Error(w, "update failed", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"auto_import_enabled": body.Enabled})
-	})
+	mux.HandleFunc("PUT /api/accounts/{id}/auto-import", h.setAutoImport)
 
 	// POST /api/accounts/{id}/sync/preview — discover + summarize (no enqueue).
-	mux.HandleFunc("POST /api/accounts/{id}/sync/preview", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		items, complete, err := discoverAllNoWait(r.Context(), app, a)
-		if err != nil {
-			if writeRateLimited(w, app, r, a.ID, err) {
-				return
-			}
-			http.Error(w, "discover failed: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-		// Persist the provider-side total so the connection card can show
-		// "imported X / Y" even without re-running discovery. A successful
-		// discover also clears any stale rate-limit marker.
-		_ = app.ExternalAccounts.UpdateAccountConfig(r.Context(), a.ID,
-			map[string]any{"last_discovered_total": len(items), "rate_limited_until": ""})
-		existing, _ := app.Activities.ExistingExternalIDs(r.Context(), a.Provider, a.ID)
-		present := 0
-		for _, it := range items {
-			if _, ok := existing[it.ExternalID]; ok {
-				present++
-			}
-		}
-		// complete=false means a rate limit cut the preview walk short — the
-		// counts are a lower bound; the full sync will discover the rest.
-		writeJSON(w, http.StatusOK, map[string]any{
-			"total": len(items), "already_present": present, "new": len(items) - present,
-			"complete": complete,
-		})
-	})
+	mux.HandleFunc("POST /api/accounts/{id}/sync/preview", h.syncPreview)
 
 	// POST /api/accounts/{id}/sync/start {skip_existing} — discover + enqueue.
-	mux.HandleFunc("POST /api/accounts/{id}/sync/start", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			SkipExisting bool `json:"skip_existing"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-
-		// Full Sync runs in the background: it walks EVERY page (to the 0-item
-		// end), enqueues incrementally, and resumes across rate-limit windows.
-		// Returning immediately keeps the request fast; the UI tracks progress
-		// via the queue counts + the "discovering" flag.
-		go runFullDiscovery(app, logger, a, body.SkipExisting)
-		logger.Info("full discovery started", "account_id", a.ID, "skip_existing", body.SkipExisting)
-		writeJSON(w, http.StatusOK, map[string]any{"started": true})
-	})
+	mux.HandleFunc("POST /api/accounts/{id}/sync/start", h.syncStart)
 
 	// POST /api/accounts/{id}/import-one {external_id} — explicitly import (or
 	// re-import) a single activity by its provider ID. Provider-generic: it
 	// rides the same persisted queue → processor → fetch_source job path as
 	// full sync, so pacing, rate limits, and result routing all apply.
-	mux.HandleFunc("POST /api/accounts/{id}/import-one", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			ExternalID string `json:"external_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		body.ExternalID = strings.TrimSpace(body.ExternalID)
-		if body.ExternalID == "" {
-			http.Error(w, "external_id required", http.StatusBadRequest)
-			return
-		}
-		n, err := app.ImportQueue.Enqueue(r.Context(), []domain.ImportQueueItem{{
-			ExternalAccountID: a.ID, UserID: a.UserID, Provider: a.Provider,
-			ItemType: domain.ImportItemActivity, ExternalID: body.ExternalID,
-		}})
-		if err != nil {
-			http.Error(w, "enqueue failed", http.StatusInternalServerError)
-			return
-		}
-		logger.Info("single-activity import queued", "account_id", a.ID, "external_id", body.ExternalID, "new", n > 0)
-		writeJSON(w, http.StatusOK, map[string]any{"queued": n > 0, "already_queued": n == 0})
-	})
+	mux.HandleFunc("POST /api/accounts/{id}/import-one", h.importOne)
 
 	// PUT /api/accounts/{id}/config — per-connection settings (poll interval).
-	mux.HandleFunc("PUT /api/accounts/{id}/config", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			PollIntervalSeconds *int `json:"poll_interval_seconds"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		patch := map[string]any{}
-		if body.PollIntervalSeconds != nil {
-			v := *body.PollIntervalSeconds
-			if v < 0 {
-				http.Error(w, "poll_interval_seconds must be >= 0", http.StatusBadRequest)
-				return
-			}
-			patch["poll_interval_seconds"] = v
-		}
-		if err := app.ExternalAccounts.UpdateAccountConfig(r.Context(), a.ID, patch); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+	mux.HandleFunc("PUT /api/accounts/{id}/config", h.putConfig)
 
 	// GET /api/accounts/{id}/history — the connection's import history.
-	mux.HandleFunc("GET /api/accounts/{id}/history", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		events := []map[string]any{}
-		if app.ImportEvents != nil {
-			list, _ := app.ImportEvents.ListForAccount(r.Context(), a.ID, 50)
-			for _, e := range list {
-				ev := map[string]any{
-					"kind":        e.Kind,
-					"count":       e.Count,
-					"detail":      e.Detail,
-					"external_id": e.ExternalID,
-					"occurred_at": e.OccurredAt.UTC().Format(time.RFC3339),
-				}
-				// Resolve the internal activity id for per-activity events so the
-				// UI can deep-link to the imported activity, plus an external deep
-				// link to the original on the provider's site.
-				linked := false
-				if e.ExternalID != "" && (e.Kind == domain.ImportEventActivityImported || e.Kind == domain.ImportEventActivityUpdated) {
-					if src, err := app.Activities.FindSourceByExternalID(r.Context(), a.Provider, &a.ID, e.ExternalID); err == nil {
-						ev["activity_id"] = src.ActivityID.String()
-						linked = true
-					}
-					if ext := providerActivityURL(a.Provider, e.ExternalID); ext != "" {
-						ev["external_url"] = ext
-					}
-				}
-				// Per-entry status: failed; completed (the activity is in and
-				// linkable); or ongoing (queued/processing — no link yet).
-				switch {
-				case e.Kind == domain.ImportEventFailed:
-					ev["status"] = "failed"
-				case linked:
-					ev["status"] = "completed"
-				default:
-					ev["status"] = "ongoing"
-				}
-				events = append(events, ev)
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"events": events})
-	})
+	mux.HandleFunc("GET /api/accounts/{id}/history", h.history)
 
 	// GET /api/accounts/{id}/queue — queue status.
-	mux.HandleFunc("GET /api/accounts/{id}/queue", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, http.StatusOK, queueCounts(r.Context(), a.ID))
-	})
+	mux.HandleFunc("GET /api/accounts/{id}/queue", h.queue)
 
 	// GET /api/accounts/{id}/queue/items?status=pending,in_progress&limit=100 —
 	// the actual queue rows, for debugging a stuck import from the UI. Default
 	// filter is the "live" set (everything not done); pass status=all for the
 	// full picture including done items.
-	mux.HandleFunc("GET /api/accounts/{id}/queue/items", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		statuses := []domain.ImportItemStatus{domain.ImportStatusPending, domain.ImportStatusInProgress, domain.ImportStatusFailed}
-		if q := r.URL.Query().Get("status"); q != "" {
-			if q == "all" {
-				statuses = nil
-			} else {
-				statuses = statuses[:0]
-				for s := range strings.SplitSeq(q, ",") {
-					if s = strings.TrimSpace(s); s != "" {
-						statuses = append(statuses, domain.ImportItemStatus(s))
-					}
-				}
-			}
-		}
-		limit := 100
-		if v := r.URL.Query().Get("limit"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				limit = n
-			}
-		}
-		items, err := app.ImportQueue.ListForAccount(r.Context(), a.ID, statuses, limit)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		out := make([]map[string]any, 0, len(items))
-		for _, it := range items {
-			row := map[string]any{
-				"id":          it.ID.String(),
-				"item_type":   string(it.ItemType),
-				"external_id": it.ExternalID,
-				"status":      string(it.Status),
-				"priority":    it.Priority,
-				"attempts":    it.Attempts,
-				"last_error":  it.LastError,
-				"created_at":  it.CreatedAt.UTC().Format(time.RFC3339),
-			}
-			if it.ItemTime != nil {
-				row["item_time"] = it.ItemTime.UTC().Format(time.RFC3339)
-			}
-			if it.StartedAt != nil {
-				row["started_at"] = it.StartedAt.UTC().Format(time.RFC3339)
-			}
-			if it.CompletedAt != nil {
-				row["completed_at"] = it.CompletedAt.UTC().Format(time.RFC3339)
-			}
-			if url := providerActivityURL(a.Provider, it.ExternalID); url != "" {
-				row["external_url"] = url
-			}
-			out = append(out, row)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": out})
-	})
+	mux.HandleFunc("GET /api/accounts/{id}/queue/items", h.queueItems)
 
 	// POST /api/accounts/{id}/queue/items/{itemID}/requeue — flip one failed
 	// item back to pending (attempts reset) so the processor retries it.
-	mux.HandleFunc("POST /api/accounts/{id}/queue/items/{itemID}/requeue", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		itemID, err := uuid.Parse(r.PathValue("itemID"))
-		if err != nil {
-			http.Error(w, "bad item id", http.StatusBadRequest)
-			return
-		}
-		done, err := app.ImportQueue.RequeueFailed(r.Context(), a.ID, domain.ImportQueueItemID(itemID))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if !done {
-			http.Error(w, "item is not in failed state", http.StatusConflict)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"requeued": true})
-	})
+	mux.HandleFunc("POST /api/accounts/{id}/queue/items/{itemID}/requeue", h.queueItemAction(
+		func(ctx context.Context, id domain.ExternalAccountID, itemID domain.ImportQueueItemID) (bool, error) {
+			return app.ImportQueue.RequeueFailed(ctx, id, itemID)
+		}, "item is not in failed state", "requeued"))
 
 	// POST /api/accounts/{id}/queue/items/{itemID}/move-to-top — bump one
 	// pending item above the rest so it is claimed on the next tick.
-	mux.HandleFunc("POST /api/accounts/{id}/queue/items/{itemID}/move-to-top", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := ownAccount(r)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		itemID, err := uuid.Parse(r.PathValue("itemID"))
-		if err != nil {
-			http.Error(w, "bad item id", http.StatusBadRequest)
-			return
-		}
-		done, err := app.ImportQueue.MoveToTop(r.Context(), a.ID, domain.ImportQueueItemID(itemID))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if !done {
-			http.Error(w, "item is not in pending state", http.StatusConflict)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"moved": true})
-	})
+	mux.HandleFunc("POST /api/accounts/{id}/queue/items/{itemID}/move-to-top", h.queueItemAction(
+		func(ctx context.Context, id domain.ExternalAccountID, itemID domain.ImportQueueItemID) (bool, error) {
+			return app.ImportQueue.MoveToTop(ctx, id, itemID)
+		}, "item is not in pending state", "moved"))
 
 	logger.Info("sync endpoints mounted")
 }
@@ -609,13 +206,7 @@ func runFullDiscovery(app *App, logger *slog.Logger, a domain.ExternalAccount, s
 			break
 		}
 		discovered += len(b.Items)
-		if q := buildImportQueue(b.Items, a, skipExisting, existing); len(q) > 0 {
-			if n, e := app.ImportQueue.Enqueue(ctx, q); e == nil {
-				enqueued += n
-			} else {
-				log.Warn("enqueue failed", "error", e)
-			}
-		}
+		enqueued += fullDiscoveryEnqueue(ctx, log, app, buildImportQueue(b.Items, a, skipExisting, existing))
 		_ = app.ExternalAccounts.UpdateAccountConfig(ctx, a.ID,
 			map[string]any{"last_discovered_total": discovered, "discovering": true})
 
@@ -627,28 +218,53 @@ func runFullDiscovery(app *App, logger *slog.Logger, a domain.ExternalAccount, s
 		if page <= 0 {
 			break
 		}
-		if b.RateLimited {
-			_ = app.ExternalAccounts.UpdateAccountConfig(ctx, a.ID,
-				map[string]any{"rate_limited_until": time.Now().UTC().Add(rateLimitCooldown).Format(time.RFC3339)})
-			log.Info("discovery paused on rate limit; resuming after window", "next_page", page)
-			select {
-			case <-time.After(16 * time.Minute): // Strava short window is 15 min
-			case <-ctx.Done():
-				return
-			}
+		if b.RateLimited && !fullDiscoveryWaitRateLimit(ctx, log, app, a.ID, page) {
+			return
 		}
 	}
 
-	if app.ImportEvents != nil && enqueued > 0 {
-		detail := "Full sync"
-		if skipExisting {
-			detail = "Full sync (new only)"
-		}
-		_ = app.ImportEvents.Record(ctx, domain.ConnectionImportEvent{
-			ExternalAccountID: a.ID, Kind: domain.ImportEventSyncStarted, Count: enqueued, Detail: detail,
-		})
-	}
+	fullDiscoveryRecordEvent(ctx, app, a.ID, skipExisting, enqueued)
 	log.Info("full discovery complete", "discovered", discovered, "enqueued", enqueued)
+}
+
+// fullDiscoveryEnqueue enqueues one discovered batch and returns how many rows were new.
+func fullDiscoveryEnqueue(ctx context.Context, log *slog.Logger, app *App, q []domain.ImportQueueItem) int {
+	if len(q) == 0 {
+		return 0
+	}
+	n, e := app.ImportQueue.Enqueue(ctx, q)
+	if e != nil {
+		log.Warn("enqueue failed", "error", e)
+		return 0
+	}
+	return n
+}
+
+// fullDiscoveryWaitRateLimit marks the account rate-limited and waits out the window; false when ctx ended.
+func fullDiscoveryWaitRateLimit(ctx context.Context, log *slog.Logger, app *App, id domain.ExternalAccountID, page int) bool {
+	_ = app.ExternalAccounts.UpdateAccountConfig(ctx, id,
+		map[string]any{"rate_limited_until": time.Now().UTC().Add(rateLimitCooldown).Format(time.RFC3339)})
+	log.Info("discovery paused on rate limit; resuming after window", "next_page", page)
+	select {
+	case <-time.After(16 * time.Minute): // Strava short window is 15 min
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// fullDiscoveryRecordEvent records the sync-started history event when anything was enqueued.
+func fullDiscoveryRecordEvent(ctx context.Context, app *App, id domain.ExternalAccountID, skipExisting bool, enqueued int) {
+	if app.ImportEvents == nil || enqueued <= 0 {
+		return
+	}
+	detail := "Full sync"
+	if skipExisting {
+		detail = "Full sync (new only)"
+	}
+	_ = app.ImportEvents.Record(ctx, domain.ConnectionImportEvent{
+		ExternalAccountID: id, Kind: domain.ImportEventSyncStarted, Count: enqueued, Detail: detail,
+	})
 }
 
 // ---------------------------------------------------------------------------

@@ -89,34 +89,38 @@ func Apply(o Options, a domain.Activity, s domain.Stream) (domain.Activity, doma
 	samples := make([]domain.StreamSample, len(s.Samples))
 	copy(samples, s.Samples)
 	for i := range samples {
-		p := &samples[i]
-		if !o.GPS {
-			p.Latitude, p.Longitude = nil, nil
-		}
-		if !o.Altitude {
-			p.AltitudeM = nil
-		}
-		if !o.Distance {
-			p.DistanceM = nil
-		}
-		if !o.Speed {
-			p.SpeedMps = nil
-		}
-		if !o.HeartRate {
-			p.HeartRateBpm = nil
-		}
-		if !o.Power {
-			p.PowerW = nil
-		}
-		if !o.Cadence {
-			p.Cadence = nil
-		}
-		if !o.Temperature {
-			p.TemperatureC = nil
-		}
+		exportStripSample(o, &samples[i])
 	}
 	s.Samples = samples
 	return a, s
+}
+
+// exportStripSample clears the channels o excludes from one sample.
+func exportStripSample(o Options, p *domain.StreamSample) {
+	if !o.GPS {
+		p.Latitude, p.Longitude = nil, nil
+	}
+	if !o.Altitude {
+		p.AltitudeM = nil
+	}
+	if !o.Distance {
+		p.DistanceM = nil
+	}
+	if !o.Speed {
+		p.SpeedMps = nil
+	}
+	if !o.HeartRate {
+		p.HeartRateBpm = nil
+	}
+	if !o.Power {
+		p.PowerW = nil
+	}
+	if !o.Cadence {
+		p.Cadence = nil
+	}
+	if !o.Temperature {
+		p.TemperatureC = nil
+	}
 }
 
 // Available reports, per feature token, whether the activity/stream actually
@@ -128,31 +132,35 @@ func Available(a domain.Activity, s domain.Stream) map[string]bool {
 		"title": strings.TrimSpace(a.Title) != "",
 	}
 	for i := range s.Samples {
-		p := &s.Samples[i]
-		if p.Latitude != nil && p.Longitude != nil {
-			av["gps"] = true
-		}
-		if p.AltitudeM != nil {
-			av["altitude"] = true
-		}
-		if p.DistanceM != nil {
-			av["distance"] = true
-		}
-		if p.SpeedMps != nil {
-			av["speed"] = true
-		}
-		if p.HeartRateBpm != nil {
-			av["heart_rate"] = true
-		}
-		if p.PowerW != nil {
-			av["power"] = true
-		}
-		if p.Cadence != nil {
-			av["cadence"] = true
-		}
-		if p.TemperatureC != nil {
-			av["temperature"] = true
-		}
+		exportMarkAvailable(av, &s.Samples[i])
 	}
 	return av
+}
+
+// exportMarkAvailable sets av[token] for each channel present in p.
+func exportMarkAvailable(av map[string]bool, p *domain.StreamSample) {
+	if p.Latitude != nil && p.Longitude != nil {
+		av["gps"] = true
+	}
+	if p.AltitudeM != nil {
+		av["altitude"] = true
+	}
+	if p.DistanceM != nil {
+		av["distance"] = true
+	}
+	if p.SpeedMps != nil {
+		av["speed"] = true
+	}
+	if p.HeartRateBpm != nil {
+		av["heart_rate"] = true
+	}
+	if p.PowerW != nil {
+		av["power"] = true
+	}
+	if p.Cadence != nil {
+		av["cadence"] = true
+	}
+	if p.TemperatureC != nil {
+		av["temperature"] = true
+	}
 }

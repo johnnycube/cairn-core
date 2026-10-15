@@ -74,7 +74,9 @@
 	}
 	function path(vals: number[]): string {
 		const n = vals.length;
-		return vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i, n).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+		return vals
+			.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i, n).toFixed(1)},${y(v).toFixed(1)}`)
+			.join(' ');
 	}
 
 	// y=0 gridline (form crosses zero — meaningful for TSB)
@@ -106,8 +108,8 @@
 	<header>
 		<h1 class="text-3xl font-semibold tracking-tight max-md:text-2xl">Analysis</h1>
 		<p class="mt-1 text-sm text-zinc-400">
-			Track real fitness progress over time. Fitness (CTL) is your chronic training load,
-			Fatigue (ATL) the acute load, and Form (TSB = CTL − ATL) tells you how fresh you are.
+			Track real fitness progress over time. Fitness (CTL) is your chronic training load, Fatigue
+			(ATL) the acute load, and Form (TSB = CTL − ATL) tells you how fresh you are.
 		</p>
 	</header>
 
@@ -204,7 +206,10 @@
 						{@const hx = x(hover, n)}
 						<line x1={hx} y1={PAD.t} x2={hx} y2={PAD.t + plotH} stroke="#52525b" stroke-width="1" />
 						{#each series as s (s.key)}
-							<circle cx={hx} cy={y(a[s.key][hover])} r="3" fill={s.color} />
+							{@const v = a[s.key][hover]}
+							{#if v !== undefined}
+								<circle cx={hx} cy={y(v)} r="3" fill={s.color} />
+							{/if}
 						{/each}
 					{/if}
 				</svg>
@@ -213,12 +218,13 @@
 				<div class="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs">
 					<div class="flex flex-wrap gap-4">
 						{#each series as s (s.key)}
+							{@const v = hover === null ? undefined : a[s.key][hover]}
 							<span class="flex items-center gap-1.5 text-zinc-400">
 								<span class="inline-block h-2 w-2 rounded-full" style:background={s.color}></span>
 								{s.label}
-								{#if hover !== null}
+								{#if v !== undefined}
 									<span class="tabular-nums text-zinc-200">
-										{s.key === 'tsb' ? fmt(a[s.key][hover]) : a[s.key][hover].toFixed(1)}
+										{s.key === 'tsb' ? fmt(v) : v.toFixed(1)}
 									</span>
 								{/if}
 							</span>

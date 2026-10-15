@@ -9,10 +9,20 @@
 
 	type Card = { id: string; username: string; display_name: string; avatar_url: string };
 	type Activity = {
-		id: string; title: string; type: string; start_time: string;
-		distance_m: number | null; elevation_gain_m: number | null; elapsed_duration_s: number;
-		moving_duration_s?: number; description?: string; start_place?: string; start_location_redacted?: boolean;
-		avg_hr?: number | null; avg_power?: number | null; avg_speed_mps?: number | null;
+		id: string;
+		title: string;
+		type: string;
+		start_time: string;
+		distance_m: number | null;
+		elevation_gain_m: number | null;
+		elapsed_duration_s: number;
+		moving_duration_s?: number;
+		description?: string;
+		start_place?: string;
+		start_location_redacted?: boolean;
+		avg_hr?: number | null;
+		avg_power?: number | null;
+		avg_speed_mps?: number | null;
 		visible_categories?: string[];
 		photos_url?: string;
 	};
@@ -25,12 +35,21 @@
 	async function load() {
 		try {
 			const res = await fetch(`/api/activities/${data.id}/projected`);
-			if (res.status === 403) { error = 'You do not have access to this activity.'; return; }
-			if (res.status === 404) { error = 'Activity not found.'; return; }
+			if (res.status === 403) {
+				error = 'You do not have access to this activity.';
+				return;
+			}
+			if (res.status === 404) {
+				error = 'Activity not found.';
+				return;
+			}
 			if (!res.ok) throw new Error((await res.text()).trim());
 			const body = await res.json();
 			// Owners get the full-fidelity page.
-			if (body.is_owner) { goto(`/activities/${data.id}`, { replaceState: true }); return; }
+			if (body.is_owner) {
+				goto(`/activities/${data.id}`, { replaceState: true });
+				return;
+			}
 			activity = body.activity;
 			owner = body.owner;
 			if (activity?.photos_url) {
@@ -61,9 +80,14 @@
 			<div>
 				<h1 class="text-xl font-semibold">{activity.title || 'Untitled'}</h1>
 				<div class="text-sm text-zinc-400">
-					{#if owner}<a href={`/u/${owner.username}`} class="hover:underline">{owner.display_name || owner.username}</a> · {/if}
+					{#if owner}<a href={`/u/${owner.username}`} class="hover:underline"
+							>{owner.display_name || owner.username}</a
+						> ·
+					{/if}
 					{formatRelativeDate(activity.start_time)}
-					{#if activity.start_place && can('location')} · {activity.start_place}{:else if activity.start_location_redacted && can('location')} · <span title="The owner hid this start location">📍 hidden</span>{/if}
+					{#if activity.start_place && can('location')}
+						· {activity.start_place}{:else if activity.start_location_redacted && can('location')}
+						· <span title="The owner hid this start location">📍 hidden</span>{/if}
 				</div>
 			</div>
 		</header>
@@ -72,12 +96,29 @@
 			<p class="mb-4 whitespace-pre-line text-sm text-zinc-300">{activity.description}</p>
 		{/if}
 
-		<div class="grid grid-cols-3 gap-4 rounded-lg border bg-zinc-900/40 border border-zinc-800 p-4 shadow-sm max-md:grid-cols-2">
-			<div><div class="text-xs text-zinc-400">Distance</div><div class="text-lg font-semibold">{formatDistance(activity.distance_m ?? 0)}</div></div>
-			<div><div class="text-xs text-zinc-400">Time</div><div class="text-lg font-semibold">{formatDuration(activity.elapsed_duration_s)}</div></div>
-			{#if activity.elevation_gain_m}<div><div class="text-xs text-zinc-400">Elevation</div><div class="text-lg font-semibold">{Math.round(activity.elevation_gain_m)} m</div></div>{/if}
-			{#if can('hr') && activity.avg_hr}<div><div class="text-xs text-zinc-400">Avg HR</div><div class="text-lg font-semibold">{activity.avg_hr} bpm</div></div>{/if}
-			{#if can('power') && activity.avg_power}<div><div class="text-xs text-zinc-400">Avg Power</div><div class="text-lg font-semibold">{activity.avg_power} W</div></div>{/if}
+		<div
+			class="grid grid-cols-3 gap-4 rounded-lg border bg-zinc-900/40 border border-zinc-800 p-4 shadow-sm max-md:grid-cols-2"
+		>
+			<div>
+				<div class="text-xs text-zinc-400">Distance</div>
+				<div class="text-lg font-semibold">{formatDistance(activity.distance_m ?? 0)}</div>
+			</div>
+			<div>
+				<div class="text-xs text-zinc-400">Time</div>
+				<div class="text-lg font-semibold">{formatDuration(activity.elapsed_duration_s)}</div>
+			</div>
+			{#if activity.elevation_gain_m}<div>
+					<div class="text-xs text-zinc-400">Elevation</div>
+					<div class="text-lg font-semibold">{Math.round(activity.elevation_gain_m)} m</div>
+				</div>{/if}
+			{#if can('hr') && activity.avg_hr}<div>
+					<div class="text-xs text-zinc-400">Avg HR</div>
+					<div class="text-lg font-semibold">{activity.avg_hr} bpm</div>
+				</div>{/if}
+			{#if can('power') && activity.avg_power}<div>
+					<div class="text-xs text-zinc-400">Avg Power</div>
+					<div class="text-lg font-semibold">{activity.avg_power} W</div>
+				</div>{/if}
 		</div>
 
 		{#if photos.length > 0}

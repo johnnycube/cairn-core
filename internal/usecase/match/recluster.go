@@ -90,165 +90,213 @@ func (uc *ReclusterBucket) Execute(ctx context.Context, in Input) (Result, error
 
 	var result Result
 	err := uc.tx.InTx(ctx, func(ctx context.Context) error {
-		records, err := uc.activities.ListSourceRecordsInBucket(ctx, in.UserID, from, to)
-		if err != nil {
-			return fmt.Errorf("list bucket: %w", err)
-		}
-		if len(records) <= 1 {
-			return nil // nothing to recluster against
-		}
-
-		mrecs := make([]dmatch.Record, 0, len(records))
-		existing := make(map[string]string, len(records))
-		inBucket := make(map[string]bool, len(records))
-		var deniedSingletons []string // denied sources kept standalone (Gap 6)
-		for _, r := range records {
-			sid := r.SourceID.String()
-			inBucket[sid] = true
-			existing[sid] = r.ActivityID.String()
-
-			// Gap-6: a previously-detached identity must not auto-merge on
-			// re-push — keep it standalone (the denylist survives the new source id).
-			if uc.denylist != nil {
-				denied, derr := uc.denylist.IsDenied(ctx, in.UserID, r.Provider, r.ExternalAccountID, r.ExternalID)
-				if derr != nil {
-					return fmt.Errorf("denylist check: %w", derr)
-				}
-				if denied {
-					deniedSingletons = append(deniedSingletons, sid)
-					continue
-				}
-			}
-
-			mrecs = append(mrecs, dmatch.Record{
-				ID: sid,
-				SourceFeatures: dmatch.SourceFeatures{
-					Provider:   r.Provider,
-					SportClass: r.SportClass,
-					StartUTC:   r.StartUTC,
-					DistanceM:  derefF(r.DistanceM),
-					MovingS:    r.MovingS,
-					ElapsedS:   r.ElapsedS,
-					StartLat:   r.StartLat,
-					StartLng:   r.StartLng,
-				},
-			})
-		}
-
-		// Manual constraints scoped to this bucket.
-		cons, err := uc.activities.ListMatchConstraints(ctx, in.UserID)
-		if err != nil {
-			return fmt.Errorf("list constraints: %w", err)
-		}
-		var mc dmatch.Constraints
-		for _, c := range cons {
-			a, b := c.SourceA.String(), c.SourceB.String()
-			if !inBucket[a] || !inBucket[b] {
-				continue
-			}
-			switch c.Kind {
-			case domain.ConstraintMustLink:
-				mc.MustLink = append(mc.MustLink, [2]string{a, b})
-			case domain.ConstraintCannotLink:
-				mc.CannotLink = append(mc.CannotLink, [2]string{a, b})
-			}
-		}
-
-		clustered := dmatch.ClusterBucket(mrecs, mc, uc.opts)
-		result.Conflicts = len(clustered.Conflicts)
-		for _, cf := range clustered.Conflicts {
-			uc.logger.Warn("recluster: same-provider conflict (not merged)",
-				"provider", cf.Provider, "a", cf.AID, "b", cf.BID, "score", cf.Score)
-		}
-
-		// Reconcile clusters → stable activity ids. Denied sources are appended
-		// as their own singleton clusters so they stay standalone.
-		bandByKey := map[string]dmatch.Band{}
-		rcl := make([]reconcile.ClusterInput, 0, len(clustered.Clusters)+len(deniedSingletons))
-		for _, cl := range clustered.Clusters {
-			rcl = append(rcl, reconcile.ClusterInput{SourceIDs: cl.RecordIDs})
-			bandByKey[clusterKey(cl.RecordIDs)] = cl.Confidence
-		}
-		for _, sid := range deniedSingletons {
-			rcl = append(rcl, reconcile.ClusterInput{SourceIDs: []string{sid}})
-			bandByKey[clusterKey([]string{sid})] = dmatch.BandHigh
-		}
-		plan := reconcile.Reconcile(rcl, existing, func() string { return uc.newID().String() })
-
-		// Reassign sources whose activity changed.
-		bandByActivity := map[string]dmatch.Band{}
-		for _, d := range plan.Decisions {
-			bandByActivity[d.ActivityID] = bandByKey[clusterKey(d.SourceIDs)]
-			newAct, err := parseActivityID(d.ActivityID)
-			if err != nil {
-				return err
-			}
-			for _, sid := range d.SourceIDs {
-				if existing[sid] == d.ActivityID {
-					continue
-				}
-				srcID, err := parseSourceID(sid)
-				if err != nil {
-					return err
-				}
-				if err := uc.activities.ReassignSource(ctx, srcID, newAct); err != nil {
-					return err
-				}
-			}
-		}
-
-		// Affected = every decision target ∪ every old activity in the bucket.
-		affected := map[string]bool{}
-		for _, d := range plan.Decisions {
-			affected[d.ActivityID] = true
-		}
-		for _, old := range existing {
-			affected[old] = true
-		}
-		ids := make([]string, 0, len(affected))
-		for a := range affected {
-			ids = append(ids, a)
-		}
-		sort.Strings(ids)
-
-		for _, a := range ids {
-			aid, err := parseActivityID(a)
-			if err != nil {
-				return err
-			}
-			rec, err := uc.recompute.Execute(ctx, aid)
-			if err != nil {
-				return fmt.Errorf("recompute %s: %w", a, err)
-			}
-			if rec.SoftDeleted {
-				result.SoftDeleted = append(result.SoftDeleted, aid)
-				continue
-			}
-			if band, ok := bandByActivity[a]; ok {
-				if err := uc.activities.SetActivityMatchState(ctx, aid, string(band), band == dmatch.BandMedium); err != nil {
-					return err
-				}
-				result.AffectedActivityIDs = append(result.AffectedActivityIDs, aid)
-			}
-		}
-
-		// Record merge redirects so old ids still resolve.
-		for _, rd := range plan.Redirects {
-			oldID, err := parseActivityID(rd[0])
-			if err != nil {
-				return err
-			}
-			newID, err := parseActivityID(rd[1])
-			if err != nil {
-				return err
-			}
-			if err := uc.activities.AddActivityRedirect(ctx, oldID, newID, "merge"); err != nil {
-				return err
-			}
-		}
-		return nil
+		return uc.reclusterInTx(ctx, in.UserID, from, to, &result)
 	})
 	return result, err
+}
+
+// reclusterBucketInput is the matcher view of one bucket.
+type reclusterBucketInput struct {
+	mrecs            []dmatch.Record
+	existing         map[string]string // source id → current activity id
+	inBucket         map[string]bool
+	deniedSingletons []string // denied sources kept standalone (Gap 6)
+}
+
+func (uc *ReclusterBucket) reclusterInTx(ctx context.Context, userID domain.UserID, from, to time.Time, result *Result) error {
+	records, err := uc.activities.ListSourceRecordsInBucket(ctx, userID, from, to)
+	if err != nil {
+		return fmt.Errorf("list bucket: %w", err)
+	}
+	if len(records) <= 1 {
+		return nil // nothing to recluster against
+	}
+
+	bucket, err := uc.reclusterBuildBucket(ctx, userID, records)
+	if err != nil {
+		return err
+	}
+
+	// Manual constraints scoped to this bucket.
+	cons, err := uc.activities.ListMatchConstraints(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("list constraints: %w", err)
+	}
+	mc := reclusterConstraints(cons, bucket.inBucket)
+
+	clustered := dmatch.ClusterBucket(bucket.mrecs, mc, uc.opts)
+	result.Conflicts = len(clustered.Conflicts)
+	for _, cf := range clustered.Conflicts {
+		uc.logger.Warn("recluster: same-provider conflict (not merged)",
+			"provider", cf.Provider, "a", cf.AID, "b", cf.BID, "score", cf.Score)
+	}
+
+	// Reconcile clusters → stable activity ids. Denied sources are appended
+	// as their own singleton clusters so they stay standalone.
+	bandByKey := map[string]dmatch.Band{}
+	rcl := make([]reconcile.ClusterInput, 0, len(clustered.Clusters)+len(bucket.deniedSingletons))
+	for _, cl := range clustered.Clusters {
+		rcl = append(rcl, reconcile.ClusterInput{SourceIDs: cl.RecordIDs})
+		bandByKey[clusterKey(cl.RecordIDs)] = cl.Confidence
+	}
+	for _, sid := range bucket.deniedSingletons {
+		rcl = append(rcl, reconcile.ClusterInput{SourceIDs: []string{sid}})
+		bandByKey[clusterKey([]string{sid})] = dmatch.BandHigh
+	}
+	plan := reconcile.Reconcile(rcl, bucket.existing, func() string { return uc.newID().String() })
+
+	bandByActivity, err := uc.reclusterReassign(ctx, plan, bucket.existing, bandByKey)
+	if err != nil {
+		return err
+	}
+	if err := uc.reclusterRecompute(ctx, reclusterAffectedIDs(plan, bucket.existing), bandByActivity, result); err != nil {
+		return err
+	}
+	return uc.reclusterRedirects(ctx, plan)
+}
+
+// reclusterBuildBucket converts records to matcher input, diverting denied sources.
+func (uc *ReclusterBucket) reclusterBuildBucket(ctx context.Context, userID domain.UserID, records []domain.SourceMatchRecord) (reclusterBucketInput, error) {
+	b := reclusterBucketInput{
+		mrecs:    make([]dmatch.Record, 0, len(records)),
+		existing: make(map[string]string, len(records)),
+		inBucket: make(map[string]bool, len(records)),
+	}
+	for _, r := range records {
+		sid := r.SourceID.String()
+		b.inBucket[sid] = true
+		b.existing[sid] = r.ActivityID.String()
+
+		// Gap-6: a previously-detached identity must not auto-merge on
+		// re-push — keep it standalone (the denylist survives the new source id).
+		if uc.denylist != nil {
+			denied, derr := uc.denylist.IsDenied(ctx, userID, r.Provider, r.ExternalAccountID, r.ExternalID)
+			if derr != nil {
+				return b, fmt.Errorf("denylist check: %w", derr)
+			}
+			if denied {
+				b.deniedSingletons = append(b.deniedSingletons, sid)
+				continue
+			}
+		}
+
+		b.mrecs = append(b.mrecs, dmatch.Record{
+			ID: sid,
+			SourceFeatures: dmatch.SourceFeatures{
+				Provider:   r.Provider,
+				SportClass: r.SportClass,
+				StartUTC:   r.StartUTC,
+				DistanceM:  derefF(r.DistanceM),
+				MovingS:    r.MovingS,
+				ElapsedS:   r.ElapsedS,
+				StartLat:   r.StartLat,
+				StartLng:   r.StartLng,
+			},
+		})
+	}
+	return b, nil
+}
+
+// reclusterConstraints keeps manual constraints whose both ends are in the bucket.
+func reclusterConstraints(cons []domain.MatchConstraint, inBucket map[string]bool) dmatch.Constraints {
+	var mc dmatch.Constraints
+	for _, c := range cons {
+		a, b := c.SourceA.String(), c.SourceB.String()
+		if !inBucket[a] || !inBucket[b] {
+			continue
+		}
+		switch c.Kind {
+		case domain.ConstraintMustLink:
+			mc.MustLink = append(mc.MustLink, [2]string{a, b})
+		case domain.ConstraintCannotLink:
+			mc.CannotLink = append(mc.CannotLink, [2]string{a, b})
+		}
+	}
+	return mc
+}
+
+// reclusterReassign moves sources whose activity changed; returns band per activity.
+func (uc *ReclusterBucket) reclusterReassign(ctx context.Context, plan reconcile.Plan, existing map[string]string, bandByKey map[string]dmatch.Band) (map[string]dmatch.Band, error) {
+	bandByActivity := map[string]dmatch.Band{}
+	for _, d := range plan.Decisions {
+		bandByActivity[d.ActivityID] = bandByKey[clusterKey(d.SourceIDs)]
+		newAct, err := parseActivityID(d.ActivityID)
+		if err != nil {
+			return nil, err
+		}
+		for _, sid := range d.SourceIDs {
+			if existing[sid] == d.ActivityID {
+				continue
+			}
+			srcID, err := parseSourceID(sid)
+			if err != nil {
+				return nil, err
+			}
+			if err := uc.activities.ReassignSource(ctx, srcID, newAct); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return bandByActivity, nil
+}
+
+// reclusterAffectedIDs is every decision target ∪ every old activity, sorted.
+func reclusterAffectedIDs(plan reconcile.Plan, existing map[string]string) []string {
+	affected := map[string]bool{}
+	for _, d := range plan.Decisions {
+		affected[d.ActivityID] = true
+	}
+	for _, old := range existing {
+		affected[old] = true
+	}
+	ids := make([]string, 0, len(affected))
+	for a := range affected {
+		ids = append(ids, a)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (uc *ReclusterBucket) reclusterRecompute(ctx context.Context, ids []string, bandByActivity map[string]dmatch.Band, result *Result) error {
+	for _, a := range ids {
+		aid, err := parseActivityID(a)
+		if err != nil {
+			return err
+		}
+		rec, err := uc.recompute.Execute(ctx, aid)
+		if err != nil {
+			return fmt.Errorf("recompute %s: %w", a, err)
+		}
+		if rec.SoftDeleted {
+			result.SoftDeleted = append(result.SoftDeleted, aid)
+			continue
+		}
+		if band, ok := bandByActivity[a]; ok {
+			if err := uc.activities.SetActivityMatchState(ctx, aid, string(band), band == dmatch.BandMedium); err != nil {
+				return err
+			}
+			result.AffectedActivityIDs = append(result.AffectedActivityIDs, aid)
+		}
+	}
+	return nil
+}
+
+// reclusterRedirects records merge redirects so old ids still resolve.
+func (uc *ReclusterBucket) reclusterRedirects(ctx context.Context, plan reconcile.Plan) error {
+	for _, rd := range plan.Redirects {
+		oldID, err := parseActivityID(rd[0])
+		if err != nil {
+			return err
+		}
+		newID, err := parseActivityID(rd[1])
+		if err != nil {
+			return err
+		}
+		if err := uc.activities.AddActivityRedirect(ctx, oldID, newID, "merge"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func clusterKey(ids []string) string { return strings.Join(ids, ",") }

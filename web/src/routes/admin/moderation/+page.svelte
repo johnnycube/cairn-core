@@ -1,10 +1,14 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { formatRelativeDate } from '$lib/format';
 
 	type Report = {
-		id: string; reporter: string; target_kind: string; target_id: string;
-		reason: string; status: string; created_at: string;
+		id: string;
+		reporter: string;
+		target_kind: string;
+		target_id: string;
+		reason: string;
+		status: string;
+		created_at: string;
 	};
 
 	let reports = $state<Report[]>([]);
@@ -24,7 +28,8 @@
 
 	async function resolve(id: string, status: string) {
 		const res = await fetch(`/api/admin/reports/${id}/resolve`, {
-			method: 'POST', headers: { 'Content-Type': 'application/json' },
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ status })
 		});
 		if (res.ok) reports = reports.filter((r) => r.id !== id);
@@ -32,13 +37,17 @@
 
 	async function hideActivity(id: string) {
 		await fetch(`/api/admin/activities/${id}/hide`, {
-			method: 'POST', headers: { 'Content-Type': 'application/json' },
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ hidden: true })
 		});
 		alert('Activity hidden from all non-owner views.');
 	}
 
-	$effect(() => { statusFilter; load(); });
+	$effect(() => {
+		void statusFilter;
+		load();
+	});
 </script>
 
 <svelte:head><title>Moderation · Cairn admin</title></svelte:head>
@@ -62,7 +71,9 @@
 	<div class="space-y-3">
 		{#each reports as r (r.id)}
 			<div class="rounded-lg border bg-white p-4 shadow-sm">
-				<div class="mb-1 flex items-center justify-between text-xs text-gray-500 max-md:flex-wrap max-md:gap-1">
+				<div
+					class="mb-1 flex items-center justify-between text-xs text-gray-500 max-md:flex-wrap max-md:gap-1"
+				>
 					<span>{r.target_kind} · {formatRelativeDate(r.created_at)} · by {r.reporter}</span>
 					<span class="rounded bg-gray-100 px-2 py-0.5">{r.status}</span>
 				</div>
@@ -70,10 +81,20 @@
 				<div class="text-xs text-gray-400 max-md:break-all">target: {r.target_id}</div>
 				<div class="mt-3 flex gap-2 max-md:flex-wrap">
 					{#if r.target_kind === 'activity'}
-						<button onclick={() => hideActivity(r.target_id)} class="rounded border px-3 py-1 text-xs text-red-600 hover:bg-red-50">Hide activity</button>
+						<button
+							onclick={() => hideActivity(r.target_id)}
+							class="rounded border px-3 py-1 text-xs text-red-600 hover:bg-red-50"
+							>Hide activity</button
+						>
 					{/if}
-					<button onclick={() => resolve(r.id, 'reviewed')} class="rounded border px-3 py-1 text-xs hover:bg-gray-50">Mark reviewed</button>
-					<button onclick={() => resolve(r.id, 'dismissed')} class="rounded border px-3 py-1 text-xs text-gray-500 hover:bg-gray-50">Dismiss</button>
+					<button
+						onclick={() => resolve(r.id, 'reviewed')}
+						class="rounded border px-3 py-1 text-xs hover:bg-gray-50">Mark reviewed</button
+					>
+					<button
+						onclick={() => resolve(r.id, 'dismissed')}
+						class="rounded border px-3 py-1 text-xs text-gray-500 hover:bg-gray-50">Dismiss</button
+					>
 				</div>
 			</div>
 		{/each}

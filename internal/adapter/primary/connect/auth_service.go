@@ -51,7 +51,7 @@ func (s *AuthServer) GetCurrentUser(
 	ctx context.Context,
 	req *connectrpc.Request[v1.GetCurrentUserRequest],
 ) (*connectrpc.Response[v1.GetCurrentUserResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (s *AuthServer) UpdateUserPreferences(
 	ctx context.Context,
 	req *connectrpc.Request[v1.UpdateUserPreferencesRequest],
 ) (*connectrpc.Response[v1.UpdateUserPreferencesResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}

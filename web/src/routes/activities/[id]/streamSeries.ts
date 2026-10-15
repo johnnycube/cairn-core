@@ -16,7 +16,12 @@ export function buildSeries(stream: ActivityStreamView | null): ChartSeries[] {
 	if (!stream) return [];
 	const xs: ChartSeries[] = [];
 	if (stream.hr) {
-		xs.push({ label: m.detail_label_heart_rate(), values: stream.hr, color: '#ef4444', unit: 'bpm' });
+		xs.push({
+			label: m.detail_label_heart_rate(),
+			values: stream.hr,
+			color: '#ef4444',
+			unit: 'bpm'
+		});
 	}
 	if (stream.power) {
 		xs.push({ label: 'Power', values: stream.power, color: '#ec7a45', unit: 'W' });
@@ -34,7 +39,13 @@ export function buildSeries(stream: ActivityStreamView | null): ChartSeries[] {
 		});
 	}
 	if (stream.altitude) {
-		xs.push({ label: 'Elevation', values: stream.altitude, color: '#a78bfa', unit: 'm', fill: true });
+		xs.push({
+			label: 'Elevation',
+			values: stream.altitude,
+			color: '#a78bfa',
+			unit: 'm',
+			fill: true
+		});
 	}
 	return xs;
 }

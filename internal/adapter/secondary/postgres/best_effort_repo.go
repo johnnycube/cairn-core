@@ -136,7 +136,7 @@ func (r *BestEffortRepo) SaveEfforts(ctx context.Context, efforts []domain.BestE
 	}
 
 	br := db.(pgxBatchExecer).SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() { _ = br.Close() }()
 	for i := 0; i < len(efforts); i++ {
 		if _, err := br.Exec(); err != nil {
 			return fmt.Errorf("save best_effort %d: %w", i, err)
@@ -160,20 +160,7 @@ func (r *BestEffortRepo) ListForActivity(ctx context.Context, activityID domain.
 	if err != nil {
 		return nil, fmt.Errorf("list best_efforts for %s: %w", activityID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.BestEffort
-	for rows.Next() {
-		be, err := scanBestEffortRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan best_effort row: %w", err)
-		}
-		out = append(out, be)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate best_effort rows: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanBestEffortRow, "scan best_effort row", "iterate best_effort rows")
 }
 
 // pgxBatchExecer is the subset of *pgxpool.Pool and pgx.Tx needed for

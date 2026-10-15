@@ -35,7 +35,7 @@ import (
 
 const (
 	oauthAccessTokenPrefix  = "cairn_at_"
-	oauthRefreshTokenPrefix = "cairn_rt_"
+	oauthRefreshTokenPrefix = "cairn_rt_" //nolint:gosec // G101: token prefix marker, not a credential
 	oauthAuthCodePrefix     = "cairn_ac_"
 )
 
@@ -92,9 +92,9 @@ func (s *oauthServer) metadata(w http.ResponseWriter, _ *http.Request) {
 
 func (s *oauthServer) protectedResourceMetadata(w http.ResponseWriter, _ *http.Request) {
 	writeJSONCache(w, map[string]any{
-		"resource":              s.baseURL,
-		"authorization_servers": []string{s.baseURL},
-		"scopes_supported":      domain.SupportedScopes,
+		"resource":                 s.baseURL,
+		"authorization_servers":    []string{s.baseURL},
+		"scopes_supported":         domain.SupportedScopes,
 		"bearer_methods_supported": []string{"header"},
 	})
 }
@@ -110,14 +110,14 @@ func (s *oauthServer) protectedResourceMetadata(w http.ResponseWriter, _ *http.R
 func (s *oauthServer) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	clientID := q.Get("client_id")
-	redirectURI := q.Get("redirect_uri")
 
 	client, err := s.app.OAuth.GetClient(r.Context(), clientID)
 	if err != nil {
 		http.Error(w, "unknown client_id", http.StatusBadRequest)
 		return
 	}
-	if redirectURI == "" || !client.AllowsRedirectURI(redirectURI) {
+	redirectURI, ok := client.RegisteredRedirectURI(q.Get("redirect_uri"))
+	if !ok {
 		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
 		return
 	}
@@ -140,7 +140,7 @@ func (s *oauthServer) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Hand off to the SPA consent page, preserving the request verbatim.
-	http.Redirect(w, r, "/oauth/consent?"+r.URL.RawQuery, http.StatusFound)
+	http.Redirect(w, r, "/oauth/consent?"+r.URL.RawQuery, http.StatusFound) //nolint:gosec // G710: fixed same-origin path; the query cannot change the target
 }
 
 // authorizeInfo returns the data the consent page renders. Session-authed: the
@@ -198,12 +198,17 @@ func (s *oauthServer) decision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client, err := s.app.OAuth.GetClient(r.Context(), req.ClientID)
-	if err != nil || !client.AllowsRedirectURI(req.RedirectURI) {
+	if err != nil {
+		http.Error(w, "invalid client/redirect", http.StatusBadRequest)
+		return
+	}
+	redirectURI, ok := client.RegisteredRedirectURI(req.RedirectURI)
+	if !ok {
 		http.Error(w, "invalid client/redirect", http.StatusBadRequest)
 		return
 	}
 	if !req.Approve {
-		oauthJSON(w, map[string]string{"redirect_uri": appendQuery(req.RedirectURI, map[string]string{
+		oauthJSON(w, map[string]string{"redirect_uri": appendQuery(redirectURI, map[string]string{
 			"error": "access_denied", "state": req.State,
 		})})
 		return
@@ -223,7 +228,7 @@ func (s *oauthServer) decision(w http.ResponseWriter, r *http.Request) {
 	err = s.app.OAuth.CreateAuthCode(r.Context(), domain.OAuthAuthorizationCode{
 		ClientID:            client.ClientID,
 		UserID:              userID,
-		RedirectURI:         req.RedirectURI,
+		RedirectURI:         redirectURI,
 		Scope:               domain.JoinScopes(scopes),
 		CodeChallenge:       req.CodeChallenge,
 		CodeChallengeMethod: method,
@@ -234,7 +239,7 @@ func (s *oauthServer) decision(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
-	oauthJSON(w, map[string]string{"redirect_uri": appendQuery(req.RedirectURI, map[string]string{
+	oauthJSON(w, map[string]string{"redirect_uri": appendQuery(redirectURI, map[string]string{
 		"code": code, "state": req.State,
 	})})
 }
@@ -381,6 +386,28 @@ type registrationRequest struct {
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
+// withDefaults fills unset registration fields.
+func (req registrationRequest) withDefaults() (authMethod string, grants, scopes []string, name string) {
+	authMethod = req.TokenEndpointAuthMethod
+	if authMethod == "" {
+		authMethod = "none" // default to a public (PKCE) client
+	}
+	grants = req.GrantTypes
+	if len(grants) == 0 {
+		grants = []string{"authorization_code", "refresh_token"}
+	}
+	// Default to read-only scopes; intersect any requested with the catalog.
+	scopes = domain.ReadOnlyScopes
+	if req.Scope != "" {
+		scopes = domain.FilterRequestedScopes(domain.ParseScopes(req.Scope), domain.SupportedScopes)
+	}
+	name = req.ClientName
+	if name == "" {
+		name = "Dynamic client"
+	}
+	return authMethod, grants, scopes, name
+}
+
 func (s *oauthServer) register(w http.ResponseWriter, r *http.Request) {
 	var req registrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -397,23 +424,7 @@ func (s *oauthServer) register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	authMethod := req.TokenEndpointAuthMethod
-	if authMethod == "" {
-		authMethod = "none" // default to a public (PKCE) client
-	}
-	grants := req.GrantTypes
-	if len(grants) == 0 {
-		grants = []string{"authorization_code", "refresh_token"}
-	}
-	// Default to read-only scopes; intersect any requested with the catalog.
-	scopes := domain.ReadOnlyScopes
-	if req.Scope != "" {
-		scopes = domain.FilterRequestedScopes(domain.ParseScopes(req.Scope), domain.SupportedScopes)
-	}
-	name := req.ClientName
-	if name == "" {
-		name = "Dynamic client"
-	}
+	authMethod, grants, scopes, name := req.withDefaults()
 
 	clientID := "cairn_dcr_" + randString(16)
 	client := domain.OAuthClient{
@@ -478,7 +489,7 @@ func (s *oauthServer) authClient(r *http.Request) (string, bool) {
 }
 
 func (s *oauthServer) redirectErr(w http.ResponseWriter, r *http.Request, redirectURI, state, code, desc string) {
-	http.Redirect(w, r, appendQuery(redirectURI, map[string]string{
+	http.Redirect(w, r, appendQuery(redirectURI, map[string]string{ //nolint:gosec // G710: callers pass only a registered redirect_uri of the client
 		"error": code, "error_description": desc, "state": state,
 	}), http.StatusFound)
 }
@@ -554,9 +565,10 @@ func oauthTokenErr(w http.ResponseWriter, code, desc string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	status := http.StatusBadRequest
-	if code == "invalid_client" {
+	switch code {
+	case "invalid_client":
 		status = http.StatusUnauthorized
-	} else if code == "server_error" {
+	case "server_error":
 		status = http.StatusInternalServerError
 	}
 	w.WriteHeader(status)

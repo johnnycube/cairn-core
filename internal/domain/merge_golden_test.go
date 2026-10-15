@@ -21,7 +21,7 @@ func goldenInput(t *testing.T) (strava, garmin ActivitySource, actID ActivityID)
 	user := makeUserID("golden")
 	actID = makeActivityID("golden-ride")
 	strava = makeStravaRide("golden-s", user, actID, -1*time.Hour)
-	garmin = makeGarminRide("golden-g", user, actID, 0, nil)
+	garmin = makeGarminRide("golden-g", user, actID, 0)
 	return strava, garmin, actID
 }
 

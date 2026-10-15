@@ -1,7 +1,7 @@
 # Cairn Architecture
 
-Deeper architecture reference for the layers that `CLAUDE.md` only touches on
-briefly. If you are implementing the NATS-based async layer, the worker
+Deeper architecture reference for the layers that `README.md` and the ADRs in
+`docs/adr/` only touch on briefly. If you are implementing the NATS-based async layer, the worker
 integration, or the blob storage, this is the spec document.
 
 > **Building or maintaining a provider worker?** The normative checklist of
@@ -11,12 +11,12 @@ integration, or the blob storage, this is the spec document.
 > `go run ./cmd/worker-conformance`.
 
 What is **not** covered here: domain model, merge engine, SQL schema,
-use-case implementations. For those see `CLAUDE.md`, the migrations under
+use-case implementations. For those see `docs/adr/`, the migrations under
 `internal/db/migrations/`, and the code directly.
 
 **Reading order** if you are building the async layer:
 
-1. `CLAUDE.md` for orientation (what exists, what's missing, hexagonal rules)
+1. `docs/adr/0002-hexagonal-architecture.md` for the layering rules
 2. This document
 3. `README.md` for Docker-Compose and ENV setup
 4. `internal/usecase/activity/ingest.go` as the anchor for the existing ingest path
@@ -465,7 +465,7 @@ authorization {
     # mint JWTs that this nats-server accepts.
     issuer: "AABC...XYZ"                # cairn-server's account public key
 
-    # subjects of the callout request. nats-server publishes here, 
+    # subjects of the callout request. nats-server publishes here,
     # cairn-server subscribes.
     auth_users: ["auth"]                # internal NATS user the
                                          # callout-subscriber connects as
@@ -497,7 +497,7 @@ enable auth callout), there is an HTTP fallback:
 Worker → POST /api/workers/enroll
   Authorization: Bearer <enrollment-token>
   Body: { worker_name, instance_id, version, user_nkey_public }
-  
+
 Cairn-Server:
   - same validation as auth-callout
   - mints user-JWT with same permissions
@@ -529,7 +529,7 @@ type ProcessAuthCallout struct{ ... }
 type RevokeWorkerEnrollment struct{ ... }
 //   Admin command. Marks enrollment as revoked. Future connects
 //   fail. Already-open connections run until JWT expiry
-//   — the admin can additionally do a grant-level revoke + 
+//   — the admin can additionally do a grant-level revoke +
 //   publish cairn.cmd.worker.<name>.shutdown to kick immediately.
 ```
 
@@ -750,7 +750,7 @@ Server handler:
   - SELECT * FROM external_accounts WHERE id = $1
   - if expires_at - now() < 5min:
       → POST https://www.strava.com/oauth/token (grant_type=refresh_token)
-      → UPDATE external_accounts SET ... 
+      → UPDATE external_accounts SET ...
   - reply:
       headers: Cairn-Token-Expires-At = <unix>
       body:    { access_token: "...", expires_at: ..., scope: "..." }
@@ -825,9 +825,9 @@ Worker → GET /api/v3/activities/11111/streams?keys=time,latlng,altitude,heartr
 Worker (in process):
   - map Strava fields → ActivitySourcePayload
   - stream channels → []domain.StreamSample (1Hz)
-  - if raw JSON is to be kept: 
+  - if raw JSON is to be kept:
       see section 9 (blob upload via presigned PUT)
-  
+
 Worker → publish cairn.results.fetch_source.strava
   headers:
     Cairn-Job-Id = <fetch-job-id>
@@ -980,7 +980,7 @@ The subscriber reaction to `rate_limited`:
 
 ```
 Server-side subscriber:
-  - UPDATE external_accounts SET 
+  - UPDATE external_accounts SET
         status = 'rate_limited',
         rate_limit = jsonb_build_object(
           'short_window_used',    200,
@@ -1107,16 +1107,16 @@ Worker:
   5. ACK the reconcile job
 
 Server handler (subscriber on cairn.results.reconcile.strava):
-  1. SELECT external_id FROM activity_sources 
-       WHERE external_account_id = $1 
-         AND provider = 'strava' 
+  1. SELECT external_id FROM activity_sources
+       WHERE external_account_id = $1
+         AND provider = 'strava'
          AND status != 'detached'
   2. diff: activities_seen MINUS db_known = missing
   3. for each missing ext_id:
        publish cairn.jobs.fetch_source.strava.reconcile
          headers: Nats-Msg-Id = "fetch:strava:<athlete>:<ext_id>:reconcile"
          body:    { account_id, ext_id, reason: "reconcile" }
-  4. UPDATE external_accounts SET 
+  4. UPDATE external_accounts SET
        sync_watermark = newest_start_time,
        last_sync_at = now(),
        last_successful_sync_at = now()
@@ -1205,7 +1205,7 @@ Webhook (delete) → server publishes cairn.events.source.deleted_upstream
   body: { account_id, ext_id: "33333" }
 
 Subscriber:
-  - SELECT id FROM activity_sources 
+  - SELECT id FROM activity_sources
       WHERE provider='strava' AND external_account_id=$1 AND external_id='33333'
   - 0 rows → no-op, ACK
   - (optional: log as "phantom delete" — not alarming, harmless)
@@ -1255,7 +1255,7 @@ Server publishes job #2 with the same Nats-Msg-Id → JetStream discards
 Worker finishes job #1, ACK.
 ```
 
-Clean. Even if worker #1 dies before ACK: AckWait timeout → 
+Clean. Even if worker #1 dies before ACK: AckWait timeout →
 redelivery → another worker redoes the same job. Worst case
 one extra API-quota cost, no data corruption.
 
@@ -1451,7 +1451,7 @@ cairn-data/
 Worker (after Strava API call):
   - has raw_bytes (e.g. tarball from activity.json + streams.json)
   - computes content_sha256 = sha256(raw_bytes)
-  
+
 Worker → request cairn.blobs.presign_upload.strava
   body: {
     source_id:      "0190a2-...",

@@ -66,16 +66,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	required := []string{
-		"cairn.jobs.fetch_source." + *provider,
-		"cairn.jobs.reconcile." + *provider,
-	}
-	if *parseBlob {
-		required = append(required, "cairn.jobs.parse_blob."+*provider)
-	}
-	if *metrics {
-		required = append(required, "cairn.jobs.import_metrics."+*provider)
-	}
+	required := conformanceRequiredSubjects(*provider, *parseBlob, *metrics)
 
 	var checks []check
 	checks = append(checks, check{"presence heartbeat", checkPresence(js, *workerName)})
@@ -84,9 +75,33 @@ func main() {
 	}
 	checks = append(checks, check{"discover request/reply", checkDiscover(nc, *provider, *timeout)})
 	if *active {
-		checks = append(checks, check{"reconcile round-trip", checkReconcile(nc, js, *provider, *accountID, *timeout)})
+		checks = append(checks, check{"reconcile round-trip", checkReconcile(js, *provider, *accountID, *timeout)})
 	}
 
+	if failed := conformanceReport(checks); failed > 0 {
+		fmt.Printf("\n%d violation(s) — see https://docs.opencairn.org/architecture/provider-contract\n", failed)
+		os.Exit(1)
+	}
+	fmt.Println("\nworker is contract-compliant")
+}
+
+// conformanceRequiredSubjects lists the job subjects the worker must consume.
+func conformanceRequiredSubjects(provider string, parseBlob, metrics bool) []string {
+	required := []string{
+		"cairn.jobs.fetch_source." + provider,
+		"cairn.jobs.reconcile." + provider,
+	}
+	if parseBlob {
+		required = append(required, "cairn.jobs.parse_blob."+provider)
+	}
+	if metrics {
+		required = append(required, "cairn.jobs.import_metrics."+provider)
+	}
+	return required
+}
+
+// conformanceReport prints one PASS/FAIL line per check and returns the failure count.
+func conformanceReport(checks []check) int {
 	failed := 0
 	for _, c := range checks {
 		if c.err != nil {
@@ -96,11 +111,7 @@ func main() {
 			fmt.Printf("PASS  %s\n", c.name)
 		}
 	}
-	if failed > 0 {
-		fmt.Printf("\n%d violation(s) — see https://docs.opencairn.org/architecture/provider-contract\n", failed)
-		os.Exit(1)
-	}
-	fmt.Println("\nworker is contract-compliant")
+	return failed
 }
 
 // checkPresence expects a fresh heartbeat under <worker_name>.<instance>.
@@ -172,7 +183,7 @@ func checkDiscover(nc *nats.Conn, provider string, timeout time.Duration) error 
 // checkReconcile publishes a synthetic reconcile job for accountID and waits
 // for the account-suffixed result. Requires a dev stack where the worker can
 // resolve that account's credentials.
-func checkReconcile(nc *nats.Conn, js nats.JetStreamContext, provider, accountID string, timeout time.Duration) error {
+func checkReconcile(js nats.JetStreamContext, provider, accountID string, timeout time.Duration) error {
 	if accountID == "" {
 		return fmt.Errorf("--active requires --account-id of an existing account")
 	}
@@ -181,7 +192,7 @@ func checkReconcile(nc *nats.Conn, js nats.JetStreamContext, provider, accountID
 	if err != nil {
 		return fmt.Errorf("subscribe %s: %w", resultSubj, err)
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	jobID := fmt.Sprintf("conformance-%d", time.Now().UnixNano())
 	body, _ := json.Marshal(map[string]any{

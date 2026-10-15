@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+
+	"github.com/johnnycube/cairn-core/internal/domain"
 )
 
 var validEffortMetrics = map[string]bool{
@@ -44,32 +46,8 @@ func mountBestEffortHistory(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 
-		// All-time best: min for pace, max otherwise.
-		best := 0.0
-		for i, it := range items {
-			if i == 0 {
-				best = it.AchievedValue
-				continue
-			}
-			if metric == "pace" {
-				if it.AchievedValue < best {
-					best = it.AchievedValue
-				}
-			} else if it.AchievedValue > best {
-				best = it.AchievedValue
-			}
-		}
-
-		out := make([]map[string]any, 0, len(items))
-		for _, it := range items {
-			out = append(out, map[string]any{
-				"activity_id":    it.ActivityID.String(),
-				"title":          it.Title,
-				"start_time":     it.StartTime.UTC(),
-				"achieved_value": it.AchievedValue,
-				"is_best":        len(items) > 0 && it.AchievedValue == best,
-			})
-		}
+		best := bestEffortHistoryBest(items, metric)
+		out := bestEffortHistoryItemsJSON(items, best)
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"type":         activityType,
@@ -83,4 +61,38 @@ func mountBestEffortHistory(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	})
 
 	logger.Info("best-effort history endpoint mounted")
+}
+
+// bestEffortHistoryBest returns the all-time best: min for pace, max otherwise.
+func bestEffortHistoryBest(items []domain.BestEffortHistoryItem, metric string) float64 {
+	best := 0.0
+	for i, it := range items {
+		if i == 0 {
+			best = it.AchievedValue
+			continue
+		}
+		if metric == "pace" {
+			if it.AchievedValue < best {
+				best = it.AchievedValue
+			}
+		} else if it.AchievedValue > best {
+			best = it.AchievedValue
+		}
+	}
+	return best
+}
+
+// bestEffortHistoryItemsJSON renders the history items, flagging the best.
+func bestEffortHistoryItemsJSON(items []domain.BestEffortHistoryItem, best float64) []map[string]any {
+	out := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		out = append(out, map[string]any{
+			"activity_id":    it.ActivityID.String(),
+			"title":          it.Title,
+			"start_time":     it.StartTime.UTC(),
+			"achieved_value": it.AchievedValue,
+			"is_best":        len(items) > 0 && it.AchievedValue == best,
+		})
+	}
+	return out
 }

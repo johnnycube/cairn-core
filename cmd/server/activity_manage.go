@@ -56,29 +56,37 @@ func fieldGroupLabel(g domain.FieldGroup) string {
 //	POST /api/activities/{id}/recompute          → re-merge from current sources
 //	POST /api/activities/{id}/recompute-derived  → best-efforts + segments + training-load
 func mountActivityManage(mux *http.ServeMux, app *App, logger *slog.Logger) {
-	// loadOwned resolves the activity and enforces ownership; returns false
-	// (and writes the response) on any failure.
-	loadOwned := func(w http.ResponseWriter, r *http.Request) (domain.Activity, bool) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return domain.Activity{}, false
-		}
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad activity id", http.StatusBadRequest)
-			return domain.Activity{}, false
-		}
-		act, err := app.Activities.GetActivity(r.Context(), domain.ActivityID(id))
-		if err != nil || act.UserID != userID || act.IsDeleted() {
-			http.Error(w, "not found", http.StatusNotFound)
-			return domain.Activity{}, false
-		}
-		return act, true
-	}
+	mux.HandleFunc("GET /api/activities/{id}/manage", activityManageInsightsHandler(app, logger))
+	mux.HandleFunc("POST /api/activities/{id}/recompute", activityManageRecomputeHandler(app, logger))
+	mux.HandleFunc("POST /api/activities/{id}/recompute-derived", activityManageRecomputeDerivedHandler(app, logger))
 
-	mux.HandleFunc("GET /api/activities/{id}/manage", func(w http.ResponseWriter, r *http.Request) {
-		act, ok := loadOwned(w, r)
+	logger.Info("activity manage endpoints mounted")
+}
+
+// activityManageLoadOwned resolves the activity and enforces ownership; returns false
+// (and writes the response) on any failure.
+func activityManageLoadOwned(w http.ResponseWriter, r *http.Request, app *App) (domain.Activity, bool) {
+	userID, ok := resolveSessionUser(r, app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return domain.Activity{}, false
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad activity id", http.StatusBadRequest)
+		return domain.Activity{}, false
+	}
+	act, err := app.Activities.GetActivity(r.Context(), domain.ActivityID(id))
+	if err != nil || act.UserID != userID || act.IsDeleted() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return domain.Activity{}, false
+	}
+	return act, true
+}
+
+func activityManageInsightsHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		act, ok := activityManageLoadOwned(w, r, app)
 		if !ok {
 			return
 		}
@@ -91,46 +99,7 @@ func mountActivityManage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 
-		// Reverse the merge provenance: source id → the field groups it won.
-		wonBy := map[domain.SourceID][]string{}
-		for g, sid := range act.MergeProvenance {
-			wonBy[sid] = append(wonBy[sid], fieldGroupLabel(g))
-		}
-
-		// Per-field provenance with decided_by (rule vs manual pin) + the source's
-		// provider, for the source-badge display (brief §10). decided_by is
-		// derived from the field_source_overrides table rather than persisted in
-		// the provenance column.
-		manualFields := map[domain.FieldGroup]bool{}
-		if app.FieldOverrides != nil {
-			if pins, perr := app.FieldOverrides.ListForActivity(r.Context(), act.ID); perr == nil {
-				for _, p := range pins {
-					manualFields[p.FieldKey] = true
-				}
-			}
-		}
-		providerBySource := map[domain.SourceID]string{}
-		for _, s := range sources {
-			providerBySource[s.ID] = s.Provider
-		}
-		provenance := make([]map[string]any, 0, len(act.MergeProvenance))
-		for g, sid := range act.MergeProvenance {
-			decidedBy := "rule"
-			if manualFields[g] {
-				decidedBy = "manual"
-			}
-			provenance = append(provenance, map[string]any{
-				"field":       string(g),
-				"field_label": fieldGroupLabel(g),
-				"source_id":   sid.String(),
-				"provider":    providerBySource[sid],
-				"decided_by":  decidedBy,
-				"synced_at":   act.MergedAt.UTC(),
-			})
-		}
-		sort.Slice(provenance, func(i, j int) bool {
-			return provenance[i]["field"].(string) < provenance[j]["field"].(string)
-		})
+		provenance := activityManageProvenance(r.Context(), app, act, sources)
 
 		primary := ""
 		if act.PrimaryStreamSourceID != nil {
@@ -144,44 +113,15 @@ func mountActivityManage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		// (provider, package, version) triple parse-compatible.
 		workers := currentWorkers(r.Context(), app, logger)
 
+		// Reverse the merge provenance: source id → the field groups it won.
+		wonBy := map[domain.SourceID][]string{}
+		for g, sid := range act.MergeProvenance {
+			wonBy[sid] = append(wonBy[sid], fieldGroupLabel(g))
+		}
+
 		out := make([]map[string]any, 0, len(sources))
 		for _, s := range sources {
-			var extAcct string
-			if s.ExternalAccountID != nil {
-				extAcct = s.ExternalAccountID.String()
-			}
-			var lastReimport any
-			if s.LastReimportedAt != nil {
-				lastReimport = s.LastReimportedAt.UTC()
-			}
-			// Re-parse is possible only when the source has an archived blob AND
-			// a live worker matches its provider + version + package.
-			reparseEligible := s.RawBlobID != "" &&
-				canReparseSource(workers, s.Provider, s.SourceWorkerVersion, s.SourceWorkerPackage)
-			out = append(out, map[string]any{
-				"id":                 s.ID.String(),
-				"provider":           s.Provider,
-				"external_id":        s.ExternalID,
-				"external_account":   extAcct,
-				"worker_name":        s.SourceWorkerName,
-				"worker_version":     s.SourceWorkerVersion,
-				"worker_package":     s.SourceWorkerPackage,
-				"reparse_eligible":   reparseEligible,
-				"has_blob":           s.RawBlobID != "",
-				"raw_content_type":   s.RawContentType,
-				"raw_size_bytes":     s.RawSizeBytes,
-				"has_stream":         s.Parsed.HasStream,
-				"lap_count":          len(s.Parsed.Laps),
-				"status":             string(s.Status),
-				"status_reason":      s.StatusReason,
-				"reimport_status":    string(s.ReimportStatus),
-				"reimport_reason":    s.ReimportStatusReason,
-				"imported_at":        s.ImportedAt.UTC(),
-				"last_reimported_at": lastReimport,
-				"updated_at":         s.UpdatedAt.UTC(),
-				"is_primary":         s.ID.String() == primary,
-				"won_field_groups":   wonBy[s.ID],
-			})
+			out = append(out, activityManageSourceJSON(s, workers, primary, wonBy[s.ID]))
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -198,10 +138,90 @@ func mountActivityManage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			"sources":    out,
 			"provenance": provenance,
 		})
-	})
+	}
+}
 
-	mux.HandleFunc("POST /api/activities/{id}/recompute", func(w http.ResponseWriter, r *http.Request) {
-		act, ok := loadOwned(w, r)
+// activityManageProvenance builds the per-field provenance with decided_by (rule vs manual pin)
+// + the source's provider, for the source-badge display (brief §10). decided_by is
+// derived from the field_source_overrides table rather than persisted in
+// the provenance column.
+func activityManageProvenance(ctx context.Context, app *App, act domain.Activity, sources []domain.ActivitySource) []map[string]any {
+	manualFields := map[domain.FieldGroup]bool{}
+	if app.FieldOverrides != nil {
+		if pins, perr := app.FieldOverrides.ListForActivity(ctx, act.ID); perr == nil {
+			for _, p := range pins {
+				manualFields[p.FieldKey] = true
+			}
+		}
+	}
+	providerBySource := map[domain.SourceID]string{}
+	for _, s := range sources {
+		providerBySource[s.ID] = s.Provider
+	}
+	provenance := make([]map[string]any, 0, len(act.MergeProvenance))
+	for g, sid := range act.MergeProvenance {
+		decidedBy := "rule"
+		if manualFields[g] {
+			decidedBy = "manual"
+		}
+		provenance = append(provenance, map[string]any{
+			"field":       string(g),
+			"field_label": fieldGroupLabel(g),
+			"source_id":   sid.String(),
+			"provider":    providerBySource[sid],
+			"decided_by":  decidedBy,
+			"synced_at":   act.MergedAt.UTC(),
+		})
+	}
+	sort.Slice(provenance, func(i, j int) bool {
+		return provenance[i]["field"].(string) < provenance[j]["field"].(string)
+	})
+	return provenance
+}
+
+// activityManageSourceJSON renders one source row of the manage view.
+func activityManageSourceJSON(s domain.ActivitySource, workers []liveWorker, primary string, won []string) map[string]any {
+	var extAcct string
+	if s.ExternalAccountID != nil {
+		extAcct = s.ExternalAccountID.String()
+	}
+	var lastReimport any
+	if s.LastReimportedAt != nil {
+		lastReimport = s.LastReimportedAt.UTC()
+	}
+	// Re-parse is possible only when the source has an archived blob AND
+	// a live worker matches its provider + version + package.
+	reparseEligible := s.RawBlobID != "" &&
+		canReparseSource(workers, s.Provider, s.SourceWorkerVersion, s.SourceWorkerPackage)
+	return map[string]any{
+		"id":                 s.ID.String(),
+		"provider":           s.Provider,
+		"external_id":        s.ExternalID,
+		"external_account":   extAcct,
+		"worker_name":        s.SourceWorkerName,
+		"worker_version":     s.SourceWorkerVersion,
+		"worker_package":     s.SourceWorkerPackage,
+		"reparse_eligible":   reparseEligible,
+		"has_blob":           s.RawBlobID != "",
+		"raw_content_type":   s.RawContentType,
+		"raw_size_bytes":     s.RawSizeBytes,
+		"has_stream":         s.Parsed.HasStream,
+		"lap_count":          len(s.Parsed.Laps),
+		"status":             string(s.Status),
+		"status_reason":      s.StatusReason,
+		"reimport_status":    string(s.ReimportStatus),
+		"reimport_reason":    s.ReimportStatusReason,
+		"imported_at":        s.ImportedAt.UTC(),
+		"last_reimported_at": lastReimport,
+		"updated_at":         s.UpdatedAt.UTC(),
+		"is_primary":         s.ID.String() == primary,
+		"won_field_groups":   won,
+	}
+}
+
+func activityManageRecomputeHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		act, ok := activityManageLoadOwned(w, r, app)
 		if !ok {
 			return
 		}
@@ -220,18 +240,18 @@ func mountActivityManage(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			"soft_deleted": result.SoftDeleted,
 			"source_count": len(result.SourceIDs),
 		})
-	})
+	}
+}
 
-	mux.HandleFunc("POST /api/activities/{id}/recompute-derived", func(w http.ResponseWriter, r *http.Request) {
-		act, ok := loadOwned(w, r)
+func activityManageRecomputeDerivedHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		act, ok := activityManageLoadOwned(w, r, app)
 		if !ok {
 			return
 		}
 		res := recomputeDerivedForActivity(r.Context(), app, logger, act)
 		writeJSON(w, http.StatusOK, res)
-	})
-
-	logger.Info("activity manage endpoints mounted")
+	}
 }
 
 // liveWorker is the identity of a currently-online worker that matters for
@@ -322,21 +342,7 @@ func recomputeDerivedForActivity(ctx context.Context, app *App, logger *slog.Log
 	}
 
 	for _, s := range sources {
-		if app.Streams != nil {
-			if err := app.Streams.RefreshAggregates(ctx, s.ID); err != nil {
-				warn("refresh_aggregates", err)
-			}
-		}
-		if app.ComputeBestEfforts != nil {
-			if _, err := app.ComputeBestEfforts.Execute(ctx, besteffort.Input{ActivitySourceID: s.ID}); err != nil {
-				warn("best_efforts", err)
-			}
-		}
-		if app.MatchSegments != nil {
-			if _, err := app.MatchSegments.Execute(ctx, segment.Input{ActivitySourceID: s.ID}); err != nil {
-				warn("match_segments", err)
-			}
-		}
+		activityManageRecomputeSource(ctx, app, s.ID, warn)
 	}
 
 	if app.ComputeTrainingLoad != nil {
@@ -355,5 +361,24 @@ func recomputeDerivedForActivity(ctx context.Context, app *App, logger *slog.Log
 		"recomputed":   true,
 		"source_count": len(sources),
 		"warnings":     warnings,
+	}
+}
+
+// activityManageRecomputeSource re-runs the per-source derived steps, reporting failures via warn.
+func activityManageRecomputeSource(ctx context.Context, app *App, sid domain.SourceID, warn func(string, error)) {
+	if app.Streams != nil {
+		if err := app.Streams.RefreshAggregates(ctx, sid); err != nil {
+			warn("refresh_aggregates", err)
+		}
+	}
+	if app.ComputeBestEfforts != nil {
+		if _, err := app.ComputeBestEfforts.Execute(ctx, besteffort.Input{ActivitySourceID: sid}); err != nil {
+			warn("best_efforts", err)
+		}
+	}
+	if app.MatchSegments != nil {
+		if _, err := app.MatchSegments.Execute(ctx, segment.Input{ActivitySourceID: sid}); err != nil {
+			warn("match_segments", err)
+		}
 	}
 }

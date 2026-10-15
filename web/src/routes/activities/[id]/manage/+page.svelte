@@ -121,9 +121,7 @@
 		}
 	}
 	const exportExclude = $derived(
-		exportFeatures
-			.map(([key]) => key)
-			.filter((key) => exportAvail?.[key] && !exportSel[key])
+		exportFeatures.map(([key]) => key).filter((key) => exportAvail?.[key] && !exportSel[key])
 	);
 	const exportQuery = $derived(
 		exportExclude.length > 0 ? `?exclude=${exportExclude.join(',')}` : ''
@@ -144,11 +142,7 @@
 		return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
-	async function runAction(
-		path: string,
-		label: string,
-		confirmMsg?: string
-	) {
+	async function runAction(path: string, label: string, confirmMsg?: string) {
 		if (confirmMsg && !confirm(confirmMsg)) return;
 		busy = label;
 		actionMsg = null;
@@ -228,7 +222,10 @@
 			});
 			const body = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(body.error || res.statusText);
-			actionMsg = { ok: true, text: 'Re-parse queued — the source will update from its archive shortly.' };
+			actionMsg = {
+				ok: true,
+				text: 'Re-parse queued — the source will update from its archive shortly.'
+			};
 			await loadManage();
 		} catch (e) {
 			actionMsg = { ok: false, text: (e as Error).message };
@@ -305,9 +302,7 @@
 		if (!parsedJson[s.id]) {
 			try {
 				const res = await fetch(`/api/activities/${a.id}/sources/${s.id}/parsed`);
-				parsedJson[s.id] = res.ok
-					? JSON.stringify(await res.json(), null, 2)
-					: 'failed to load';
+				parsedJson[s.id] = res.ok ? JSON.stringify(await res.json(), null, 2) : 'failed to load';
 			} catch (e) {
 				parsedJson[s.id] = (e as Error).message;
 			}
@@ -495,7 +490,9 @@
 	<!-- Per-field provenance: which source won each field, and whether by rule or a manual pin -->
 	{#if payload && payload.provenance && payload.provenance.length > 0}
 		<section>
-			<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">Field provenance</h2>
+			<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
+				Field provenance
+			</h2>
 			<ul class="flex flex-wrap gap-2">
 				{#each payload.provenance as p (p.field)}
 					<li
@@ -529,7 +526,8 @@
 									{s.status}
 								</span>
 								{#if s.is_primary}
-									<span class="rounded bg-accent-500/15 px-1.5 py-0.5 text-[10px] uppercase text-accent-300"
+									<span
+										class="rounded bg-accent-500/15 px-1.5 py-0.5 text-[10px] uppercase text-accent-300"
 										>primary stream</span
 									>
 								{/if}
@@ -541,7 +539,8 @@
 									>
 								{/if}
 								{#if s.reimport_status && s.reimport_status !== 'current'}
-									<span class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase text-amber-300"
+									<span
+										class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase text-amber-300"
 										>{s.reimport_status}</span
 									>
 								{/if}
@@ -652,7 +651,9 @@
 							<div class="flex justify-between gap-2">
 								<dt class="text-zinc-500">Archived original</dt>
 								<dd class="text-zinc-300">
-									{s.has_blob ? `${fmtBytes(s.raw_size_bytes)} (${s.raw_content_type || '?'})` : 'none'}
+									{s.has_blob
+										? `${fmtBytes(s.raw_size_bytes)} (${s.raw_content_type || '?'})`
+										: 'none'}
 								</dd>
 							</div>
 							<div class="flex justify-between gap-2">
@@ -678,7 +679,9 @@
 								</p>
 								<div class="flex flex-wrap gap-1.5">
 									{#each s.won_field_groups as g (g)}
-										<span class="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">{g}</span>
+										<span class="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300"
+											>{g}</span
+										>
 									{/each}
 								</div>
 							</div>
@@ -693,7 +696,10 @@
 								{parsedOpen[s.id] ? 'Hide' : 'View'} parsed data
 							</button>
 							{#if parsedOpen[s.id]}
-								<pre class="mt-2 max-h-80 overflow-auto rounded bg-zinc-950 p-2 text-[11px] leading-relaxed text-zinc-300">{parsedJson[s.id]}</pre>
+								<pre
+									class="mt-2 max-h-80 overflow-auto rounded bg-zinc-950 p-2 text-[11px] leading-relaxed text-zinc-300">{parsedJson[
+										s.id
+									]}</pre>
 							{/if}
 						</div>
 					</li>

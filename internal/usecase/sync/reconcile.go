@@ -139,34 +139,14 @@ var ErrInvalidInput = errors.New("reconcile: either AccountID or All must be set
 // returns a top-level error for catastrophic failures (e.g., repo
 // query failed).
 func (uc *ReconcileExternalAccount) Execute(ctx context.Context, in ReconcileInput) (ReconcileResult, error) {
-	var targets []domain.ExternalAccount
-
-	switch {
-	case in.AccountID != nil:
-		a, err := uc.accounts.GetExternalAccount(ctx, *in.AccountID)
-		if err != nil {
-			return ReconcileResult{}, fmt.Errorf("get account %s: %w", *in.AccountID, err)
-		}
-		if !in.Force && !a.IsEligibleForSync(uc.now()) {
-			return ReconcileResult{
-				AccountsSkipped: 1,
-			}, nil
-		}
-		targets = []domain.ExternalAccount{a}
-
-	case in.All:
-		batch := in.BatchSize
-		if batch <= 0 {
-			batch = 100
-		}
-		list, err := uc.accounts.ListAccountsDueForReconcile(ctx, uc.now(), batch)
-		if err != nil {
-			return ReconcileResult{}, fmt.Errorf("list due accounts: %w", err)
-		}
-		targets = list
-
-	default:
-		return ReconcileResult{}, ErrInvalidInput
+	targets, skipped, err := uc.reconcileTargets(ctx, in)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	if skipped {
+		return ReconcileResult{
+			AccountsSkipped: 1,
+		}, nil
 	}
 
 	reason := in.Reason
@@ -178,12 +158,47 @@ func (uc *ReconcileExternalAccount) Execute(ctx context.Context, in ReconcileInp
 		}
 	}
 
+	return uc.reconcilePublishAll(ctx, targets, reason, in.Force), nil
+}
+
+// reconcileTargets resolves the accounts to reconcile; skipped is true when the
+// single requested account is not eligible.
+func (uc *ReconcileExternalAccount) reconcileTargets(ctx context.Context, in ReconcileInput) ([]domain.ExternalAccount, bool, error) {
+	switch {
+	case in.AccountID != nil:
+		a, err := uc.accounts.GetExternalAccount(ctx, *in.AccountID)
+		if err != nil {
+			return nil, false, fmt.Errorf("get account %s: %w", *in.AccountID, err)
+		}
+		if !in.Force && !a.IsEligibleForSync(uc.now()) {
+			return nil, true, nil
+		}
+		return []domain.ExternalAccount{a}, false, nil
+
+	case in.All:
+		batch := in.BatchSize
+		if batch <= 0 {
+			batch = 100
+		}
+		list, err := uc.accounts.ListAccountsDueForReconcile(ctx, uc.now(), batch)
+		if err != nil {
+			return nil, false, fmt.Errorf("list due accounts: %w", err)
+		}
+		return list, false, nil
+
+	default:
+		return nil, false, ErrInvalidInput
+	}
+}
+
+// reconcilePublishAll publishes a job per target, skipping budget-exhausted providers.
+func (uc *ReconcileExternalAccount) reconcilePublishAll(ctx context.Context, targets []domain.ExternalAccount, reason string, force bool) ReconcileResult {
 	res := ReconcileResult{}
 	// Memoise the budget check per provider — one KV read per provider per
 	// batch, not per account.
 	exhausted := map[string]bool{}
 	for _, a := range targets {
-		if !in.Force && uc.budgetExhausted != nil {
+		if !force && uc.budgetExhausted != nil {
 			if _, seen := exhausted[a.Provider]; !seen {
 				exhausted[a.Provider] = uc.budgetExhausted(ctx, a.Provider)
 			}
@@ -201,7 +216,7 @@ func (uc *ReconcileExternalAccount) Execute(ctx context.Context, in ReconcileInp
 		}
 		res.AccountsScheduled++
 	}
-	return res, nil
+	return res
 }
 
 // reconcileJobBody is the wire shape of the reconcile job. Encoded as

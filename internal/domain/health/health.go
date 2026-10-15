@@ -38,25 +38,7 @@ func MergeDaily(samples []Sample, priority []string) []MergedSample {
 	if len(priority) == 0 {
 		priority = []string{domain.AnyProvider}
 	}
-	named := map[string]struct{}{}
-	for _, p := range priority {
-		if p != domain.AnyProvider {
-			named[p] = struct{}{}
-		}
-	}
-	rank := func(provider string) int {
-		for i, p := range priority {
-			if p == provider {
-				return i
-			}
-			if p == domain.AnyProvider {
-				if _, isNamed := named[provider]; !isNamed {
-					return i
-				}
-			}
-		}
-		return len(priority) + 1 // unranked → worst
-	}
+	rank := healthProviderRanker(priority)
 
 	type key struct {
 		dt  capability.DataType
@@ -98,4 +80,27 @@ func MergeDaily(samples []Sample, priority []string) []MergedSample {
 		return out[i].Day.Before(out[j].Day)
 	})
 	return out
+}
+
+// healthProviderRanker returns a provider's cascade position (lower wins).
+func healthProviderRanker(priority []string) func(string) int {
+	named := map[string]struct{}{}
+	for _, p := range priority {
+		if p != domain.AnyProvider {
+			named[p] = struct{}{}
+		}
+	}
+	return func(provider string) int {
+		for i, p := range priority {
+			if p == provider {
+				return i
+			}
+			if p == domain.AnyProvider {
+				if _, isNamed := named[provider]; !isNamed {
+					return i
+				}
+			}
+		}
+		return len(priority) + 1 // unranked → worst
+	}
 }

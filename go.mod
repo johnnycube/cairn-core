@@ -8,6 +8,9 @@ module github.com/johnnycube/cairn-core
 // recompute paths.
 go 1.26.0
 
+// Minimum patched toolchain: CI and the release build switch to it when their image lags.
+toolchain go1.26.9
+
 require (
 	// Direct dependencies pinned to current stable as of May 2026.
 	// After fresh checkout run `go mod tidy` to resolve indirect deps.
@@ -45,6 +48,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/tormoder/fit v0.15.0
+	github.com/wneessen/go-mail v0.8.1
 	golang.org/x/oauth2 v0.37.0
 	google.golang.org/protobuf v1.36.12
 )

@@ -67,43 +67,53 @@ func GPX(a domain.Activity, s domain.Stream) []byte {
 	b.WriteString("    <trkseg>\n")
 
 	for i := range s.Samples {
-		p := &s.Samples[i]
-		if p.Latitude == nil || p.Longitude == nil {
-			continue
-		}
-		b.WriteString(`      <trkpt lat="` + f(*p.Latitude) + `" lon="` + f(*p.Longitude) + `">`)
-		if p.AltitudeM != nil {
-			b.WriteString("<ele>" + f(*p.AltitudeM) + "</ele>")
-		}
-		if !p.Timestamp.IsZero() {
-			b.WriteString("<time>" + ts(p.Timestamp) + "</time>")
-		}
-		// Extensions: hr / cad / atemp (Garmin TPX) + power.
-		if p.HeartRateBpm != nil || p.Cadence != nil || p.TemperatureC != nil || p.PowerW != nil {
-			b.WriteString("<extensions>")
-			if p.PowerW != nil {
-				b.WriteString("<power>" + strconv.Itoa(int(*p.PowerW)) + "</power>")
-			}
-			if p.HeartRateBpm != nil || p.Cadence != nil || p.TemperatureC != nil {
-				b.WriteString("<gpxtpx:TrackPointExtension>")
-				if p.HeartRateBpm != nil {
-					b.WriteString("<gpxtpx:hr>" + strconv.Itoa(int(*p.HeartRateBpm)) + "</gpxtpx:hr>")
-				}
-				if p.Cadence != nil {
-					b.WriteString("<gpxtpx:cad>" + strconv.Itoa(int(*p.Cadence)) + "</gpxtpx:cad>")
-				}
-				if p.TemperatureC != nil {
-					b.WriteString("<gpxtpx:atemp>" + f(float64(*p.TemperatureC)) + "</gpxtpx:atemp>")
-				}
-				b.WriteString("</gpxtpx:TrackPointExtension>")
-			}
-			b.WriteString("</extensions>")
-		}
-		b.WriteString("</trkpt>\n")
+		gpxWriteTrkpt(&b, &s.Samples[i])
 	}
 
 	b.WriteString("    </trkseg>\n  </trk>\n</gpx>\n")
 	return []byte(b.String())
+}
+
+// gpxWriteTrkpt writes one <trkpt>; samples without a position are skipped.
+func gpxWriteTrkpt(b *strings.Builder, p *domain.StreamSample) {
+	if p.Latitude == nil || p.Longitude == nil {
+		return
+	}
+	b.WriteString(`      <trkpt lat="` + f(*p.Latitude) + `" lon="` + f(*p.Longitude) + `">`)
+	if p.AltitudeM != nil {
+		b.WriteString("<ele>" + f(*p.AltitudeM) + "</ele>")
+	}
+	if !p.Timestamp.IsZero() {
+		b.WriteString("<time>" + ts(p.Timestamp) + "</time>")
+	}
+	// Extensions: hr / cad / atemp (Garmin TPX) + power.
+	gpxWriteExtensions(b, p)
+	b.WriteString("</trkpt>\n")
+}
+
+// gpxWriteExtensions writes the power + Garmin TPX extensions of a trackpoint.
+func gpxWriteExtensions(b *strings.Builder, p *domain.StreamSample) {
+	if p.HeartRateBpm == nil && p.Cadence == nil && p.TemperatureC == nil && p.PowerW == nil {
+		return
+	}
+	b.WriteString("<extensions>")
+	if p.PowerW != nil {
+		b.WriteString("<power>" + strconv.Itoa(int(*p.PowerW)) + "</power>")
+	}
+	if p.HeartRateBpm != nil || p.Cadence != nil || p.TemperatureC != nil {
+		b.WriteString("<gpxtpx:TrackPointExtension>")
+		if p.HeartRateBpm != nil {
+			b.WriteString("<gpxtpx:hr>" + strconv.Itoa(int(*p.HeartRateBpm)) + "</gpxtpx:hr>")
+		}
+		if p.Cadence != nil {
+			b.WriteString("<gpxtpx:cad>" + strconv.Itoa(int(*p.Cadence)) + "</gpxtpx:cad>")
+		}
+		if p.TemperatureC != nil {
+			b.WriteString("<gpxtpx:atemp>" + f(float64(*p.TemperatureC)) + "</gpxtpx:atemp>")
+		}
+		b.WriteString("</gpxtpx:TrackPointExtension>")
+	}
+	b.WriteString("</extensions>")
 }
 
 // TCX renders the activity as a Training Center Database document. Unlike GPX,
@@ -127,6 +137,23 @@ func TCX(a domain.Activity, s domain.Stream) []byte {
 	b.WriteString("      <Id>" + ts(start) + "</Id>\n")
 	b.WriteString("      <Lap StartTime=\"" + ts(start) + "\">\n")
 
+	tcxWriteLapSummary(&b, a)
+	b.WriteString("        <Intensity>Active</Intensity>\n")
+	b.WriteString("        <TriggerMethod>Manual</TriggerMethod>\n")
+	b.WriteString("        <Track>\n")
+
+	for i := range s.Samples {
+		tcxWriteTrackpoint(&b, &s.Samples[i])
+	}
+
+	b.WriteString("        </Track>\n      </Lap>\n")
+	b.WriteString("      <Creator xsi:type=\"Device_t\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><Name>Cairn</Name></Creator>\n")
+	b.WriteString("    </Activity>\n  </Activities>\n</TrainingCenterDatabase>\n")
+	return []byte(b.String())
+}
+
+// tcxWriteLapSummary writes the lap's optional totals.
+func tcxWriteLapSummary(b *strings.Builder, a domain.Activity) {
 	if a.ElapsedDuration > 0 {
 		b.WriteString("        <TotalTimeSeconds>" + f(a.ElapsedDuration.Seconds()) + "</TotalTimeSeconds>\n")
 	}
@@ -137,51 +164,43 @@ func TCX(a domain.Activity, s domain.Stream) []byte {
 		b.WriteString("        <MaximumSpeed>" + f(*a.Summary.MaxSpeedMps) + "</MaximumSpeed>\n")
 	}
 	if a.Summary.AvgHeartRateBpm != nil {
-		b.WriteString("        <AverageHeartRateBpm><Value>" + strconv.Itoa(int(*a.Summary.AvgHeartRateBpm)) + "</Value></AverageHeartRateBpm>\n")
+		b.WriteString("        <AverageHeartRateBpm><Value>" + strconv.Itoa(*a.Summary.AvgHeartRateBpm) + "</Value></AverageHeartRateBpm>\n")
 	}
-	b.WriteString("        <Intensity>Active</Intensity>\n")
-	b.WriteString("        <TriggerMethod>Manual</TriggerMethod>\n")
-	b.WriteString("        <Track>\n")
+}
 
-	for i := range s.Samples {
-		p := &s.Samples[i]
-		b.WriteString("          <Trackpoint>\n")
-		if !p.Timestamp.IsZero() {
-			b.WriteString("            <Time>" + ts(p.Timestamp) + "</Time>\n")
-		}
-		if p.Latitude != nil && p.Longitude != nil {
-			b.WriteString("            <Position><LatitudeDegrees>" + f(*p.Latitude) +
-				"</LatitudeDegrees><LongitudeDegrees>" + f(*p.Longitude) + "</LongitudeDegrees></Position>\n")
-		}
-		if p.AltitudeM != nil {
-			b.WriteString("            <AltitudeMeters>" + f(*p.AltitudeM) + "</AltitudeMeters>\n")
-		}
-		if p.DistanceM != nil {
-			b.WriteString("            <DistanceMeters>" + f(*p.DistanceM) + "</DistanceMeters>\n")
-		}
-		if p.HeartRateBpm != nil {
-			b.WriteString("            <HeartRateBpm><Value>" + strconv.Itoa(int(*p.HeartRateBpm)) + "</Value></HeartRateBpm>\n")
-		}
-		if p.Cadence != nil {
-			b.WriteString("            <Cadence>" + strconv.Itoa(int(*p.Cadence)) + "</Cadence>\n")
-		}
-		if p.SpeedMps != nil || p.PowerW != nil {
-			b.WriteString("            <Extensions><ns3:TPX>")
-			if p.SpeedMps != nil {
-				b.WriteString("<ns3:Speed>" + f(*p.SpeedMps) + "</ns3:Speed>")
-			}
-			if p.PowerW != nil {
-				b.WriteString("<ns3:Watts>" + strconv.Itoa(int(*p.PowerW)) + "</ns3:Watts>")
-			}
-			b.WriteString("</ns3:TPX></Extensions>\n")
-		}
-		b.WriteString("          </Trackpoint>\n")
+// tcxWriteTrackpoint writes one <Trackpoint> with whatever channels it has.
+func tcxWriteTrackpoint(b *strings.Builder, p *domain.StreamSample) {
+	b.WriteString("          <Trackpoint>\n")
+	if !p.Timestamp.IsZero() {
+		b.WriteString("            <Time>" + ts(p.Timestamp) + "</Time>\n")
 	}
-
-	b.WriteString("        </Track>\n      </Lap>\n")
-	b.WriteString("      <Creator xsi:type=\"Device_t\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><Name>Cairn</Name></Creator>\n")
-	b.WriteString("    </Activity>\n  </Activities>\n</TrainingCenterDatabase>\n")
-	return []byte(b.String())
+	if p.Latitude != nil && p.Longitude != nil {
+		b.WriteString("            <Position><LatitudeDegrees>" + f(*p.Latitude) +
+			"</LatitudeDegrees><LongitudeDegrees>" + f(*p.Longitude) + "</LongitudeDegrees></Position>\n")
+	}
+	if p.AltitudeM != nil {
+		b.WriteString("            <AltitudeMeters>" + f(*p.AltitudeM) + "</AltitudeMeters>\n")
+	}
+	if p.DistanceM != nil {
+		b.WriteString("            <DistanceMeters>" + f(*p.DistanceM) + "</DistanceMeters>\n")
+	}
+	if p.HeartRateBpm != nil {
+		b.WriteString("            <HeartRateBpm><Value>" + strconv.Itoa(int(*p.HeartRateBpm)) + "</Value></HeartRateBpm>\n")
+	}
+	if p.Cadence != nil {
+		b.WriteString("            <Cadence>" + strconv.Itoa(int(*p.Cadence)) + "</Cadence>\n")
+	}
+	if p.SpeedMps != nil || p.PowerW != nil {
+		b.WriteString("            <Extensions><ns3:TPX>")
+		if p.SpeedMps != nil {
+			b.WriteString("<ns3:Speed>" + f(*p.SpeedMps) + "</ns3:Speed>")
+		}
+		if p.PowerW != nil {
+			b.WriteString("<ns3:Watts>" + strconv.Itoa(int(*p.PowerW)) + "</ns3:Watts>")
+		}
+		b.WriteString("</ns3:TPX></Extensions>\n")
+	}
+	b.WriteString("          </Trackpoint>\n")
 }
 
 // tcxSport maps a Cairn activity type to one of TCX's enumerated sports

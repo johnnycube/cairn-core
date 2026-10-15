@@ -79,22 +79,7 @@ func ClusterBucket(records []Record, c Constraints, opt Options) Result {
 	}
 
 	uf := newUnionFind(recs)
-
-	// cannot-link forbidden pairs (canonical order).
-	forbidden := map[[2]string]struct{}{}
-	addForbidden := func(a, b string) {
-		if a > b {
-			a, b = b, a
-		}
-		forbidden[[2]string{a, b}] = struct{}{}
-	}
-	for _, p := range c.CannotLink {
-		if _, ok := idx[p[0]]; ok {
-			if _, ok2 := idx[p[1]]; ok2 {
-				addForbidden(p[0], p[1])
-			}
-		}
-	}
+	forbidden := clusterForbiddenPairs(c.CannotLink, idx)
 
 	// must-link first — authoritative; may override the ≤1-per-provider rule.
 	for _, p := range c.MustLink {
@@ -105,19 +90,53 @@ func ClusterBucket(records []Record, c Constraints, opt Options) Result {
 		}
 	}
 
-	// scored edges, best-first.
-	type edge struct {
-		a, b  int
-		score float64
+	edges := clusterScoredEdges(recs, opt)
+	minEdge, conflicts := clusterApplyEdges(uf, recs, edges, forbidden)
+	out := clusterBuild(uf, recs, minEdge, opt)
+
+	sort.Slice(conflicts, func(i, j int) bool {
+		if conflicts[i].AID != conflicts[j].AID {
+			return conflicts[i].AID < conflicts[j].AID
+		}
+		return conflicts[i].BID < conflicts[j].BID
+	})
+
+	return Result{Clusters: out, Conflicts: conflicts}
+}
+
+// clusterForbiddenPairs returns cannot-link pairs (canonical order) whose records are both in the bucket.
+func clusterForbiddenPairs(cannot [][2]string, idx map[string]int) map[[2]string]struct{} {
+	forbidden := map[[2]string]struct{}{}
+	for _, p := range cannot {
+		_, ok := idx[p[0]]
+		_, ok2 := idx[p[1]]
+		if !ok || !ok2 {
+			continue
+		}
+		a, b := p[0], p[1]
+		if a > b {
+			a, b = b, a
+		}
+		forbidden[[2]string{a, b}] = struct{}{}
 	}
-	var edges []edge
+	return forbidden
+}
+
+type clusterEdge struct {
+	a, b  int
+	score float64
+}
+
+// clusterScoredEdges returns above-threshold, ungated pairs, best-first.
+func clusterScoredEdges(recs []Record, opt Options) []clusterEdge {
+	var edges []clusterEdge
 	for i := 0; i < len(recs); i++ {
 		for j := i + 1; j < len(recs); j++ {
 			s, gated := Score(recs[i].SourceFeatures, recs[j].SourceFeatures, opt.Weights)
 			if gated || s < opt.EdgeThreshold {
 				continue
 			}
-			edges = append(edges, edge{i, j, s})
+			edges = append(edges, clusterEdge{i, j, s})
 		}
 	}
 	sort.Slice(edges, func(i, j int) bool {
@@ -129,8 +148,11 @@ func ClusterBucket(records []Record, c Constraints, opt Options) Result {
 		}
 		return edges[i].b < edges[j].b
 	})
+	return edges
+}
 
-	// minEdge: smallest linking-edge score per root → confidence band.
+// clusterApplyEdges unions along edges; minEdge is the smallest linking-edge score per root.
+func clusterApplyEdges(uf *unionFind, recs []Record, edges []clusterEdge, forbidden map[[2]string]struct{}) (map[int]float64, []Conflict) {
 	minEdge := map[int]float64{}
 	var conflicts []Conflict
 
@@ -140,7 +162,7 @@ func ClusterBucket(records []Record, c Constraints, opt Options) Result {
 			recordMinEdge(minEdge, ra, e.score)
 			continue
 		}
-		if uf.violatesForbidden(ra, rb, recs, forbidden) {
+		if uf.violatesForbidden(ra, rb, forbidden) {
 			continue
 		}
 		if uf.shareProvider(ra, rb) {
@@ -161,8 +183,11 @@ func ClusterBucket(records []Record, c Constraints, opt Options) Result {
 		delete(minEdge, rb)
 		minEdge[newRoot] = m
 	}
+	return minEdge, conflicts
+}
 
-	// Build clusters from components.
+// clusterBuild builds sorted clusters from components.
+func clusterBuild(uf *unionFind, recs []Record, minEdge map[int]float64, opt Options) []Cluster {
 	members := map[int][]string{}
 	for i, r := range recs {
 		root := uf.find(i)
@@ -179,15 +204,7 @@ func ClusterBucket(records []Record, c Constraints, opt Options) Result {
 		out = append(out, Cluster{RecordIDs: ids, Confidence: band})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RecordIDs[0] < out[j].RecordIDs[0] })
-
-	sort.Slice(conflicts, func(i, j int) bool {
-		if conflicts[i].AID != conflicts[j].AID {
-			return conflicts[i].AID < conflicts[j].AID
-		}
-		return conflicts[i].BID < conflicts[j].BID
-	})
-
-	return Result{Clusters: out, Conflicts: conflicts}
+	return out
 }
 
 func recordMinEdge(m map[int]float64, root int, score float64) {
@@ -254,7 +271,7 @@ func (uf *unionFind) shareProvider(ra, rb int) bool {
 
 // violatesForbidden reports whether merging two components co-locates a
 // cannot-linked pair.
-func (uf *unionFind) violatesForbidden(ra, rb int, recs []Record, forbidden map[[2]string]struct{}) bool {
+func (uf *unionFind) violatesForbidden(ra, rb int, forbidden map[[2]string]struct{}) bool {
 	if len(forbidden) == 0 {
 		return false
 	}

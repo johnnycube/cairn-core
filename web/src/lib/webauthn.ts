@@ -23,29 +23,47 @@ function b64urlToBuf(s: string): ArrayBuffer {
 function bufToB64url(buf: ArrayBuffer): string {
 	const bytes = new Uint8Array(buf);
 	let bin = '';
-	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+	for (const b of bytes) bin += String.fromCharCode(b);
 	return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// Server JSON shapes: binary fields arrive as base64url strings.
+type DescriptorJSON = Omit<PublicKeyCredentialDescriptor, 'id'> & { id: string };
+type CreationOptionsJSON = Omit<
+	PublicKeyCredentialCreationOptions,
+	'challenge' | 'user' | 'excludeCredentials'
+> & {
+	challenge: string;
+	user: Omit<PublicKeyCredentialUserEntity, 'id'> & { id: string };
+	excludeCredentials?: DescriptorJSON[];
+};
+type RequestOptionsJSON = Omit<
+	PublicKeyCredentialRequestOptions,
+	'challenge' | 'allowCredentials'
+> & {
+	challenge: string;
+	allowCredentials?: DescriptorJSON[];
+};
+
 // Convert the server's CredentialCreationOptions JSON (with base64url strings)
 // into the ArrayBuffer form navigator.credentials.create expects.
-function decodeCreationOptions(pk: any): PublicKeyCredentialCreationOptions {
+function decodeCreationOptions(pk: CreationOptionsJSON): PublicKeyCredentialCreationOptions {
 	return {
 		...pk,
 		challenge: b64urlToBuf(pk.challenge),
 		user: { ...pk.user, id: b64urlToBuf(pk.user.id) },
-		excludeCredentials: (pk.excludeCredentials ?? []).map((c: any) => ({
+		excludeCredentials: (pk.excludeCredentials ?? []).map((c) => ({
 			...c,
 			id: b64urlToBuf(c.id)
 		}))
 	};
 }
 
-function decodeRequestOptions(pk: any): PublicKeyCredentialRequestOptions {
+function decodeRequestOptions(pk: RequestOptionsJSON): PublicKeyCredentialRequestOptions {
 	return {
 		...pk,
 		challenge: b64urlToBuf(pk.challenge),
-		allowCredentials: (pk.allowCredentials ?? []).map((c: any) => ({
+		allowCredentials: (pk.allowCredentials ?? []).map((c) => ({
 			...c,
 			id: b64urlToBuf(c.id)
 		}))
@@ -55,7 +73,8 @@ function decodeRequestOptions(pk: any): PublicKeyCredentialRequestOptions {
 /** Register a new passkey for the signed-in user. */
 export async function registerPasskey(name: string): Promise<void> {
 	const startRes = await fetch('/auth/webauthn/register/start', { method: 'POST' });
-	if (!startRes.ok) throw new Error((await startRes.text()).trim() || 'could not start registration');
+	if (!startRes.ok)
+		throw new Error((await startRes.text()).trim() || 'could not start registration');
 	const options = await startRes.json();
 
 	const cred = (await navigator.credentials.create({
@@ -76,10 +95,11 @@ export async function registerPasskey(name: string): Promise<void> {
 		clientExtensionResults: cred.getClientExtensionResults()
 	};
 
-	const finishRes = await fetch(
-		`/auth/webauthn/register/finish?name=${encodeURIComponent(name)}`,
-		{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-	);
+	const finishRes = await fetch(`/auth/webauthn/register/finish?name=${encodeURIComponent(name)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body)
+	});
 	if (!finishRes.ok) throw new Error((await finishRes.text()).trim() || 'registration failed');
 }
 

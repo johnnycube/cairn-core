@@ -182,8 +182,13 @@ func NormaliseEmail(in string) (string, error) {
 	if e == "" {
 		return "", ErrEmailRequired
 	}
-	if _, err := mail.ParseAddress(e); err != nil {
-		return "", fmt.Errorf("%w: %v", ErrEmailInvalid, err)
+	a, err := mail.ParseAddress(e)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrEmailInvalid, err)
+	}
+	// A display name ("Bob <bob@x>") parses too; only a bare address is an account email.
+	if a.Address != e {
+		return "", fmt.Errorf("%w: not a bare address", ErrEmailInvalid)
 	}
 	return e, nil
 }

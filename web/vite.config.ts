@@ -1,7 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 // Where the Go server listens during dev. Override with CAIRN_API_ORIGIN when
 // :8080 is taken (e.g. `export CAIRN_API_ORIGIN=http://localhost:8090` to match
@@ -51,6 +51,16 @@ export default defineConfig({
 			'/.well-known': apiOrigin,
 			// MCP server (OAuth-protected, read-only).
 			'/mcp': apiOrigin
+		}
+	},
+	test: {
+		include: ['src/**/*.test.ts'],
+		environment: 'node',
+		coverage: {
+			provider: 'v8',
+			// Pure TS modules; Svelte components and route loaders are covered by svelte-check only.
+			include: ['src/lib/*.ts', 'src/routes/**/streamSeries.ts'],
+			thresholds: { lines: 95, functions: 95, branches: 95, statements: 95 }
 		}
 	}
 });

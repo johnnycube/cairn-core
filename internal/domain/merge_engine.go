@@ -132,55 +132,11 @@ func MergeWithOverrides(
 
 	policy := resolver(out.Type)
 
-	for _, g := range AllFieldGroups {
-		if g == FieldGroupClassification {
-			continue // already handled
-		}
-
-		// A manual per-field source pin (override) wins over the cascade.
-		winner, ok := overrideWinner(ordered, g, overrides)
-		if !ok {
-			winner, ok = pickWinner(ordered, g, policy)
-		}
-		if !ok {
-			continue
-		}
-
-		switch g {
-		case FieldGroupGPSTrack:
-			// The stream-bearing source becomes the activity's primary
-			// stream. No summary fields are written for this group.
-			winnerID := winner.ID
-			out.PrimaryStreamSourceID = &winnerID
-			out.MergeProvenance.Set(g, winner.ID)
-
-		case FieldGroupLaps:
-			// Laps live in a separate table; we just record provenance.
-			// The persistence layer hydrates the winning source's laps
-			// when callers request them.
-			out.MergeProvenance.Set(g, winner.ID)
-
-		default:
-			winner.Parsed.ApplyTo(g, &out)
-			out.MergeProvenance.Set(g, winner.ID)
-		}
-	}
+	mergeApplyGroups(&out, ordered, policy, overrides)
 
 	// ----- 3. Derived invariants ---------------------------------------
 
-	// If EndTime wasn't supplied by any time-group winner, derive it from
-	// StartTime + ElapsedDuration. Source data is usually consistent but
-	// some workers emit only one of the two fields.
-	if out.EndTime.IsZero() && !out.StartTime.IsZero() && out.ElapsedDuration > 0 {
-		out.EndTime = out.StartTime.Add(out.ElapsedDuration)
-	}
-
-	// Derived: recompute avg speed from merged distance ÷ moving-time so it
-	// stays consistent when distance/duration win from different sources.
-	if out.Summary.DistanceM != nil && *out.Summary.DistanceM > 0 && out.MovingDuration > 0 {
-		v := *out.Summary.DistanceM / out.MovingDuration.Seconds()
-		out.Summary.AvgSpeedMps = &v
-	}
+	mergeDeriveInvariants(&out)
 
 	// Tags default to empty (user-managed). The merge engine does not
 	// union source tags — that decision belongs to the use case, which
@@ -234,27 +190,81 @@ func pickWinner(sources []ActivitySource, g FieldGroup, policy MergePolicy) (Act
 	}
 
 	for _, p := range priorities {
-		switch p {
-		case AnyProvider:
-			for _, s := range sources {
-				if _, isNamed := named[s.Provider]; isNamed {
-					continue
-				}
-				if s.Parsed.Provides(g) {
-					return s, true
-				}
-			}
-		default:
-			for _, s := range sources {
-				if s.Provider != p {
-					continue
-				}
-				if s.Parsed.Provides(g) {
-					return s, true
-				}
-			}
+		if s, ok := pickWinnerForPriority(sources, g, p, named); ok {
+			return s, true
 		}
 	}
 
 	return ActivitySource{}, false
+}
+
+// pickWinnerForPriority returns the first source matching priority entry p that provides g.
+func pickWinnerForPriority(sources []ActivitySource, g FieldGroup, p string, named map[string]struct{}) (ActivitySource, bool) {
+	for _, s := range sources {
+		if p == AnyProvider {
+			if _, isNamed := named[s.Provider]; isNamed {
+				continue
+			}
+		} else if s.Provider != p {
+			continue
+		}
+		if s.Parsed.Provides(g) {
+			return s, true
+		}
+	}
+	return ActivitySource{}, false
+}
+
+// mergeApplyGroups applies each non-classification group's winner (pin, else cascade) to out.
+func mergeApplyGroups(out *Activity, ordered []ActivitySource, policy MergePolicy, overrides map[FieldGroup]SourceID) {
+	for _, g := range AllFieldGroups {
+		if g == FieldGroupClassification {
+			continue // already handled
+		}
+
+		// A manual per-field source pin (override) wins over the cascade.
+		winner, ok := overrideWinner(ordered, g, overrides)
+		if !ok {
+			winner, ok = pickWinner(ordered, g, policy)
+		}
+		if !ok {
+			continue
+		}
+
+		switch g {
+		case FieldGroupGPSTrack:
+			// The stream-bearing source becomes the activity's primary
+			// stream. No summary fields are written for this group.
+			winnerID := winner.ID
+			out.PrimaryStreamSourceID = &winnerID
+			out.MergeProvenance.Set(g, winner.ID)
+
+		case FieldGroupLaps:
+			// Laps live in a separate table; we just record provenance.
+			// The persistence layer hydrates the winning source's laps
+			// when callers request them.
+			out.MergeProvenance.Set(g, winner.ID)
+
+		default:
+			winner.Parsed.ApplyTo(g, out)
+			out.MergeProvenance.Set(g, winner.ID)
+		}
+	}
+}
+
+// mergeDeriveInvariants fills fields derivable from the merged ones.
+func mergeDeriveInvariants(out *Activity) {
+	// If EndTime wasn't supplied by any time-group winner, derive it from
+	// StartTime + ElapsedDuration. Source data is usually consistent but
+	// some workers emit only one of the two fields.
+	if out.EndTime.IsZero() && !out.StartTime.IsZero() && out.ElapsedDuration > 0 {
+		out.EndTime = out.StartTime.Add(out.ElapsedDuration)
+	}
+
+	// Derived: recompute avg speed from merged distance ÷ moving-time so it
+	// stays consistent when distance/duration win from different sources.
+	if out.Summary.DistanceM != nil && *out.Summary.DistanceM > 0 && out.MovingDuration > 0 {
+		v := *out.Summary.DistanceM / out.MovingDuration.Seconds()
+		out.Summary.AvgSpeedMps = &v
+	}
 }

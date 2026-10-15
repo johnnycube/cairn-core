@@ -140,6 +140,23 @@ func (s *Segment) Validate() error {
 	if !s.ActivityType.Valid() {
 		return ErrSegmentInvalidActivityType
 	}
+	if err := s.validateSourceShape(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(s.Polyline) == "" {
+		return ErrSegmentMissingPolyline
+	}
+	if s.PolylinePrecision != 5 && s.PolylinePrecision != 6 {
+		return ErrSegmentInvalidPolylinePrecision
+	}
+	if s.DistanceM <= 0 {
+		return ErrSegmentNonPositiveDistance
+	}
+	return nil
+}
+
+// validateSourceShape checks the external/native ownership rules.
+func (s *Segment) validateSourceShape() error {
 	switch s.Source {
 	case SegmentSourceExternal:
 		if s.ExternalID == nil || s.ExternalAccountID == nil {
@@ -158,15 +175,6 @@ func (s *Segment) Validate() error {
 		if s.ExternalID != nil || s.ExternalAccountID != nil {
 			return ErrSegmentNativeUnexpectedExternal
 		}
-	}
-	if strings.TrimSpace(s.Polyline) == "" {
-		return ErrSegmentMissingPolyline
-	}
-	if s.PolylinePrecision != 5 && s.PolylinePrecision != 6 {
-		return ErrSegmentInvalidPolylinePrecision
-	}
-	if s.DistanceM <= 0 {
-		return ErrSegmentNonPositiveDistance
 	}
 	return nil
 }

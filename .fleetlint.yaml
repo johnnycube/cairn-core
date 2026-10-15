@@ -1,0 +1,20 @@
+# .fleetlint.yaml: https://github.com/fleetlint/fleetlint
+version: 1
+extends:
+  - fleetlint:recommended
+facts:
+  visibility: public   # as the forge reported it at init; update it if the repository changes hands
+# discovered: stacks=[go] forge=github visibility=public tier=1 (default) layout=nested release=yes taskrunner=make container=none
+# scopes (each checked as its own project): web. List them under `scopes:` to change that.
+# Facts are re-detected on every run; pin one under `facts:` only when detection is wrong.
+overrides:
+  changelog/generator-configured:
+    enabled: false
+    reason: "CHANGELOG.md is curated by hand (Keep a Changelog); `make release` refuses a tag without its section"
+  release/changelog-in-release:
+    enabled: false
+    reason: "a v* tag publishes a signed container image only; there is no release body to generate"
+exceptions:
+  - rule: containers/non-root-user
+    match: "docker/Dockerfile.build-base"
+    reason: "build-only toolchain image: GitHub container jobs and downstream FROM build stages need root; the runtime image is distroless nonroot"

@@ -76,8 +76,12 @@
 <div class="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center">
 	<div class="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 shadow-xl">
 		<div class="mb-5 flex items-center gap-3">
-			<span class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 text-zinc-950">
-				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none"><path d="M3 19h18L14.5 7l-3 5-2-3L3 19z" fill="currentColor" /></svg>
+			<span
+				class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent-400 to-accent-600 text-zinc-950"
+			>
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none"
+					><path d="M3 19h18L14.5 7l-3 5-2-3L3 19z" fill="currentColor" /></svg
+				>
 			</span>
 			<div>
 				<div class="text-xs uppercase tracking-widest text-accent-400">Authorize</div>
@@ -88,7 +92,9 @@
 		{#if loading}
 			<p class="text-sm text-zinc-400">Loading authorization request…</p>
 		{:else if error}
-			<div class="rounded-lg border border-red-700/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">{error}</div>
+			<div class="rounded-lg border border-red-700/50 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+				{error}
+			</div>
 		{:else if info}
 			<p class="text-sm text-zinc-300">
 				<span class="font-semibold text-zinc-100">{info.client_name}</span>
@@ -97,16 +103,36 @@
 
 			<ul class="my-4 space-y-2">
 				{#each info.scopes as s (s.scope)}
-					<li class="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2.5">
+					<li
+						class="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2.5"
+					>
 						<span
 							class="mt-0.5 flex h-5 w-5 items-center justify-center rounded {s.write
 								? 'bg-amber-500/15 text-amber-300'
 								: 'bg-accent-500/15 text-accent-300'}"
 						>
 							{#if s.write}
-								<svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+								<svg
+									class="h-3 w-3"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg
+								>
 							{:else}
-								<svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="2.5" /></svg>
+								<svg
+									class="h-3 w-3"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle
+										cx="12"
+										cy="12"
+										r="2.5"
+									/></svg
+								>
 							{/if}
 						</span>
 						<div>

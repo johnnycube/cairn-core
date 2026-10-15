@@ -50,7 +50,7 @@ func (r *QuietHoursRepo) Upsert(ctx context.Context, q domain.QuietHours) error 
 	db := dbtx(ctx, r.pool)
 	days := make([]int32, 0, len(q.DaysOfWeek))
 	for _, d := range q.DaysOfWeek {
-		days = append(days, int32(d))
+		days = append(days, pgClampInt32(d))
 	}
 	tz := q.TZ
 	if tz == "" {

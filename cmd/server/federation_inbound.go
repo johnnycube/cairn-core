@@ -136,16 +136,16 @@ func fetchRemoteActor(ctx context.Context, app *App, actorID string) (domain.Fed
 			return a, pub, nil
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, actorID, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, actorID, nil) //nolint:gosec // G704: federationClient is the SSRF-guarded safehttp client; blocked domains rejected above
 	if err != nil {
 		return domain.FederatedActor{}, nil, err
 	}
 	req.Header.Set("Accept", "application/activity+json")
-	resp, err := federationClient.Do(req)
+	resp, err := federationClient.Do(req) //nolint:gosec // G704: SSRF-guarded safehttp client (dial guard blocks private IPs)
 	if err != nil {
 		return domain.FederatedActor{}, nil, fmt.Errorf("fetch actor: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return domain.FederatedActor{}, nil, fmt.Errorf("fetch actor %s: status %d", actorID, resp.StatusCode)
 	}
@@ -223,7 +223,7 @@ func deliverSignedBody(ctx context.Context, app *App, fromUserID domain.UserID, 
 	if err != nil {
 		return 0, fmt.Errorf("deliver: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode, nil
 }
 

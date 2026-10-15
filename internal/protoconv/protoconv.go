@@ -123,27 +123,32 @@ func activityLapsFromProto(laps []*cairnv1.ActivityLap, activityStart time.Time)
 		if ts := l.GetStartTime(); ts != nil && !activityStart.IsZero() {
 			lap.StartOffset = ts.AsTime().Sub(activityStart)
 		}
-		if l.DistanceM != nil {
-			lap.DistanceM = domain.Ptr(l.GetDistanceM())
-		}
-		if l.AvgSpeedMps != nil {
-			lap.AvgSpeedMps = domain.Ptr(l.GetAvgSpeedMps())
-		}
-		if l.AvgHeartRateBpm != nil {
-			lap.AvgHeartRateBpm = domain.Ptr(int(l.GetAvgHeartRateBpm()))
-		}
-		if l.AvgPowerW != nil {
-			lap.AvgPowerW = domain.Ptr(int(l.GetAvgPowerW()))
-		}
-		if l.AvgCadence != nil {
-			lap.AvgCadence = domain.Ptr(int(l.GetAvgCadence()))
-		}
-		if l.ElevationGainM != nil {
-			lap.ElevationGainM = domain.Ptr(l.GetElevationGainM())
-		}
+		activityLapMetricsFromProto(l, &lap)
 		out = append(out, lap)
 	}
 	return out
+}
+
+// activityLapMetricsFromProto copies the optional per-lap metrics.
+func activityLapMetricsFromProto(l *cairnv1.ActivityLap, lap *domain.ActivityLap) {
+	if l.DistanceM != nil {
+		lap.DistanceM = domain.Ptr(l.GetDistanceM())
+	}
+	if l.AvgSpeedMps != nil {
+		lap.AvgSpeedMps = domain.Ptr(l.GetAvgSpeedMps())
+	}
+	if l.AvgHeartRateBpm != nil {
+		lap.AvgHeartRateBpm = domain.Ptr(int(l.GetAvgHeartRateBpm()))
+	}
+	if l.AvgPowerW != nil {
+		lap.AvgPowerW = domain.Ptr(int(l.GetAvgPowerW()))
+	}
+	if l.AvgCadence != nil {
+		lap.AvgCadence = domain.Ptr(int(l.GetAvgCadence()))
+	}
+	if l.ElevationGainM != nil {
+		lap.ElevationGainM = domain.Ptr(l.GetElevationGainM())
+	}
 }
 
 func activitySummaryFromProto(s *cairnv1.ActivitySummary) domain.ActivitySummary {
@@ -176,6 +181,9 @@ func activitySummaryFromProto(s *cairnv1.ActivitySummary) domain.ActivitySummary
 	}
 }
 
+// MaxStreamSamples bounds a decoded stream: 1 Hz for ~48 days.
+const MaxStreamSamples = 1 << 22
+
 // ActivityStreamSamplesFromProto pivots the column-oriented wire stream into
 // the domain's row-based samples. start is the activity start (the wire form
 // carries time_s = seconds-since-start; the domain stores absolute time).
@@ -188,6 +196,10 @@ func ActivityStreamSamplesFromProto(s *cairnv1.ActivityStream, start time.Time) 
 		return nil
 	}
 	n := int(s.GetSampleCount())
+	// sample_count is wire input: refuse sizes no real activity reaches instead of allocating them.
+	if n > MaxStreamSamples {
+		return nil
+	}
 	samples := make([]domain.StreamSample, n)
 
 	for i := 0; i < n; i++ {
@@ -246,6 +258,6 @@ func i32At16(col []int32, i int) *int16 {
 	if i >= len(col) {
 		return nil
 	}
-	v := int16(col[i])
+	v := int16(min(max(col[i], math.MinInt16), math.MaxInt16))
 	return &v
 }

@@ -41,7 +41,8 @@
 		oidc_verify_failed: 'The identity provider’s response could not be verified.',
 		oidc_bad_response: 'The identity provider returned an incomplete response.',
 		oidc_unavailable: 'That identity provider is not available.',
-		auto_provision_denied: 'No Cairn account exists for this identity yet — ask an admin to invite you.',
+		auto_provision_denied:
+			'No Cairn account exists for this identity yet — ask an admin to invite you.',
 		oidc_failed: 'Single sign-on failed. Please try again.'
 	};
 	const loginError = $derived(
@@ -73,7 +74,9 @@
 	</header>
 
 	{#if notice}
-		<div class="rounded-lg border border-emerald-700/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
+		<div
+			class="rounded-lg border border-emerald-700/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300"
+		>
 			{notice}
 		</div>
 	{/if}
@@ -119,14 +122,24 @@
 				disabled={passkeyBusy}
 				class="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm font-medium hover:border-accent-500 hover:bg-zinc-900 disabled:opacity-50"
 			>
-				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+				<svg
+					class="h-4 w-4"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.8"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
 					<rect x="3" y="11" width="18" height="11" rx="2" />
 					<path d="M7 11V7a5 5 0 0 1 10 0v4" />
 				</svg>
 				{passkeyBusy ? 'Waiting for passkey…' : 'Sign in with a passkey'}
 			</button>
 			{#if passkeyError}
-				<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">{passkeyError}</div>
+				<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+					{passkeyError}
+				</div>
 			{/if}
 		</section>
 	{/if}
@@ -147,7 +160,9 @@
 			>
 				<input type="hidden" name="redirect" value={nextDest} />
 				{#if loginError}
-					<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+					<div
+						class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300"
+					>
 						{loginError}
 					</div>
 				{/if}
@@ -178,20 +193,27 @@
 					Sign in
 				</button>
 				<div class="text-center">
-					<a href="/forgot-password" class="text-xs text-zinc-500 hover:text-accent-300">Forgot password?</a>
+					<a href="/forgot-password" class="text-xs text-zinc-500 hover:text-accent-300"
+						>Forgot password?</a
+					>
 				</div>
 			</form>
 		</section>
 	{/if}
 
 	{#if data.oidcClients.length === 0 && !data.passwordEnabled}
-		<div class="rounded-lg border border-amber-700/50 bg-amber-950/30 p-4 text-sm text-amber-200/80">
-			No sign-in methods configured. Enable password sign-in, or configure an OIDC provider via
-			the <code>CAIRN_OIDC_*</code> environment variables and restart the server.
+		<div
+			class="rounded-lg border border-amber-700/50 bg-amber-950/30 p-4 text-sm text-amber-200/80"
+		>
+			No sign-in methods configured. Enable password sign-in, or configure an OIDC provider via the <code
+				>CAIRN_OIDC_*</code
+			> environment variables and restart the server.
 		</div>
 	{/if}
 
 	<p class="text-center text-xs text-zinc-500">
-		Have an invite code? <a href="/signup" class="text-accent-400 hover:text-accent-300">Create an account</a>
+		Have an invite code? <a href="/signup" class="text-accent-400 hover:text-accent-300"
+			>Create an account</a
+		>
 	</p>
 </div>

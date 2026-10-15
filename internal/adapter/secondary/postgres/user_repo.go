@@ -56,22 +56,25 @@ func (r *UserRepo) CreateUser(ctx context.Context, u domain.User, cred domain.Cr
 	if err := domain.ValidateUserShape(u); err != nil {
 		return fmt.Errorf("validate user: %w", err)
 	}
-	units := u.Units
-	if units == "" {
-		units = domain.UserUnitsMetric
-	}
-	locale := u.Locale
-	if locale == "" {
-		locale = "en"
-	}
-	tz := u.Timezone
-	if tz == "" {
-		tz = "UTC"
-	}
-
 	db := dbtx(ctx, r.pool)
 
-	const q = `
+	var (
+		gotID                uuid.UUID
+		createdAt, updatedAt time.Time
+	)
+	err := db.QueryRow(ctx, userCreateSQL, userCreateArgs(u, cred)...).Scan(&gotID, &createdAt, &updatedAt)
+
+	if err != nil {
+		return mapUserUniqueViolation(err)
+	}
+	_ = gotID
+	_ = createdAt
+	_ = updatedAt
+	return nil
+}
+
+// userCreateSQL inserts one user and returns its generated columns.
+const userCreateSQL = `
 		INSERT INTO users (
 			id, username, email, email_verified,
 			password_hash, display_name, avatar_url,
@@ -87,6 +90,21 @@ func (r *UserRepo) CreateUser(ctx context.Context, u domain.User, cred domain.Cr
 		)
 		RETURNING id, created_at, updated_at
 	`
+
+// userCreateArgs builds the userCreateSQL bind parameters, applying locale/unit/tz defaults.
+func userCreateArgs(u domain.User, cred domain.Credentials) []any {
+	units := u.Units
+	if units == "" {
+		units = domain.UserUnitsMetric
+	}
+	locale := u.Locale
+	if locale == "" {
+		locale = "en"
+	}
+	tz := u.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
 
 	var idParam any
 	if u.ID != (domain.UserID{}) {
@@ -108,25 +126,13 @@ func (r *UserRepo) CreateUser(ctx context.Context, u domain.User, cred domain.Cr
 		statusReasonParam = u.StatusReason
 	}
 
-	var (
-		gotID                uuid.UUID
-		createdAt, updatedAt time.Time
-	)
-	err := db.QueryRow(ctx, q,
+	return []any{
 		idParam, u.Username, u.Email, u.EmailVerified,
 		passwordParam, u.DisplayName, avatarParam,
 		locale, tz, string(units),
 		string(u.Role), string(u.Status), statusReasonParam,
 		u.MustChangePassword,
-	).Scan(&gotID, &createdAt, &updatedAt)
-
-	if err != nil {
-		return mapUserUniqueViolation(err)
 	}
-	_ = gotID
-	_ = createdAt
-	_ = updatedAt
-	return nil
 }
 
 // ---------------------------------------------------------------------------

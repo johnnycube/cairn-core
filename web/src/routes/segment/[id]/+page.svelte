@@ -85,31 +85,35 @@
 		return PAD.t + plotH - ((v - min) / (max - min || 1)) * plotH;
 	}
 	const linePath = $derived(
-		chrono.map((e, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(e.elapsed_s).toFixed(1)}`).join(' ')
+		chrono
+			.map((e, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(e.elapsed_s).toFixed(1)}`)
+			.join(' ')
 	);
-
-	function humanize(v: string): string {
-		return v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-	}
 </script>
 
 <div class="space-y-6">
 	{#if loading}
 		<div class="text-sm text-zinc-500">Loading…</div>
 	{:else if notFound || !segment}
-		<div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400">
+		<div
+			class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400"
+		>
 			Segment not found, or you have no efforts on it.
 		</div>
 	{:else}
 		<header class="flex items-center gap-3">
-			<span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-accent-400">
+			<span
+				class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-accent-400"
+			>
 				<SportIcon type={segment.activity_type} size={20} />
 			</span>
 			<div>
 				<h1 class="text-2xl font-semibold tracking-tight">{segment.name || 'Segment'}</h1>
 				<div class="mt-0.5 flex flex-wrap gap-x-4 text-xs text-zinc-500">
 					<span>{formatDistance(segment.distance_m)}</span>
-					{#if segment.elevation_gain_m}<span>{formatElevation(segment.elevation_gain_m)} climb</span>{/if}
+					{#if segment.elevation_gain_m}<span
+							>{formatElevation(segment.elevation_gain_m)} climb</span
+						>{/if}
 					{#if segment.avg_grade != null}<span>{segment.avg_grade.toFixed(1)}% avg</span>{/if}
 					{#if segment.climb_category}<span>Cat {segment.climb_category}</span>{/if}
 					<span>{efforts.length} effort{efforts.length === 1 ? '' : 's'}</span>
@@ -144,11 +148,17 @@
 								r={e.elapsed_s === best ? 4 : 2.5}
 								fill={e.elapsed_s === best ? '#22c55e' : '#38bdf8'}
 							>
-								<title>{formatDate(e.start_time)}: {formatDuration(e.elapsed_s)}{e.elapsed_s === best ? ' (PR)' : ''}</title>
+								<title
+									>{formatDate(e.start_time)}: {formatDuration(e.elapsed_s)}{e.elapsed_s === best
+										? ' (PR)'
+										: ''}</title
+								>
 							</circle>
 						{/each}
 					</svg>
-					<p class="mt-1 text-center text-[10px] text-zinc-600">Each point is one effort, oldest → newest. Green = your best.</p>
+					<p class="mt-1 text-center text-[10px] text-zinc-600">
+						Each point is one effort, oldest → newest. Green = your best.
+					</p>
 				</div>
 			</section>
 		{/if}
@@ -170,17 +180,25 @@
 						{#each efforts as e (e.id)}
 							<tr class="border-t border-zinc-800/70 hover:bg-zinc-900/40">
 								<td class="px-4 py-2">
-									<a href={`/activities/${e.activity_id}`} class="text-accent-400 hover:text-accent-300 hover:underline">
+									<a
+										href={`/activities/${e.activity_id}`}
+										class="text-accent-400 hover:text-accent-300 hover:underline"
+									>
 										{formatDate(e.start_time)}
 									</a>
 								</td>
 								<td class="px-4 py-2 text-right tabular-nums">
 									{formatDuration(e.elapsed_s)}
-									{#if e.is_personal_record}<span class="ml-1 rounded bg-amber-500/15 px-1 text-[10px] text-amber-300">PR</span>{/if}
+									{#if e.is_personal_record}<span
+											class="ml-1 rounded bg-amber-500/15 px-1 text-[10px] text-amber-300">PR</span
+										>{/if}
 								</td>
 								<td class="px-4 py-2 text-right tabular-nums text-zinc-400">#{e.personal_rank}</td>
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-400">{e.avg_heart_rate ?? '—'}</td>
-								<td class="px-4 py-2 text-right tabular-nums text-zinc-400">{e.avg_power ?? '—'}</td>
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-400"
+									>{e.avg_heart_rate ?? '—'}</td
+								>
+								<td class="px-4 py-2 text-right tabular-nums text-zinc-400">{e.avg_power ?? '—'}</td
+								>
 							</tr>
 						{/each}
 					</tbody>

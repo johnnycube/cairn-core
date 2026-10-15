@@ -8,9 +8,9 @@ import "sort"
 // webhook push is a per-deployment property advertised separately in the
 // presence heartbeat (the `webhooks` flag), not part of the manifest.
 type Capability struct {
-	Read        bool   `json:"read"`               // fetch from the provider
-	Write       bool   `json:"write"`              // push back to the provider
-	Backfill    bool   `json:"backfill"`           // can import history
+	Read        bool   `json:"read"`                  // fetch from the provider
+	Write       bool   `json:"write"`                 // push back to the provider
+	Backfill    bool   `json:"backfill"`              // can import history
 	Granularity string `json:"granularity,omitempty"` // e.g. "1s", "daily"
 }
 

@@ -1,0 +1,101 @@
+# Runs `make check`, the definition of green: proto drift, lint (Go + web), tests, coverage gates
+# (unit + Postgres integration suites), audit (govulncheck, licenses, tidy, npm audit, gitleaks), build and fleetlint.
+# Runs inside the build-base toolchain image (Go + Node + buf + local proto plugins), so no setup-* steps.
+# build-core.yml calls this workflow as the gate before it publishes an image from main or a v* tag.
+# Actions are pinned to commit SHAs; Renovate keeps the pins current.
+name: check
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly: catches new vulnerabilities in unchanged code
+
+permissions:
+  contents: read
+
+# Container jobs default to sh; the steps rely on bash (pipefail).
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/johnnycube/cairn-build-base:1
+    # Throwaway TimescaleDB+PostGIS for the integration suite; same image as docker-compose.dev.yml.
+    services:
+      postgres:
+        image: timescale/timescaledb-ha:pg17-ts2.27
+        env:
+          POSTGRES_USER: cairn
+          POSTGRES_PASSWORD: cairn
+          POSTGRES_DB: cairn
+        options: >-
+          --health-cmd "pg_isready -U cairn -d cairn"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      # The image pins GOTOOLCHAIN=local; follow go.mod's toolchain line instead.
+      GOTOOLCHAIN: auto
+      # make cover runs the integration suite against the service and gates COVER_MIN.
+      CAIRN_TEST_DATABASE_URL: postgres://cairn:cairn@postgres:5432/cairn?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0          # gitleaks scans the history
+          persist-credentials: false
+      # The checkout is owned by another uid than the container user.
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache Go and npm
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /go/pkg/mod
+            ~/.cache/go-build
+            ~/.npm
+          key: check-${{ hashFiles('go.sum', 'web/package-lock.json', 'Makefile') }}
+          restore-keys: check-
+      - name: gitleaks, pinned and checksum-verified
+        env:
+          # renovate: datasource=github-releases depName=gitleaks/gitleaks
+          GITLEAKS_VERSION: v8.30.1
+        run: |
+          set -euo pipefail
+          v=${GITLEAKS_VERSION#v}
+          base="https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}"
+          curl -sSfLO "${base}/gitleaks_${v}_linux_x64.tar.gz"
+          curl -sSfL "${base}/gitleaks_${v}_checksums.txt" | grep " gitleaks_${v}_linux_x64.tar.gz$" | sha256sum -c -
+          tar -xzf "gitleaks_${v}_linux_x64.tar.gz" -C /usr/local/bin gitleaks
+          rm "gitleaks_${v}_linux_x64.tar.gz"
+      # The image carries no C toolchain; the race detector needs cgo.
+      - name: gcc for go test -race
+        run: apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev
+      - name: Go tools (pinned in the Makefile)
+        run: make tools
+      - run: make check
+
+  # Weekly mutation testing of the domain package (merge engine, visibility); too slow for every PR.
+  mutate:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/johnnycube/cairn-build-base:1
+    env:
+      # The image pins GOTOOLCHAIN=local; follow go.mod's toolchain line instead.
+      GOTOOLCHAIN: auto
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: make tools
+      - run: make mutate

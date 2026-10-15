@@ -95,7 +95,7 @@ func (s *ActivityServer) ListActivities(
 	ctx context.Context,
 	req *connectrpc.Request[v1.ListActivitiesRequest],
 ) (*connectrpc.Response[v1.ListActivitiesResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (s *ActivityServer) GetActivity(
 	ctx context.Context,
 	req *connectrpc.Request[v1.GetActivityRequest],
 ) (*connectrpc.Response[v1.GetActivityResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -209,25 +209,11 @@ func (s *ActivityServer) UpdateActivity(
 	ctx context.Context,
 	req *connectrpc.Request[v1.UpdateActivityRequest],
 ) (*connectrpc.Response[v1.UpdateActivityResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	activity, err := s.activityUpdateLoad(ctx, req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
-
-	id, err := uuid.Parse(req.Msg.GetId())
-	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("invalid activity id"))
-	}
-	activityID := domain.ActivityID(id)
-
-	activity, err := s.Activities.GetActivity(ctx, activityID)
-	if err != nil {
-		return nil, notFoundErr(err)
-	}
-	if activity.UserID != userID || activity.IsDeleted() {
-		return nil, connectrpc.NewError(connectrpc.CodeNotFound, errors.New("not found"))
-	}
+	activityID := activity.ID
 
 	mask := req.Msg.GetFieldMask()
 	if len(mask) == 0 {
@@ -238,193 +224,15 @@ func (s *ActivityServer) UpdateActivity(
 	// Capture the pre-edit privacy so a public⇄non-public transition can be
 	// federated after the save.
 	prevPrivacy := activity.Privacy
-	privacyTouched := false
-
-	// Classification edits (type/discipline/flags) are stored as a user overlay
-	// applied AFTER the merge by Recompute, so they survive future source
-	// imports. We start from the existing overlay and mutate only masked fields.
-	var classOverride *domain.ClassificationOverride
-	classTouched := false
-	rejectClass := func(f string) error {
-		return connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			fmt.Errorf("field %q is not editable on this instance", f))
-	}
-	ensureCO := func() (*domain.ClassificationOverride, error) {
-		if classOverride == nil {
-			existing, err := s.ClassOverrides.Get(ctx, activityID)
-			if err != nil {
-				return nil, err
-			}
-			classOverride = &existing
-		}
-		classTouched = true
-		return classOverride, nil
-	}
-
+	e := &activityUpdateEdit{s: s, ctx: ctx, msg: req.Msg, activity: &activity}
 	for _, f := range mask {
-		switch f {
-		case "title":
-			activity.Title = req.Msg.GetTitle()
-		case "description":
-			activity.Description = req.Msg.GetDescription()
-		case "tags":
-			// Present-in-mask replaces the whole set (empty clears it).
-			activity.Tags = req.Msg.GetTags()
-		case "privacy":
-			p, ok := privacyFromProto(req.Msg.GetPrivacy())
-			if !ok {
-				return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-					errors.New("privacy must be one of private|followers|public"))
-			}
-			activity.Privacy = p
-			privacyTouched = true
-		case "type":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			if t, ok := activityTypeFromProto(req.Msg.GetType()); ok {
-				co.Type = &t
-			} else {
-				co.Type = nil // UNSPECIFIED clears the override → revert to merged
-			}
-		case "discipline":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			if d, ok := disciplineFromProto(req.Msg.GetDiscipline()); ok {
-				co.Discipline = &d
-			} else {
-				co.Discipline = nil
-			}
-		case "is_virtual":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			v := req.Msg.GetIsVirtual()
-			co.IsVirtual = &v
-		case "is_commute":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			v := req.Msg.GetIsCommute()
-			co.IsCommute = &v
-		case "is_race":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			v := req.Msg.GetIsRace()
-			co.IsRace = &v
-		case "is_ebike":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			v := req.Msg.GetIsEbike()
-			co.IsEbike = &v
-		case "custom_subtype":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			cs := req.Msg.GetCustomSubtype()
-			if cs == "" {
-				co.CustomSubtype = nil
-			} else {
-				co.CustomSubtype = &cs
-			}
-		case "distance_m":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			if v := req.Msg.GetDistanceM(); v < 0 {
-				co.DistanceM = nil // negative clears → revert to merged
-			} else {
-				co.DistanceM = &v
-			}
-		case "elevation_gain_m":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			if v := req.Msg.GetElevationGainM(); v < 0 {
-				co.ElevationGainM = nil
-			} else {
-				co.ElevationGainM = &v
-			}
-		case "moving_duration_s":
-			if s.ClassOverrides == nil {
-				return nil, rejectClass(f)
-			}
-			co, err := ensureCO()
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal, err)
-			}
-			if v := req.Msg.GetMovingDurationS(); v < 0 {
-				co.MovingDuration = nil
-			} else {
-				d := time.Duration(v) * time.Second
-				co.MovingDuration = &d
-			}
-		case "primary_stream_source_id":
-			// Merge-managed (FieldGroupGPSTrack); changed via a gps_track field
-			// pin, not a direct edit.
-			return nil, rejectClass(f)
-		default:
-			return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-				fmt.Errorf("unknown field %q in field_mask", f))
+		if err := e.applyField(f); err != nil {
+			return nil, err
 		}
 	}
 
-	if classTouched {
-		if err := s.ClassOverrides.Set(ctx, *classOverride); err != nil {
-			return nil, connectrpc.NewError(connectrpc.CodeInternal,
-				fmt.Errorf("save classification override: %w", err))
-		}
-	}
-
-	if err := s.Activities.SaveActivity(ctx, activity); err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
-			fmt.Errorf("save activity: %w", err))
-	}
-
-	// Re-merge from all sources. preserveUserEdits copies the just-saved
-	// user fields onto the merged result, so the edit sticks.
-	if _, err := s.Recompute.Execute(ctx, activityID); err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
-			fmt.Errorf("recompute activity: %w", err))
+	if err := e.persist(); err != nil {
+		return nil, err
 	}
 
 	updated, err := s.Activities.GetActivity(ctx, activityID)
@@ -433,16 +241,8 @@ func (s *ActivityServer) UpdateActivity(
 			fmt.Errorf("reload activity: %w", err))
 	}
 
-	// Federate a visibility transition: making an activity public announces it
-	// to remote followers (the ingest-time publish only covers public-at-import);
-	// taking it back out of public retracts it. Best-effort, never fails the edit.
-	if s.Federation != nil && privacyTouched && prevPrivacy != updated.Privacy {
-		switch {
-		case updated.Privacy == domain.PrivacyPublic:
-			s.Federation.PublishCreate(ctx, updated)
-		case prevPrivacy == domain.PrivacyPublic:
-			s.Federation.PublishDelete(ctx, updated.UserID, activityID)
-		}
+	if e.privacyTouched {
+		s.activityUpdateFederate(ctx, prevPrivacy, updated)
 	}
 
 	sources, err := s.Activities.ListSourcesForActivity(ctx, activityID)
@@ -454,6 +254,203 @@ func (s *ActivityServer) UpdateActivity(
 	return connectrpc.NewResponse(&v1.UpdateActivityResponse{
 		Activity: activityToProto(updated, sources),
 	}), nil
+}
+
+// activityUpdateLoad resolves the caller and loads the activity they own.
+func (s *ActivityServer) activityUpdateLoad(ctx context.Context, rawID string) (domain.Activity, error) {
+	userID, err := userIDFromHandlerCtx(ctx)
+	if err != nil {
+		return domain.Activity{}, err
+	}
+
+	id, err := uuid.Parse(rawID)
+	if err != nil {
+		return domain.Activity{}, connectrpc.NewError(connectrpc.CodeInvalidArgument,
+			errors.New("invalid activity id"))
+	}
+	activityID := domain.ActivityID(id)
+
+	activity, err := s.Activities.GetActivity(ctx, activityID)
+	if err != nil {
+		return domain.Activity{}, notFoundErr(err)
+	}
+	if activity.UserID != userID || activity.IsDeleted() {
+		return domain.Activity{}, connectrpc.NewError(connectrpc.CodeNotFound, errors.New("not found"))
+	}
+	return activity, nil
+}
+
+// activityUpdateFederate federates a visibility transition: making an activity
+// public announces it to remote followers (the ingest-time publish only covers
+// public-at-import); taking it back out of public retracts it. Best-effort,
+// never fails the edit.
+func (s *ActivityServer) activityUpdateFederate(ctx context.Context, prevPrivacy domain.ActivityPrivacy, updated domain.Activity) {
+	if s.Federation == nil || prevPrivacy == updated.Privacy {
+		return
+	}
+	switch {
+	case updated.Privacy == domain.PrivacyPublic:
+		s.Federation.PublishCreate(ctx, updated)
+	case prevPrivacy == domain.PrivacyPublic:
+		s.Federation.PublishDelete(ctx, updated.UserID, updated.ID)
+	}
+}
+
+// activityUpdateEdit accumulates the field_mask edits of one UpdateActivity call.
+type activityUpdateEdit struct {
+	s              *ActivityServer
+	ctx            context.Context
+	msg            *v1.UpdateActivityRequest
+	activity       *domain.Activity
+	privacyTouched bool
+
+	// Classification edits (type/discipline/flags) are stored as a user overlay
+	// applied AFTER the merge by Recompute, so they survive future source
+	// imports. We start from the existing overlay and mutate only masked fields.
+	classOverride *domain.ClassificationOverride
+	classTouched  bool
+}
+
+// applyField applies one field_mask entry.
+func (e *activityUpdateEdit) applyField(f string) error {
+	switch f {
+	case "title":
+		e.activity.Title = e.msg.GetTitle()
+	case "description":
+		e.activity.Description = e.msg.GetDescription()
+	case "tags":
+		// Present-in-mask replaces the whole set (empty clears it).
+		e.activity.Tags = e.msg.GetTags()
+	case "privacy":
+		p, ok := privacyFromProto(e.msg.GetPrivacy())
+		if !ok {
+			return connectrpc.NewError(connectrpc.CodeInvalidArgument,
+				errors.New("privacy must be one of private|followers|public"))
+		}
+		e.activity.Privacy = p
+		e.privacyTouched = true
+	case "primary_stream_source_id":
+		// Merge-managed (FieldGroupGPSTrack); changed via a gps_track field
+		// pin, not a direct edit.
+		return activityUpdateRejectClass(f)
+	default:
+		set, ok := activityUpdateClassSetters[f]
+		if !ok {
+			return connectrpc.NewError(connectrpc.CodeInvalidArgument,
+				fmt.Errorf("unknown field %q in field_mask", f))
+		}
+		return e.applyClassField(f, set)
+	}
+	return nil
+}
+
+// applyClassField loads the overlay on first use and applies set to it.
+func (e *activityUpdateEdit) applyClassField(f string, set func(*domain.ClassificationOverride, *v1.UpdateActivityRequest)) error {
+	if e.s.ClassOverrides == nil {
+		return activityUpdateRejectClass(f)
+	}
+	if e.classOverride == nil {
+		existing, err := e.s.ClassOverrides.Get(e.ctx, e.activity.ID)
+		if err != nil {
+			return connectrpc.NewError(connectrpc.CodeInternal, err)
+		}
+		e.classOverride = &existing
+	}
+	e.classTouched = true
+	set(e.classOverride, e.msg)
+	return nil
+}
+
+// persist saves the overlay and activity, then re-merges from all sources.
+func (e *activityUpdateEdit) persist() error {
+	if e.classTouched {
+		if err := e.s.ClassOverrides.Set(e.ctx, *e.classOverride); err != nil {
+			return connectrpc.NewError(connectrpc.CodeInternal,
+				fmt.Errorf("save classification override: %w", err))
+		}
+	}
+
+	if err := e.s.Activities.SaveActivity(e.ctx, *e.activity); err != nil {
+		return connectrpc.NewError(connectrpc.CodeInternal,
+			fmt.Errorf("save activity: %w", err))
+	}
+
+	// Re-merge from all sources. preserveUserEdits copies the just-saved
+	// user fields onto the merged result, so the edit sticks.
+	if _, err := e.s.Recompute.Execute(e.ctx, e.activity.ID); err != nil {
+		return connectrpc.NewError(connectrpc.CodeInternal,
+			fmt.Errorf("recompute activity: %w", err))
+	}
+	return nil
+}
+
+func activityUpdateRejectClass(f string) error {
+	return connectrpc.NewError(connectrpc.CodeInvalidArgument,
+		fmt.Errorf("field %q is not editable on this instance", f))
+}
+
+// activityUpdateClassSetters maps overlay-backed field_mask entries to their setters.
+var activityUpdateClassSetters = map[string]func(*domain.ClassificationOverride, *v1.UpdateActivityRequest){
+	"type": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		if t, ok := activityTypeFromProto(m.GetType()); ok {
+			co.Type = &t
+		} else {
+			co.Type = nil // UNSPECIFIED clears the override → revert to merged
+		}
+	},
+	"discipline": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		if d, ok := disciplineFromProto(m.GetDiscipline()); ok {
+			co.Discipline = &d
+		} else {
+			co.Discipline = nil
+		}
+	},
+	"is_virtual": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		v := m.GetIsVirtual()
+		co.IsVirtual = &v
+	},
+	"is_commute": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		v := m.GetIsCommute()
+		co.IsCommute = &v
+	},
+	"is_race": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		v := m.GetIsRace()
+		co.IsRace = &v
+	},
+	"is_ebike": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		v := m.GetIsEbike()
+		co.IsEbike = &v
+	},
+	"custom_subtype": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		cs := m.GetCustomSubtype()
+		if cs == "" {
+			co.CustomSubtype = nil
+		} else {
+			co.CustomSubtype = &cs
+		}
+	},
+	"distance_m": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		if v := m.GetDistanceM(); v < 0 {
+			co.DistanceM = nil // negative clears → revert to merged
+		} else {
+			co.DistanceM = &v
+		}
+	},
+	"elevation_gain_m": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		if v := m.GetElevationGainM(); v < 0 {
+			co.ElevationGainM = nil
+		} else {
+			co.ElevationGainM = &v
+		}
+	},
+	"moving_duration_s": func(co *domain.ClassificationOverride, m *v1.UpdateActivityRequest) {
+		if v := m.GetMovingDurationS(); v < 0 {
+			co.MovingDuration = nil
+		} else {
+			d := time.Duration(v) * time.Second
+			co.MovingDuration = &d
+		}
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +466,7 @@ func (s *ActivityServer) GetActivityStream(
 	ctx context.Context,
 	req *connectrpc.Request[v1.GetActivityStreamRequest],
 ) (*connectrpc.Response[v1.GetActivityStreamResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -524,7 +521,7 @@ func (s *ActivityServer) ListBestEfforts(
 	ctx context.Context,
 	req *connectrpc.Request[v1.ListBestEffortsRequest],
 ) (*connectrpc.Response[v1.ListBestEffortsResponse], error) {
-	userID, err := userIDFromHandlerCtx(ctx, req)
+	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}

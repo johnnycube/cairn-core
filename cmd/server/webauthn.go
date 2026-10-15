@@ -42,202 +42,221 @@ func mountWebAuthn(mux *http.ServeMux, app *App, logger *slog.Logger, publicURL 
 		logger.Error("webauthn disabled: bad config", "error", err)
 		return
 	}
+	h := &waHandlers{app: app, logger: logger, wa: wa, sessionTTL: sessionTTL}
 
 	// ---- registration (authenticated) ------------------------------------
-	mux.HandleFunc("POST /auth/webauthn/register/start", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		waUser, _, err := loadWAUser(r, app, userID)
-		if err != nil {
-			http.Error(w, "user load failed", http.StatusInternalServerError)
-			return
-		}
-		// Exclude already-registered credentials; require a discoverable
-		// (resident) key so this passkey also works for usernameless login.
-		exclusions := make([]protocol.CredentialDescriptor, 0, len(waUser.creds))
-		for _, c := range waUser.creds {
-			exclusions = append(exclusions, c.Descriptor())
-		}
-		options, session, err := wa.BeginRegistration(waUser,
-			webauthn.WithExclusions(exclusions),
-			webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired),
-		)
-		if err != nil {
-			http.Error(w, "begin registration failed", http.StatusInternalServerError)
-			return
-		}
-		storeWASession(w, r, waRegCookie, session)
-		writeJSON(w, http.StatusOK, options)
-	})
-
-	mux.HandleFunc("POST /auth/webauthn/register/finish", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		session, err := loadWASession(r, waRegCookie)
-		if err != nil {
-			http.Error(w, "no registration in progress", http.StatusBadRequest)
-			return
-		}
-		waUser, _, err := loadWAUser(r, app, userID)
-		if err != nil {
-			http.Error(w, "user load failed", http.StatusInternalServerError)
-			return
-		}
-		cred, err := wa.FinishRegistration(waUser, *session, r)
-		if err != nil {
-			logger.Warn("webauthn registration failed", "error", err)
-			http.Error(w, "registration verification failed", http.StatusBadRequest)
-			return
-		}
-		credJSON, err := json.Marshal(cred)
-		if err != nil {
-			http.Error(w, "encode credential failed", http.StatusInternalServerError)
-			return
-		}
-		name := strings.TrimSpace(r.URL.Query().Get("name"))
-		if name == "" {
-			name = "Passkey"
-		}
-		if _, err := app.Passkeys.Create(r.Context(), domain.Passkey{
-			UserID: userID, CredentialID: cred.ID, CredentialJSON: credJSON, Name: name,
-		}); err != nil {
-			http.Error(w, "store passkey failed", http.StatusInternalServerError)
-			return
-		}
-		clearWACookie(w, r, waRegCookie)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+	mux.HandleFunc("POST /auth/webauthn/register/start", h.registerStart)
+	mux.HandleFunc("POST /auth/webauthn/register/finish", h.registerFinish)
 
 	// ---- passwordless login ----------------------------------------------
-	mux.HandleFunc("POST /auth/webauthn/login/start", func(w http.ResponseWriter, r *http.Request) {
-		options, session, err := wa.BeginDiscoverableLogin()
-		if err != nil {
-			http.Error(w, "begin login failed", http.StatusInternalServerError)
-			return
-		}
-		storeWASession(w, r, waLoginCookie, session)
-		writeJSON(w, http.StatusOK, options)
-	})
-
-	mux.HandleFunc("POST /auth/webauthn/login/finish", func(w http.ResponseWriter, r *http.Request) {
-		session, err := loadWASession(r, waLoginCookie)
-		if err != nil {
-			http.Error(w, "no login in progress", http.StatusBadRequest)
-			return
-		}
-		ctx := r.Context()
-		// DiscoverableUserHandler resolves the user from the credential's user
-		// handle (which we set to the user's UUID at registration).
-		handler := func(rawID, userHandle []byte) (webauthn.User, error) {
-			uid, err := uuid.FromBytes(userHandle)
-			if err != nil {
-				return nil, err
-			}
-			waUser, _, err := loadWAUser(r, app, domain.UserID(uid))
-			return waUser, err
-		}
-		cred, err := wa.FinishDiscoverableLogin(handler, *session, r)
-		if err != nil {
-			logger.Warn("webauthn login failed", "error", err)
-			http.Error(w, "login verification failed", http.StatusUnauthorized)
-			return
-		}
-		// Persist the advanced sign counter, and resolve the owning user.
-		credJSON, _ := json.Marshal(cred)
-		_ = app.Passkeys.UpdateCredential(ctx, cred.ID, credJSON)
-		pk, err := app.Passkeys.GetByCredentialID(ctx, cred.ID)
-		if err != nil {
-			http.Error(w, "credential not found", http.StatusUnauthorized)
-			return
-		}
-		clearWACookie(w, r, waLoginCookie)
-		if err := issueSessionForUser(w, r, app, pk.UserID, domain.SessionAuthPasskey, sessionTTL); err != nil {
-			logger.Error("webauthn login: issue session failed", "error", err)
-			http.Error(w, "session error", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+	mux.HandleFunc("POST /auth/webauthn/login/start", h.loginStart)
+	mux.HandleFunc("POST /auth/webauthn/login/finish", h.loginFinish)
 
 	// ---- passkey management (authenticated) ------------------------------
-	mux.HandleFunc("GET /api/passkeys", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		pks, err := app.Passkeys.ListByUser(r.Context(), userID)
-		if err != nil {
-			http.Error(w, "load failed", http.StatusInternalServerError)
-			return
-		}
-		out := make([]map[string]any, 0, len(pks))
-		for _, p := range pks {
-			var lastUsed any
-			if p.LastUsedAt != nil {
-				lastUsed = p.LastUsedAt.UTC().Format(time.RFC3339)
-			}
-			out = append(out, map[string]any{
-				"id": p.ID.String(), "name": p.Name,
-				"created_at": p.CreatedAt.UTC().Format(time.RFC3339), "last_used_at": lastUsed,
-			})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"passkeys": out})
-	})
-
-	mux.HandleFunc("PUT /api/passkeys/{id}", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad id", http.StatusBadRequest)
-			return
-		}
-		var body struct {
-			Name string `json:"name"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		if err := app.Passkeys.Rename(r.Context(), userID, domain.PasskeyID(id), strings.TrimSpace(body.Name)); err != nil {
-			http.Error(w, "rename failed", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
-
-	mux.HandleFunc("DELETE /api/passkeys/{id}", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "bad id", http.StatusBadRequest)
-			return
-		}
-		if err := app.Passkeys.Delete(r.Context(), userID, domain.PasskeyID(id)); err != nil {
-			http.Error(w, "delete failed", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	})
+	mux.HandleFunc("GET /api/passkeys", h.list)
+	mux.HandleFunc("PUT /api/passkeys/{id}", h.rename)
+	mux.HandleFunc("DELETE /api/passkeys/{id}", h.delete)
 
 	logger.Info("webauthn endpoints mounted", "rpid", wa.Config.RPID, "origins", wa.Config.RPOrigins)
+}
+
+// waHandlers carries the shared state of the WebAuthn routes.
+type waHandlers struct {
+	app        *App
+	logger     *slog.Logger
+	wa         *webauthn.WebAuthn
+	sessionTTL time.Duration
+}
+
+func (h *waHandlers) registerStart(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	waUser, err := loadWAUser(r, h.app, userID)
+	if err != nil {
+		http.Error(w, "user load failed", http.StatusInternalServerError)
+		return
+	}
+	// Exclude already-registered credentials; require a discoverable
+	// (resident) key so this passkey also works for usernameless login.
+	exclusions := make([]protocol.CredentialDescriptor, 0, len(waUser.creds))
+	for _, c := range waUser.creds {
+		exclusions = append(exclusions, c.Descriptor())
+	}
+	options, session, err := h.wa.BeginRegistration(waUser,
+		webauthn.WithExclusions(exclusions),
+		webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired),
+	)
+	if err != nil {
+		http.Error(w, "begin registration failed", http.StatusInternalServerError)
+		return
+	}
+	storeWASession(w, r, waRegCookie, session)
+	writeJSON(w, http.StatusOK, options)
+}
+
+func (h *waHandlers) registerFinish(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	session, err := loadWASession(r, waRegCookie)
+	if err != nil {
+		http.Error(w, "no registration in progress", http.StatusBadRequest)
+		return
+	}
+	waUser, err := loadWAUser(r, h.app, userID)
+	if err != nil {
+		http.Error(w, "user load failed", http.StatusInternalServerError)
+		return
+	}
+	cred, err := h.wa.FinishRegistration(waUser, *session, r)
+	if err != nil {
+		h.logger.Warn("webauthn registration failed", "error", err)
+		http.Error(w, "registration verification failed", http.StatusBadRequest)
+		return
+	}
+	credJSON, err := json.Marshal(cred)
+	if err != nil {
+		http.Error(w, "encode credential failed", http.StatusInternalServerError)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		name = "Passkey"
+	}
+	if _, err := h.app.Passkeys.Create(r.Context(), domain.Passkey{
+		UserID: userID, CredentialID: cred.ID, CredentialJSON: credJSON, Name: name,
+	}); err != nil {
+		http.Error(w, "store passkey failed", http.StatusInternalServerError)
+		return
+	}
+	clearWACookie(w, r, waRegCookie)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *waHandlers) loginStart(w http.ResponseWriter, r *http.Request) {
+	options, session, err := h.wa.BeginDiscoverableLogin()
+	if err != nil {
+		http.Error(w, "begin login failed", http.StatusInternalServerError)
+		return
+	}
+	storeWASession(w, r, waLoginCookie, session)
+	writeJSON(w, http.StatusOK, options)
+}
+
+func (h *waHandlers) loginFinish(w http.ResponseWriter, r *http.Request) {
+	session, err := loadWASession(r, waLoginCookie)
+	if err != nil {
+		http.Error(w, "no login in progress", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	// DiscoverableUserHandler resolves the user from the credential's user
+	// handle (which we set to the user's UUID at registration).
+	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
+		uid, err := uuid.FromBytes(userHandle)
+		if err != nil {
+			return nil, err
+		}
+		waUser, err := loadWAUser(r, h.app, domain.UserID(uid))
+		return waUser, err
+	}
+	cred, err := h.wa.FinishDiscoverableLogin(handler, *session, r)
+	if err != nil {
+		h.logger.Warn("webauthn login failed", "error", err)
+		http.Error(w, "login verification failed", http.StatusUnauthorized)
+		return
+	}
+	// Persist the advanced sign counter, and resolve the owning user.
+	credJSON, _ := json.Marshal(cred)
+	_ = h.app.Passkeys.UpdateCredential(ctx, cred.ID, credJSON)
+	pk, err := h.app.Passkeys.GetByCredentialID(ctx, cred.ID)
+	if err != nil {
+		http.Error(w, "credential not found", http.StatusUnauthorized)
+		return
+	}
+	clearWACookie(w, r, waLoginCookie)
+	if err := issueSessionForUser(w, r, h.app, pk.UserID, domain.SessionAuthPasskey, h.sessionTTL); err != nil {
+		h.logger.Error("webauthn login: issue session failed", "error", err)
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *waHandlers) list(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	pks, err := h.app.Passkeys.ListByUser(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "load failed", http.StatusInternalServerError)
+		return
+	}
+	out := make([]map[string]any, 0, len(pks))
+	for _, p := range pks {
+		var lastUsed any
+		if p.LastUsedAt != nil {
+			lastUsed = p.LastUsedAt.UTC().Format(time.RFC3339)
+		}
+		out = append(out, map[string]any{
+			"id": p.ID.String(), "name": p.Name,
+			"created_at": p.CreatedAt.UTC().Format(time.RFC3339), "last_used_at": lastUsed,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"passkeys": out})
+}
+
+func (h *waHandlers) rename(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if !requireJSON(w, r) {
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	if err := h.app.Passkeys.Rename(r.Context(), userID, domain.PasskeyID(id), strings.TrimSpace(body.Name)); err != nil {
+		http.Error(w, "rename failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *waHandlers) delete(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	if err := h.app.Passkeys.Delete(r.Context(), userID, domain.PasskeyID(id)); err != nil {
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // webAuthnUser adapts a Cairn user + its passkeys to the webauthn.User interface.
@@ -258,14 +277,14 @@ func (u *webAuthnUser) WebAuthnCredentials() []webauthn.Credential { return u.cr
 func (u *webAuthnUser) WebAuthnIcon() string                       { return "" }
 
 // loadWAUser hydrates a webAuthnUser (user + decoded passkey credentials).
-func loadWAUser(r *http.Request, app *App, userID domain.UserID) (*webAuthnUser, domain.User, error) {
+func loadWAUser(r *http.Request, app *App, userID domain.UserID) (*webAuthnUser, error) {
 	u, err := app.Users.GetUser(r.Context(), userID)
 	if err != nil {
-		return nil, domain.User{}, err
+		return nil, err
 	}
 	pks, err := app.Passkeys.ListByUser(r.Context(), userID)
 	if err != nil {
-		return nil, domain.User{}, err
+		return nil, err
 	}
 	creds := make([]webauthn.Credential, 0, len(pks))
 	for _, p := range pks {
@@ -282,7 +301,7 @@ func loadWAUser(r *http.Request, app *App, userID domain.UserID) (*webAuthnUser,
 	if display == "" {
 		display = name
 	}
-	return &webAuthnUser{id: u.ID, name: name, display: display, creds: creds}, u, nil
+	return &webAuthnUser{id: u.ID, name: name, display: display, creds: creds}, nil
 }
 
 // issueSessionForUser creates a session with the given auth method and sets the
@@ -326,9 +345,9 @@ func newWebAuthn(publicURL string) (*webauthn.WebAuthn, error) {
 
 func storeWASession(w http.ResponseWriter, r *http.Request, name string, sd *webauthn.SessionData) {
 	b, _ := json.Marshal(sd)
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name: name, Value: base64.RawURLEncoding.EncodeToString(b),
-		Path: "/auth/webauthn/", HttpOnly: true, Secure: isHTTPS(r),
+		Path: "/auth/webauthn/", HttpOnly: true, Secure: cookieSecure(r),
 		SameSite: http.SameSiteLaxMode, MaxAge: 300,
 	})
 }
@@ -350,8 +369,8 @@ func loadWASession(r *http.Request, name string) (*webauthn.SessionData, error) 
 }
 
 func clearWACookie(w http.ResponseWriter, r *http.Request, name string) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name: name, Value: "", Path: "/auth/webauthn/", HttpOnly: true,
-		Secure: isHTTPS(r), SameSite: http.SameSiteLaxMode, MaxAge: -1,
+		Secure: cookieSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1,
 	})
 }

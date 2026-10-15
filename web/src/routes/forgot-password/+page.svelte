@@ -34,10 +34,14 @@
 	</header>
 
 	{#if done}
-		<div class="rounded-lg border border-emerald-700/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
+		<div
+			class="rounded-lg border border-emerald-700/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300"
+		>
 			{message}
 		</div>
-		<a href="/login" class="text-center text-xs text-zinc-500 hover:text-accent-300">Back to sign in</a>
+		<a href="/login" class="text-center text-xs text-zinc-500 hover:text-accent-300"
+			>Back to sign in</a
+		>
 	{:else}
 		<form onsubmit={submit} class="space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
 			<label class="block">

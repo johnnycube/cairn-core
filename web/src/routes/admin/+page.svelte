@@ -49,12 +49,16 @@
 		</header>
 		<ul class="divide-y divide-zinc-800">
 			{#each data.users as u (u.id)}
-				<li class="grid grid-cols-[1fr_1fr_auto] items-center gap-5 px-5 py-3 text-sm max-md:grid-cols-1 max-md:gap-2">
+				<li
+					class="grid grid-cols-[1fr_1fr_auto] items-center gap-5 px-5 py-3 text-sm max-md:grid-cols-1 max-md:gap-2"
+				>
 					<div>
 						<div class="flex items-center gap-2 font-medium">
 							{u.displayName || u.username}
 							{#if u.role === 'admin'}
-								<span class="rounded bg-accent-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-accent-300">
+								<span
+									class="rounded bg-accent-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-accent-300"
+								>
 									admin
 								</span>
 							{/if}

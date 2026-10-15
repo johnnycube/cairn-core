@@ -16,5 +16,6 @@ export const prefs = $state<{ dateFormat: DateFmt; timeFormat: TimeFmt; units: U
 export function setPrefs(p: { dateFormat?: string; timeFormat?: string; units?: string }) {
 	if (p.dateFormat !== undefined) prefs.dateFormat = (p.dateFormat || '') as DateFmt;
 	if (p.timeFormat !== undefined) prefs.timeFormat = (p.timeFormat || '') as TimeFmt;
-	if (p.units !== undefined) prefs.units = (p.units === 'imperial' ? 'imperial' : 'metric') as Units;
+	if (p.units !== undefined)
+		prefs.units = (p.units === 'imperial' ? 'imperial' : 'metric') as Units;
 }

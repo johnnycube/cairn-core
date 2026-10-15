@@ -30,7 +30,19 @@ const heatmapMaxActivities = 5000
 const heatmapBatch = 500
 
 func mountActivitiesHeatmap(mux *http.ServeMux, app *App, logger *slog.Logger) {
-	mux.HandleFunc("GET /api/activities/heatmap", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/activities/heatmap", activitiesHeatmapHandler(app, logger))
+
+	logger.Info("activities heatmap endpoint mounted", "path", "/api/activities/heatmap")
+}
+
+// activitiesHeatmapItem is one activity with a stream source to fetch.
+type activitiesHeatmapItem struct {
+	act domain.Activity
+	src domain.SourceID
+}
+
+func activitiesHeatmapHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -63,53 +75,11 @@ func mountActivitiesHeatmap(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			years = append(years, feedFacet{Value: itoa(y.Year), Count: y.Count})
 		}
 
-		// Sources to fetch, in activity order; activities without a stream
-		// (manual entries, indoor) are skipped up front.
-		type item struct {
-			act domain.Activity
-			src domain.SourceID
-		}
-		items := make([]item, 0, len(acts))
-		for _, a := range acts {
-			if a.PrimaryStreamSourceID != nil {
-				items = append(items, item{act: a, src: *a.PrimaryStreamSourceID})
-			}
-		}
-
-		features := make([]map[string]any, 0, len(items))
-		for start := 0; start < len(items); start += heatmapBatch {
-			end := min(start+heatmapBatch, len(items))
-			ids := make([]domain.SourceID, 0, end-start)
-			for _, it := range items[start:end] {
-				ids = append(ids, it.src)
-			}
-			tracks, err := app.Streams.QueryGeoTracks(r.Context(), ids, res)
-			if err != nil {
-				logger.Error("heatmap tracks failed", "error", err)
-				http.Error(w, "tracks failed", http.StatusInternalServerError)
-				return
-			}
-			for _, it := range items[start:end] {
-				pts := tracks[it.src]
-				if len(pts) < 2 {
-					continue
-				}
-				coords := make([][2]float64, len(pts))
-				for i, p := range pts {
-					// ~1 m precision is plenty for a heatmap and trims the payload.
-					coords[i] = [2]float64{round5(p.Lon), round5(p.Lat)}
-				}
-				features = append(features, map[string]any{
-					"type": "Feature",
-					"id":   it.act.ID.String(),
-					"properties": map[string]any{
-						"id":         it.act.ID.String(),
-						"type":       string(it.act.Type),
-						"discipline": string(it.act.Discipline),
-					},
-					"geometry": map[string]any{"type": "LineString", "coordinates": coords},
-				})
-			}
+		features, err := activitiesHeatmapFeatures(r, app, activitiesHeatmapItems(acts), res)
+		if err != nil {
+			logger.Error("heatmap tracks failed", "error", err)
+			http.Error(w, "tracks failed", http.StatusInternalServerError)
+			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -123,9 +93,63 @@ func mountActivitiesHeatmap(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			},
 			"geojson": map[string]any{"type": "FeatureCollection", "features": features},
 		})
-	})
+	}
+}
 
-	logger.Info("activities heatmap endpoint mounted", "path", "/api/activities/heatmap")
+// activitiesHeatmapItems lists sources to fetch, in activity order; activities
+// without a stream (manual entries, indoor) are skipped up front.
+func activitiesHeatmapItems(acts []domain.Activity) []activitiesHeatmapItem {
+	items := make([]activitiesHeatmapItem, 0, len(acts))
+	for _, a := range acts {
+		if a.PrimaryStreamSourceID != nil {
+			items = append(items, activitiesHeatmapItem{act: a, src: *a.PrimaryStreamSourceID})
+		}
+	}
+	return items
+}
+
+// activitiesHeatmapFeatures fetches tracks in batches and builds GeoJSON features.
+func activitiesHeatmapFeatures(r *http.Request, app *App, items []activitiesHeatmapItem, res domain.StreamResolution) ([]map[string]any, error) {
+	features := make([]map[string]any, 0, len(items))
+	for start := 0; start < len(items); start += heatmapBatch {
+		end := min(start+heatmapBatch, len(items))
+		ids := make([]domain.SourceID, 0, end-start)
+		for _, it := range items[start:end] {
+			ids = append(ids, it.src)
+		}
+		tracks, err := app.Streams.QueryGeoTracks(r.Context(), ids, res)
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range items[start:end] {
+			if f, ok := activitiesHeatmapFeature(it, tracks[it.src]); ok {
+				features = append(features, f)
+			}
+		}
+	}
+	return features, nil
+}
+
+// activitiesHeatmapFeature builds one LineString feature; false when the track is too short.
+func activitiesHeatmapFeature(it activitiesHeatmapItem, pts []domain.GeoPoint) (map[string]any, bool) {
+	if len(pts) < 2 {
+		return nil, false
+	}
+	coords := make([][2]float64, len(pts))
+	for i, p := range pts {
+		// ~1 m precision is plenty for a heatmap and trims the payload.
+		coords[i] = [2]float64{round5(p.Lon), round5(p.Lat)}
+	}
+	return map[string]any{
+		"type": "Feature",
+		"id":   it.act.ID.String(),
+		"properties": map[string]any{
+			"id":         it.act.ID.String(),
+			"type":       string(it.act.Type),
+			"discipline": string(it.act.Discipline),
+		},
+		"geometry": map[string]any{"type": "LineString", "coordinates": coords},
+	}, true
 }
 
 func round5(v float64) float64 { return math.Round(v*1e5) / 1e5 }

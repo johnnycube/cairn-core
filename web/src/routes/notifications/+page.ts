@@ -42,8 +42,8 @@ export interface NotificationView {
 	titleI18nKey: string;
 	bodyI18nKey: string;
 	params: Record<string, string>;
-	activityId?: string;
-	segmentId?: string;
+	activityId?: string | undefined;
+	segmentId?: string | undefined;
 	read: boolean;
 	createdAt: string;
 	coalesceCount: number;

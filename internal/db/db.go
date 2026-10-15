@@ -88,7 +88,24 @@ func Open(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	// We also register the google/uuid codec here — pgx v5 ships only
 	// pgtype.UUID by default, but the domain layer uses google/uuid.UUID
 	// for its typed IDs.
-	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+	poolCfg.AfterConnect = dbAfterConnect(cfg)
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("open pool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping database: %w", err)
+	}
+
+	return pool, nil
+}
+
+// dbAfterConnect registers the uuid codec and applies per-connection timeouts.
+func dbAfterConnect(cfg Config) func(context.Context, *pgx.Conn) error {
+	return func(ctx context.Context, conn *pgx.Conn) error {
 		pgxuuid.Register(conn.TypeMap())
 
 		if cfg.StatementTimeout > 0 {
@@ -115,18 +132,6 @@ func Open(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 		}
 		return nil
 	}
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return nil, fmt.Errorf("open pool: %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ping database: %w", err)
-	}
-
-	return pool, nil
 }
 
 // ----------------------------------------------------------------------------
@@ -177,7 +182,7 @@ func MigrateUp(ctx context.Context, pool *pgxpool.Pool) ([]*goose.MigrationResul
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return provider.Up(ctx)
 }
 
@@ -187,7 +192,7 @@ func MigrateDown(ctx context.Context, pool *pgxpool.Pool) (*goose.MigrationResul
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return provider.Down(ctx)
 }
 
@@ -197,7 +202,7 @@ func MigrateDownTo(ctx context.Context, pool *pgxpool.Pool, version int64) ([]*g
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return provider.DownTo(ctx, version)
 }
 
@@ -214,7 +219,7 @@ func MigrateRedo(ctx context.Context, pool *pgxpool.Pool) (*goose.MigrationResul
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := provider.Down(ctx); err != nil {
 		return nil, err
 	}
@@ -227,7 +232,7 @@ func MigrateStatus(ctx context.Context, pool *pgxpool.Pool) ([]*goose.MigrationS
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return provider.Status(ctx)
 }
 
@@ -237,7 +242,7 @@ func MigrateVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	return provider.GetDBVersion(ctx)
 }
 
@@ -264,7 +269,7 @@ func newProvider(pool *pgxpool.Pool) (*goose.Provider, *sql.DB, error) {
 	db := stdlib.OpenDB(*connCfg)
 	provider, err := goose.NewProvider(database.DialectPostgres, db, migrations.FS)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, nil, fmt.Errorf("build goose provider: %w", err)
 	}
 	return provider, db, nil
@@ -275,7 +280,7 @@ func readSchemaState(ctx context.Context, pool *pgxpool.Pool) (SchemaState, erro
 	if err != nil {
 		return SchemaState{}, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	current, err := provider.GetDBVersion(ctx)
 	if err != nil {

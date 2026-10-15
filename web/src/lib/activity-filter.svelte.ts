@@ -57,7 +57,13 @@ export function rangeSpecs(units: Units): RangeSpec[] {
 			toSI: (v) => (imperial ? v * M_PER_MILE : v * 1000),
 			param: 'distance_{}_m'
 		},
-		{ key: 'duration', label: 'Duration', unit: 'h', toSI: (v) => v * 3600, param: 'duration_{}_s' },
+		{
+			key: 'duration',
+			label: 'Duration',
+			unit: 'h',
+			toSI: (v) => v * 3600,
+			param: 'duration_{}_s'
+		},
 		{
 			key: 'elevation',
 			label: 'Elevation gain',
@@ -151,6 +157,7 @@ export class ActivityFilter {
 			return;
 		}
 		this.preset = days;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local scratch date
 		const d = new Date();
 		d.setDate(d.getDate() - days);
 		this.from = d.toISOString().slice(0, 10);
@@ -191,13 +198,15 @@ export class ActivityFilter {
 
 	// Query params in the server's shared filter vocabulary (activities_feed.go).
 	params(): URLSearchParams {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- built and returned, never observed
 		const q = new URLSearchParams({ sort: this.sort });
 		if (this.type) q.set('type', this.type);
 		if (this.discipline) q.set('discipline', this.discipline);
 		if (this.from) q.set('from', this.from);
 		if (this.to) q.set('to', this.to);
 		for (const f of FLAGS) {
-			if (this.flags[f.key]) q.set(f.key, this.flags[f.key]);
+			const v = this.flags[f.key];
+			if (v) q.set(f.key, v);
 		}
 		for (const r of this.rangeSpecs) {
 			for (const bound of ['min', 'max'] as const) {

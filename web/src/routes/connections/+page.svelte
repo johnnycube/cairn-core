@@ -65,13 +65,16 @@
 				const body = await cRes.json();
 				connections = body.connections ?? [];
 				providers = body.providers ?? [];
-				if (providers.length && !providers.find((p) => p.provider === form.provider)) {
-					form.provider = providers[0].provider;
+				const first = providers[0];
+				if (first && !providers.find((p) => p.provider === form.provider)) {
+					form.provider = first.provider;
 				}
 			}
 			if (aRes.ok) {
 				const accts = (await aRes.json()).accounts ?? [];
-				connectedIds = new Set(accts.map((a: { connection_id: string | null }) => a.connection_id).filter(Boolean));
+				connectedIds = new Set(
+					accts.map((a: { connection_id: string | null }) => a.connection_id).filter(Boolean)
+				);
 			}
 			if (wRes.ok) {
 				webhookEndpoints = (await wRes.json()).endpoints ?? [];
@@ -126,7 +129,11 @@
 	}
 
 	async function remove(id: string) {
-		if (!confirm('Delete this connection? Imported activities stay; the connection can no longer refresh.'))
+		if (
+			!confirm(
+				'Delete this connection? Imported activities stay; the connection can no longer refresh.'
+			)
+		)
 			return;
 		try {
 			await fetch(`/api/connections/${id}`, { method: 'DELETE' });
@@ -145,7 +152,9 @@
 			<h1 class="text-2xl font-semibold tracking-tight">{m.connections_title()}</h1>
 			<p class="mt-1 max-w-2xl text-sm text-zinc-400">
 				Each connection is a separate link to a provider with its own credentials. Add several per
-				provider if you like — <strong class="text-zinc-300">all import into this one Cairn account.</strong>
+				provider if you like — <strong class="text-zinc-300"
+					>all import into this one Cairn account.</strong
+				>
 			</p>
 		</div>
 		<button
@@ -167,7 +176,9 @@
 	</div>
 
 	{#if connected}
-		<div class="rounded border border-emerald-700/50 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-300">
+		<div
+			class="rounded border border-emerald-700/50 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-300"
+		>
 			{m.connections_connected_ok()}
 		</div>
 	{/if}
@@ -177,7 +188,9 @@
 		</div>
 	{/if}
 	{#if error}
-		<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-sm text-red-300">{error}</div>
+		<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-sm text-red-300">
+			{error}
+		</div>
 	{/if}
 
 	{#if showAdd}
@@ -304,7 +317,9 @@
 						type="password"
 						autocomplete="off"
 						bind:value={editForm.client_secret}
-						placeholder={c.oauth ? m.connections_secret_placeholder() : 'New password (empty keeps existing)'}
+						placeholder={c.oauth
+							? m.connections_secret_placeholder()
+							: 'New password (empty keeps existing)'}
 						class="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 focus:border-accent-400 focus:outline-none"
 					/>
 					<div class="flex gap-2">
@@ -316,7 +331,11 @@
 						>
 							Save
 						</button>
-						<button type="button" onclick={() => (editing = null)} class="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300">
+						<button
+							type="button"
+							onclick={() => (editing = null)}
+							class="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300"
+						>
 							Cancel
 						</button>
 					</div>
@@ -338,11 +357,13 @@
 					</summary>
 					<div class="mt-2 space-y-2 text-zinc-400">
 						<p>
-							Register this callback URL in your {c.display_name} app so new activities import the
-							moment you finish them (otherwise they arrive on the next periodic sync):
+							Register this callback URL in your {c.display_name} app so new activities import the moment
+							you finish them (otherwise they arrive on the next periodic sync):
 						</p>
 						<div class="flex items-center gap-2">
-							<code class="flex-1 truncate rounded bg-zinc-900 px-2 py-1 font-mono text-zinc-200">{ep.url}</code>
+							<code class="flex-1 truncate rounded bg-zinc-900 px-2 py-1 font-mono text-zinc-200"
+								>{ep.url}</code
+							>
 							<button
 								type="button"
 								onclick={() => navigator.clipboard?.writeText(ep.url)}
@@ -353,9 +374,10 @@
 						</div>
 						{#if c.provider === 'strava'}
 							<p>
-								Strava: create a push subscription pointing <code>callback_url</code> at the URL above
-								(use your app's <code>client_id</code>/<code>client_secret</code> and the instance's
-								webhook verify token). See the README "Strava webhook setup" section for the exact
+								Strava: create a push subscription pointing <code>callback_url</code> at the URL
+								above (use your app's <code>client_id</code>/<code>client_secret</code> and the
+								instance's webhook verify token). See the README "Strava webhook setup" section for
+								the exact
 								<code>curl</code>. The worker handles Strava's verification handshake automatically.
 							</p>
 						{/if}

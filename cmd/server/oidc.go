@@ -38,7 +38,25 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	// Session logout is auth-mechanism-agnostic (password, passkey, OIDC all
 	// set the same session cookie) — mount it before the provider guard so it
 	// exists even when no OIDC provider is configured.
-	mux.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /auth/logout", oidcLogoutHandler(app))
+
+	if app.OIDCLogin == nil {
+		logger.Info("oidc endpoints not mounted: no providers configured (logout still mounted)")
+		return
+	}
+
+	mux.HandleFunc("GET /auth/oidc/clients", oidcClientsHandler(app))
+	mux.HandleFunc("GET /auth/oidc/{provider}/start", oidcStartHandler(app, logger))
+	mux.HandleFunc("GET /auth/oidc/callback", oidcCallbackHandler(app, logger))
+
+	logger.Info("oidc endpoints mounted", "paths", []string{
+		"/auth/oidc/clients", "/auth/oidc/{provider}/start",
+		"/auth/oidc/callback",
+	})
+}
+
+func oidcLogoutHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookieName)
 		if err == nil && cookie.Value != "" {
 			hash := sha256.Sum256([]byte(cookie.Value))
@@ -48,14 +66,11 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		}
 		clearSessionCookie(w, r)
 		w.WriteHeader(http.StatusNoContent)
-	})
-
-	if app.OIDCLogin == nil {
-		logger.Info("oidc endpoints not mounted: no providers configured (logout still mounted)")
-		return
 	}
+}
 
-	mux.HandleFunc("GET /auth/oidc/clients", func(w http.ResponseWriter, r *http.Request) {
+func oidcClientsHandler(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		type clientJSON struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
@@ -66,9 +81,11 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			out[i] = clientJSON{ID: p.ID, DisplayName: p.Name}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"clients": out})
-	})
+	}
+}
 
-	mux.HandleFunc("GET /auth/oidc/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
+func oidcStartHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		providerID := r.PathValue("provider")
 
 		out, err := app.OIDCLogin.StartLogin(r.Context(), providerID)
@@ -94,9 +111,11 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 			return
 		}
 		http.Redirect(w, r, out.AuthURL, http.StatusFound)
-	})
+	}
+}
 
-	mux.HandleFunc("GET /auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+func oidcCallbackHandler(app *App, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 		if code == "" || state == "" {
@@ -145,12 +164,7 @@ func mountOIDCEndpoints(mux *http.ServeMux, app *App, logger *slog.Logger) {
 		// post-login deep-links should encode them in `state` themselves
 		// (round-tripped through the flow cookie).
 		http.Redirect(w, r, "/", http.StatusFound)
-	})
-
-	logger.Info("oidc endpoints mounted", "paths", []string{
-		"/auth/oidc/clients", "/auth/oidc/{provider}/start",
-		"/auth/oidc/callback",
-	})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -188,12 +202,12 @@ func setLoginFlowCookie(w http.ResponseWriter, r *http.Request, app *App, s logi
 		}
 		body = ct
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     loginFlowCookieName,
 		Value:    base64.RawURLEncoding.EncodeToString(body),
 		Path:     "/auth/oidc/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(loginFlowCookieTTL.Seconds()),
 	})
@@ -227,12 +241,12 @@ func readLoginFlowCookie(r *http.Request, app *App) (loginFlowState, error) {
 }
 
 func clearLoginFlowCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     loginFlowCookieName,
 		Value:    "",
 		Path:     "/auth/oidc/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -245,12 +259,12 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 	if maxAge < 0 {
 		maxAge = 0
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  expiresAt,
 		MaxAge:   maxAge,
@@ -258,12 +272,12 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expi
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isHTTPS(r),
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -273,18 +287,19 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// isHTTPS reports whether the request arrived over TLS — either directly
-// or via a reverse-proxy that set X-Forwarded-Proto=https. The Secure
-// cookie attribute follows this so dev (http://localhost:8080) doesn't
-// drop the cookie.
+// secureCookiesAlways is set at startup when PUBLIC_BASE_URL is https.
+var secureCookiesAlways bool
+
+// cookieSecure is the Secure cookie attribute: always behind an https public URL, otherwise
+// per request so plain-http dev (http://localhost:8080) keeps its cookies.
+func cookieSecure(r *http.Request) bool {
+	return secureCookiesAlways || isHTTPS(r)
+}
+
+// isHTTPS reports whether the request arrived over TLS, directly or via a
+// reverse-proxy that set X-Forwarded-Proto=https.
 func isHTTPS(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		return true
-	}
-	return false
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func clientIP(r *http.Request) string {

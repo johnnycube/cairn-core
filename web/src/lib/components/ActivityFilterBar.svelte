@@ -62,7 +62,9 @@
 
 		{#if showDisciplines}
 			<div class="flex flex-wrap items-center gap-2">
-				<span class="mr-1 text-xs font-medium uppercase tracking-wide text-zinc-500">Discipline</span>
+				<span class="mr-1 text-xs font-medium uppercase tracking-wide text-zinc-500"
+					>Discipline</span
+				>
 				<button
 					type="button"
 					onclick={() => (filter.discipline = '')}
@@ -188,7 +190,9 @@
 		{#if showSort || filter.active}
 			<div class="flex items-center gap-2 border-t border-zinc-800 pt-3">
 				{#if showSort}
-					<label for="sort" class="text-xs font-medium uppercase tracking-wide text-zinc-500">Sort</label>
+					<label for="sort" class="text-xs font-medium uppercase tracking-wide text-zinc-500"
+						>Sort</label
+					>
 					<select id="sort" bind:value={filter.sort} class={field}>
 						{#each SORTS as s (s.value)}
 							<option value={s.value}>{s.label}</option>

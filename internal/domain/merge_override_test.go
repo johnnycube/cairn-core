@@ -11,7 +11,7 @@ func TestMergeWithOverrides_PinsField(t *testing.T) {
 	user := makeUserID("alice")
 	actID := makeActivityID("ov-ride")
 	strava := makeStravaRide("s1", user, actID, -1*time.Hour)
-	garmin := makeGarminRide("g1", user, actID, 0, nil)
+	garmin := makeGarminRide("g1", user, actID, 0)
 	resolver := func(at ActivityType) MergePolicy { return testMergePolicyFor(at) }
 
 	// Without override: ride policy gives Power to Garmin.
@@ -47,7 +47,7 @@ func TestMergeWithOverrides_IgnoredWhenSourceLacksField(t *testing.T) {
 	user := makeUserID("alice")
 	actID := makeActivityID("ov-ride2")
 	strava := makeStravaRide("s1", user, actID, -1*time.Hour)
-	garmin := makeGarminRide("g1", user, actID, 0, nil)
+	garmin := makeGarminRide("g1", user, actID, 0)
 	// Strava has no cadence; pin cadence to strava → must be ignored, Garmin wins.
 	strava.Parsed.Summary.AvgCadence = nil
 	strava.Parsed.Summary.MaxCadence = nil

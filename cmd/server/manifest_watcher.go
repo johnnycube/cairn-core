@@ -51,26 +51,29 @@ func startManifestWatcher(
 		return nil, fmt.Errorf("watch worker_manifests: %w", err)
 	}
 
-	go func() {
-		log.Info("manifest watcher started")
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info("manifest watcher shutting down")
-				return
-			case entry, ok := <-watcher.Updates():
-				if !ok {
-					return
-				}
-				if len(entry.Value) == 0 {
-					continue // tombstone (worker offboarded) — nothing to do
-				}
-				handleManifestUpdate(ctx, app, log, entry)
-			}
-		}
-	}()
+	go manifestWatchLoop(ctx, app, log, watcher)
 
 	return watcher, nil
+}
+
+// manifestWatchLoop applies manifest updates until ctx ends or the watch closes.
+func manifestWatchLoop(ctx context.Context, app *App, log *slog.Logger, watcher port.KVWatcher) {
+	log.Info("manifest watcher started")
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("manifest watcher shutting down")
+			return
+		case entry, ok := <-watcher.Updates():
+			if !ok {
+				return
+			}
+			if len(entry.Value) == 0 {
+				continue // tombstone (worker offboarded) — nothing to do
+			}
+			handleManifestUpdate(ctx, app, log, entry)
+		}
+	}
 }
 
 func handleManifestUpdate(ctx context.Context, app *App, log *slog.Logger, entry port.KVEntry) {

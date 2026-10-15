@@ -8,7 +8,6 @@ import (
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nkeys"
 
 	"github.com/johnnycube/cairn-core/internal/domain"
 	"github.com/johnnycube/cairn-core/internal/port"
@@ -52,14 +51,6 @@ type AuthCalloutSubscriber struct {
 	processor *enrollment.ProcessAuthCallout
 	issuer    *CredentialIssuer
 	logger    *slog.Logger
-
-	// xkeyKP, if set, is used to decrypt encrypted auth-callout requests
-	// (NATS feature: auth-callout responses can be encrypted with an
-	// X25519 key so credentials don't traverse the wire in plain JWT
-	// form). For v1 we operate without xkey encryption — the auth
-	// account is configured trusted and the wire is TLS-protected. The
-	// nkey is kept here as a hook for future hardening.
-	xkeyKP nkeys.KeyPair
 }
 
 // NewAuthCalloutSubscriber wires the subscriber. Caller is responsible

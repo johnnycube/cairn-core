@@ -73,15 +73,16 @@
 	const byKey = $derived.by(() => {
 		const m: Record<string, Entry[]> = {};
 		for (const e of entries) (m[e.key] ??= []).push(e);
-		for (const k in m) m[k].sort((a, b) => b.effective_date.localeCompare(a.effective_date));
+		for (const list of Object.values(m))
+			list.sort((a, b) => b.effective_date.localeCompare(a.effective_date));
 		return m;
 	});
 
 	async function add(spec: Spec) {
 		error = null;
 		const d = draft[spec.key];
-		const value = parseFloat(d.value);
-		if (!d.date || isNaN(value)) {
+		const value = parseFloat(d?.value ?? '');
+		if (!d?.date || isNaN(value)) {
 			error = `Enter a date and a ${spec.label.toLowerCase()} value.`;
 			return;
 		}
@@ -138,14 +139,16 @@
 	<header>
 		<h1 class="text-3xl font-semibold tracking-tight max-md:text-2xl">Athlete profile</h1>
 		<p class="mt-1 max-w-2xl text-sm text-zinc-400">
-			Your real physiological values, used to calculate Training Stress Score (TSS) and the
-			fitness curves. Each value is <b>time-based</b> — add a new entry whenever it changes (e.g. a
-			new FTP test, a weight change). Calculations interpolate between the nearest dates, so a
-			re-computed old activity uses the values that were true back then.
+			Your real physiological values, used to calculate Training Stress Score (TSS) and the fitness
+			curves. Each value is <b>time-based</b> — add a new entry whenever it changes (e.g. a new FTP test,
+			a weight change). Calculations interpolate between the nearest dates, so a re-computed old activity
+			uses the values that were true back then.
 		</p>
 	</header>
 
-	<div class="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+	<div
+		class="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4"
+	>
 		<div class="text-sm text-zinc-300">
 			Changed your values? Recompute TSS + the training-load history with the new numbers.
 		</div>
@@ -161,7 +164,9 @@
 	</div>
 
 	{#if error}
-		<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">{error}</div>
+		<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+			{error}
+		</div>
 	{/if}
 
 	{#if loading}
@@ -169,15 +174,17 @@
 	{:else}
 		<div class="grid gap-4 lg:grid-cols-2">
 			{#each specs as spec (spec.key)}
+				{@const why = WHY[spec.key]}
+				{@const dr = draft[spec.key]}
 				<section class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
 					<div class="mb-1 flex items-baseline justify-between">
 						<h2 class="text-sm font-medium text-zinc-200">{spec.label}</h2>
 						<span class="text-xs text-zinc-500">{spec.unit}</span>
 					</div>
-					{#if WHY[spec.key]}
+					{#if why}
 						<p class="mb-3 text-xs leading-relaxed text-zinc-500">
-							<span class="text-zinc-400">{WHY[spec.key].what}</span>
-							{WHY[spec.key].used}
+							<span class="text-zinc-400">{why.what}</span>
+							{why.used}
 						</p>
 					{/if}
 
@@ -185,11 +192,13 @@
 						<p class="mb-3 text-xs text-zinc-600">No entries yet.</p>
 					{:else}
 						<ul class="mb-3 divide-y divide-zinc-800 rounded border border-zinc-800">
-							{#each byKey[spec.key] as e (e.id)}
+							{#each byKey[spec.key] ?? [] as e (e.id)}
 								<li class="flex items-center justify-between gap-3 px-3 py-1.5 text-sm">
 									<span class="text-zinc-400">{formatDateOnly(e.effective_date)}</span>
 									<span class="flex items-center gap-3">
-										<span class="font-medium tabular-nums text-zinc-100">{fmtValue(spec, e.value)}</span>
+										<span class="font-medium tabular-nums text-zinc-100"
+											>{fmtValue(spec, e.value)}</span
+										>
 										<button
 											type="button"
 											onclick={() => remove(e.id)}
@@ -203,39 +212,47 @@
 						</ul>
 					{/if}
 
-					<div class="flex items-end gap-2 max-md:flex-wrap">
-						<div>
-							<label for={`d-${spec.key}`} class="mb-1 block text-[10px] uppercase tracking-wide text-zinc-500">Date</label>
-							<input
-								id={`d-${spec.key}`}
-								type="date"
-								bind:value={draft[spec.key].date}
-								class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm focus:border-accent-400 focus:outline-none"
-							/>
+					{#if dr}
+						<div class="flex items-end gap-2 max-md:flex-wrap">
+							<div>
+								<label
+									for={`d-${spec.key}`}
+									class="mb-1 block text-[10px] uppercase tracking-wide text-zinc-500">Date</label
+								>
+								<input
+									id={`d-${spec.key}`}
+									type="date"
+									bind:value={dr.date}
+									class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm focus:border-accent-400 focus:outline-none"
+								/>
+							</div>
+							<div>
+								<label
+									for={`v-${spec.key}`}
+									class="mb-1 block text-[10px] uppercase tracking-wide text-zinc-500"
+								>
+									Value ({spec.unit})
+								</label>
+								<input
+									id={`v-${spec.key}`}
+									type="number"
+									step="any"
+									min={spec.min}
+									max={spec.max}
+									placeholder={`${spec.min}–${spec.max}`}
+									bind:value={dr.value}
+									class="w-28 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm focus:border-accent-400 focus:outline-none"
+								/>
+							</div>
+							<button
+								type="button"
+								onclick={() => add(spec)}
+								class="rounded border border-accent-500 bg-accent-500/20 px-3 py-1 text-sm text-accent-300 hover:bg-accent-500/30"
+							>
+								Add
+							</button>
 						</div>
-						<div>
-							<label for={`v-${spec.key}`} class="mb-1 block text-[10px] uppercase tracking-wide text-zinc-500">
-								Value ({spec.unit})
-							</label>
-							<input
-								id={`v-${spec.key}`}
-								type="number"
-								step="any"
-								min={spec.min}
-								max={spec.max}
-								placeholder={`${spec.min}–${spec.max}`}
-								bind:value={draft[spec.key].value}
-								class="w-28 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm focus:border-accent-400 focus:outline-none"
-							/>
-						</div>
-						<button
-							type="button"
-							onclick={() => add(spec)}
-							class="rounded border border-accent-500 bg-accent-500/20 px-3 py-1 text-sm text-accent-300 hover:bg-accent-500/30"
-						>
-							Add
-						</button>
-					</div>
+					{/if}
 				</section>
 			{/each}
 		</div>

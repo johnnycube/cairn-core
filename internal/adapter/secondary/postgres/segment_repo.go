@@ -46,39 +46,19 @@ const segmentColumns = `
 	created_at, updated_at
 `
 
-// SaveSegment upserts a segment by ID. Geometry is rebuilt from the
-// encoded polyline; the LINESTRING is constructed via ST_MakeLine over
-// the decoded points, and the bbox is computed via ST_Envelope of that
-// line.
-//
-// Decoding happens in Go (the domain package owns the polyline format),
-// then the resulting points are sent as a single text-encoded WKT
-// LINESTRING. PostGIS does the geography projection.
-func (r *SegmentRepo) SaveSegment(ctx context.Context, s domain.Segment) error {
-	if err := s.Validate(); err != nil {
-		return fmt.Errorf("validate segment: %w", err)
-	}
-
-	points, err := s.DecodedPolyline()
-	if err != nil {
-		return fmt.Errorf("decode polyline for %s: %w", s.ID, err)
-	}
-	if len(points) < 2 {
-		return fmt.Errorf("save segment %s: polyline has fewer than 2 points", s.ID)
-	}
-
-	lineWKT := pointsToLineStringWKT(points)
+const (
 	// Bbox derivation in PostGIS: ST_Envelope works on geometry, so we
 	// cast the LINESTRING geography to geometry, envelope it, and cast
 	// the polygon back to geography(POLYGON, 4326). Robust regardless
 	// of how the line spans the antimeridian (PostGIS will produce a
 	// sensible result; instance operators with pathological cases can
 	// override match_corridor_m to widen tolerance).
-	geomExpr := `ST_GeogFromText($25)`
-	bboxExpr := `ST_Envelope(ST_GeogFromText($25)::geometry)::geography`
+	segmentSaveGeomExpr = `ST_GeogFromText($25)`
+	segmentSaveBBoxExpr = `ST_Envelope(ST_GeogFromText($25)::geometry)::geography`
+)
 
-	db := dbtx(ctx, r.pool)
-	_, err = db.Exec(ctx, `
+// segmentSaveSQL upserts one segment; geom/bbox are derived from the WKT in $25.
+const segmentSaveSQL = `
 		INSERT INTO segments (
 			id, source, external_id, external_account_id, owner_user_id,
 			scope, name, description, activity_type,
@@ -94,7 +74,7 @@ func (r *SegmentRepo) SaveSegment(ctx context.Context, s domain.Segment) error {
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9,
 			$10, $11,
-			`+geomExpr+`, `+bboxExpr+`,
+			` + segmentSaveGeomExpr + `, ` + segmentSaveBBoxExpr + `,
 			$12, $13, $14,
 			$15, $16, $17, $18,
 			$19,
@@ -128,7 +108,11 @@ func (r *SegmentRepo) SaveSegment(ctx context.Context, s domain.Segment) error {
 			match_end_tolerance_m = EXCLUDED.match_end_tolerance_m,
 			bidirectional = EXCLUDED.bidirectional,
 			starred = EXCLUDED.starred
-		`,
+		`
+
+// segmentSaveArgs builds the segmentSaveSQL bind parameters.
+func segmentSaveArgs(s domain.Segment, lineWKT string) []any {
+	return []any{
 		s.ID.UUID(), string(s.Source), strPtrParam(s.ExternalID), externalAccountIDParam(s.ExternalAccountID), userIDParam(s.OwnerUserID),
 		string(s.Scope), s.Name, s.Description, string(s.ActivityType),
 		s.Polyline, s.PolylinePrecision,
@@ -139,7 +123,33 @@ func (r *SegmentRepo) SaveSegment(ctx context.Context, s domain.Segment) error {
 		s.Bidirectional, s.Starred,
 		lineWKT,
 		nullableTime(s.CreatedAt), nullableTime(s.UpdatedAt),
-	)
+	}
+}
+
+// SaveSegment upserts a segment by ID. Geometry is rebuilt from the
+// encoded polyline; the LINESTRING is constructed via ST_MakeLine over
+// the decoded points, and the bbox is computed via ST_Envelope of that
+// line.
+//
+// Decoding happens in Go (the domain package owns the polyline format),
+// then the resulting points are sent as a single text-encoded WKT
+// LINESTRING. PostGIS does the geography projection.
+func (r *SegmentRepo) SaveSegment(ctx context.Context, s domain.Segment) error {
+	if err := s.Validate(); err != nil {
+		return fmt.Errorf("validate segment: %w", err)
+	}
+
+	points, err := s.DecodedPolyline()
+	if err != nil {
+		return fmt.Errorf("decode polyline for %s: %w", s.ID, err)
+	}
+	if len(points) < 2 {
+		return fmt.Errorf("save segment %s: polyline has fewer than 2 points", s.ID)
+	}
+
+	lineWKT := pointsToLineStringWKT(points)
+	db := dbtx(ctx, r.pool)
+	_, err = db.Exec(ctx, segmentSaveSQL, segmentSaveArgs(s, lineWKT)...)
 	if err != nil {
 		return fmt.Errorf("save segment %s: %w", s.ID, err)
 	}
@@ -242,20 +252,7 @@ func (r *SegmentRepo) ListSegmentCandidatesForActivity(
 	if err != nil {
 		return nil, fmt.Errorf("list segment candidates: %w", err)
 	}
-	defer rows.Close()
-
-	var out []domain.Segment
-	for rows.Next() {
-		seg, err := scanSegmentRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan candidate segment: %w", err)
-		}
-		out = append(out, seg)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate segment candidates: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanSegmentRow, "scan candidate segment", "iterate segment candidates")
 }
 
 // ---------------------------------------------------------------------------
@@ -392,20 +389,7 @@ func (r *SegmentRepo) ListEffortsForActivity(ctx context.Context, id domain.Acti
 	if err != nil {
 		return nil, fmt.Errorf("list efforts for %s: %w", id, err)
 	}
-	defer rows.Close()
-
-	var out []domain.SegmentEffort
-	for rows.Next() {
-		e, err := scanSegmentEffortRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan segment effort: %w", err)
-		}
-		out = append(out, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate segment efforts: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanSegmentEffortRow, "scan segment effort", "iterate segment efforts")
 }
 
 // ListEffortsForSegment is the leaderboard read. Scope decides which rows.
@@ -465,20 +449,7 @@ func (r *SegmentRepo) ListEffortsForSegment(
 	if err != nil {
 		return nil, fmt.Errorf("list efforts for segment %s: %w", segmentID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.SegmentEffort
-	for rows.Next() {
-		e, err := scanSegmentEffortRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan leaderboard row: %w", err)
-		}
-		out = append(out, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate leaderboard: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanSegmentEffortRow, "scan leaderboard row", "iterate leaderboard")
 }
 
 // ---------------------------------------------------------------------------
@@ -607,62 +578,32 @@ func climbCategoryParam(c domain.ClimbCategory) any {
 
 func scanSegmentRow(row rowScanner) (domain.Segment, error) {
 	var (
-		id                                                      uuid.UUID
-		source                                                  string
-		externalID                                              *string
-		externalAccountID                                       *uuid.UUID
-		ownerUserID                                             *uuid.UUID
-		scope                                                   string
-		name, description, activityType                         string
-		polyline                                                string
-		polylinePrecision                                       int
-		distanceM                                               float64
-		elevationGainM, elevationLossM                          *float64
-		minElevationM, maxElevationM, avgGrade, maxGrade        *float64
-		climbCategory                                           *string
-		matchCorridorM, matchStartToleranceM, matchEndTolerance *float64
-		bidirectional, starred                                  bool
-		createdAt, updatedAt                                    time.Time
+		seg                 domain.Segment
+		id                  uuid.UUID
+		source              string
+		externalAccountID   *uuid.UUID
+		ownerUserID         *uuid.UUID
+		scope, activityType string
+		climbCategory       *string
 	)
 	if err := row.Scan(
-		&id, &source, &externalID, &externalAccountID, &ownerUserID,
-		&scope, &name, &description, &activityType,
-		&polyline, &polylinePrecision,
-		&distanceM, &elevationGainM, &elevationLossM,
-		&minElevationM, &maxElevationM, &avgGrade, &maxGrade,
+		&id, &source, &seg.ExternalID, &externalAccountID, &ownerUserID,
+		&scope, &seg.Name, &seg.Description, &activityType,
+		&seg.Polyline, &seg.PolylinePrecision,
+		&seg.DistanceM, &seg.ElevationGainM, &seg.ElevationLossM,
+		&seg.MinElevationM, &seg.MaxElevationM, &seg.AvgGrade, &seg.MaxGrade,
 		&climbCategory,
-		&matchCorridorM, &matchStartToleranceM, &matchEndTolerance,
-		&bidirectional, &starred,
-		&createdAt, &updatedAt,
+		&seg.MatchCorridorM, &seg.MatchStartToleranceM, &seg.MatchEndToleranceM,
+		&seg.Bidirectional, &seg.Starred,
+		&seg.CreatedAt, &seg.UpdatedAt,
 	); err != nil {
 		return domain.Segment{}, err
 	}
 
-	seg := domain.Segment{
-		ID:                   domain.SegmentID(id),
-		Source:               domain.SegmentSource(source),
-		ExternalID:           externalID,
-		Scope:                domain.SegmentScope(scope),
-		Name:                 name,
-		Description:          description,
-		ActivityType:         domain.ActivityType(activityType),
-		Polyline:             polyline,
-		PolylinePrecision:    polylinePrecision,
-		DistanceM:            distanceM,
-		ElevationGainM:       elevationGainM,
-		ElevationLossM:       elevationLossM,
-		MinElevationM:        minElevationM,
-		MaxElevationM:        maxElevationM,
-		AvgGrade:             avgGrade,
-		MaxGrade:             maxGrade,
-		MatchCorridorM:       matchCorridorM,
-		MatchStartToleranceM: matchStartToleranceM,
-		MatchEndToleranceM:   matchEndTolerance,
-		Bidirectional:        bidirectional,
-		Starred:              starred,
-		CreatedAt:            createdAt,
-		UpdatedAt:            updatedAt,
-	}
+	seg.ID = domain.SegmentID(id)
+	seg.Source = domain.SegmentSource(source)
+	seg.Scope = domain.SegmentScope(scope)
+	seg.ActivityType = domain.ActivityType(activityType)
 	if externalAccountID != nil {
 		ea := domain.ExternalAccountID(*externalAccountID)
 		seg.ExternalAccountID = &ea

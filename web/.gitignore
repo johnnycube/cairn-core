@@ -13,3 +13,4 @@ src/lib/paraglide
 # via `make proto` (the web-check CI job runs it before npm; local dev runs it
 # before building the web image).
 src/lib/proto
+coverage

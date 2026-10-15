@@ -1,0 +1,9 @@
+build/
+coverage/
+.svelte-kit/
+node_modules/
+package-lock.json
+src/lib/proto/
+src/lib/paraglide/
+static/
+project.inlang/cache/

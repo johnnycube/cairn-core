@@ -36,7 +36,7 @@ type providerMeta struct {
 }
 
 var providerRegistry = map[string]providerMeta{
-	"strava": {
+	"strava": { //nolint:gosec // G101: public OAuth endpoint URLs, no credentials
 		Provider:            "strava",
 		DisplayName:         "Strava",
 		AuthorizeURL:        "https://www.strava.com/oauth/authorize",
@@ -82,329 +82,380 @@ const (
 //	GET    /auth/oauth/{provider}/connect?connection=<id>   start OAuth for that connection
 //	GET    /auth/oauth/{provider}/callback                  exchange → account (linked to connection)
 func mountOAuthConnect(mux *http.ServeMux, app *App, logger *slog.Logger, publicURL string) {
+	h := &oauthConnectHandlers{app: app, logger: logger, publicURL: publicURL}
+
 	// GET /api/connections
-	mux.HandleFunc("GET /api/connections", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		conns, _ := app.UserProviderConfigs.ListForUser(r.Context(), userID)
-		out := make([]map[string]any, 0, len(conns))
-		for _, c := range conns {
-			out = append(out, map[string]any{
-				"id":           c.ID.String(),
-				"provider":     c.Provider,
-				"display_name": providerDisplayName(c.Provider),
-				"label":        c.Label,
-				"client_id":    c.ClientID,
-				"has_secret":   c.HasSecret,
-				"oauth":        oauthProvider(providerRegistry[c.Provider]),
-			})
-		}
-		providers := make([]map[string]any, 0, len(providerRegistry))
-		for id, meta := range providerRegistry {
-			providers = append(providers, map[string]any{
-				"provider": id, "display_name": meta.DisplayName, "oauth": oauthProvider(meta),
-			})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"connections": out, "providers": providers})
-	})
+	mux.HandleFunc("GET /api/connections", h.list)
 
 	// GET /api/webhook-endpoints — the webhook callback URLs to register with a
 	// provider's app for real-time imports. One per webhook-advertising worker
 	// ({name}-{provider}); the worker owns verification/decoding. The callback
 	// URL is not a secret (it's a public endpoint), so any signed-in user may
 	// read it — they need it to configure their own provider app.
-	mux.HandleFunc("GET /api/webhook-endpoints", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := resolveSessionUser(r, app); !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		type ep struct {
-			Provider  string `json:"provider"`
-			WorkerKey string `json:"worker_key"`
-			URL       string `json:"url"`
-		}
-		out := []ep{}
-		seen := map[string]bool{}
-		if app.NATSBus != nil {
-			if kv, err := app.NATSBus.KV("cairn_worker_presence"); err == nil {
-				keys, _ := kv.Keys(r.Context())
-				for _, k := range keys {
-					entry, err := kv.Get(r.Context(), k)
-					if err != nil {
-						// Presence keys carry a TTL; one can expire between Keys and Get.
-						logger.Debug("webhook endpoints: presence key vanished", "key", k, "error", err)
-						continue
-					}
-					var hb struct {
-						WorkerKey string `json:"worker_key"`
-						Provider  string `json:"provider"`
-						Webhooks  bool   `json:"webhooks"`
-					}
-					if json.Unmarshal(entry.Value, &hb) != nil || !hb.Webhooks || hb.WorkerKey == "" {
-						continue
-					}
-					if seen[hb.WorkerKey] {
-						continue
-					}
-					seen[hb.WorkerKey] = true
-					out = append(out, ep{
-						Provider:  hb.Provider,
-						WorkerKey: hb.WorkerKey,
-						URL:       strings.TrimRight(publicURL, "/") + "/webhooks/" + hb.WorkerKey,
-					})
-				}
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"endpoints": out})
-	})
+	mux.HandleFunc("GET /api/webhook-endpoints", h.webhookEndpoints)
 
 	// POST /api/connections — create a connection.
-	mux.HandleFunc("POST /api/connections", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			Provider     string `json:"provider"`
-			Label        string `json:"label"`
-			ClientID     string `json:"client_id"`
-			ClientSecret string `json:"client_secret"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		meta, ok := providerRegistry[body.Provider]
-		if !ok {
-			http.Error(w, "unknown provider", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(body.ClientID) == "" {
-			http.Error(w, "client_id is required", http.StatusBadRequest)
-			return
-		}
-		if !oauthProvider(meta) && strings.TrimSpace(body.ClientSecret) == "" {
-			// Credential providers: client_id/client_secret are the login —
-			// without the secret the connection could never authenticate.
-			http.Error(w, "client_secret is required", http.StatusBadRequest)
-			return
-		}
-		id, err := app.UserProviderConfigs.Create(r.Context(), domain.UserProviderConfig{
-			UserID: userID, Provider: body.Provider, Label: strings.TrimSpace(body.Label),
-			ClientID: strings.TrimSpace(body.ClientID), ClientSecret: strings.TrimSpace(body.ClientSecret),
+	mux.HandleFunc("POST /api/connections", h.create)
+
+	// PUT /api/connections/{id} — update a connection (ownership-checked).
+	mux.HandleFunc("PUT /api/connections/{id}", h.update)
+
+	// DELETE /api/connections/{id}
+	mux.HandleFunc("DELETE /api/connections/{id}", h.delete)
+
+	mux.HandleFunc("GET /auth/oauth/{provider}/connect", h.connect)
+	mux.HandleFunc("GET /auth/oauth/{provider}/callback", h.callback)
+
+	logger.Info("oauth connect endpoints mounted", "providers", len(providerRegistry))
+}
+
+// oauthConnectHandlers carries the shared state of the connection routes.
+type oauthConnectHandlers struct {
+	app       *App
+	logger    *slog.Logger
+	publicURL string
+}
+
+func (h *oauthConnectHandlers) list(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	conns, _ := h.app.UserProviderConfigs.ListForUser(r.Context(), userID)
+	out := make([]map[string]any, 0, len(conns))
+	for _, c := range conns {
+		out = append(out, map[string]any{
+			"id":           c.ID.String(),
+			"provider":     c.Provider,
+			"display_name": providerDisplayName(c.Provider),
+			"label":        c.Label,
+			"client_id":    c.ClientID,
+			"has_secret":   c.HasSecret,
+			"oauth":        oauthProvider(providerRegistry[c.Provider]),
 		})
+	}
+	providers := make([]map[string]any, 0, len(providerRegistry))
+	for id, meta := range providerRegistry {
+		providers = append(providers, map[string]any{
+			"provider": id, "display_name": meta.DisplayName, "oauth": oauthProvider(meta),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connections": out, "providers": providers})
+}
+
+// oauthConnectWebhookEP is one advertised webhook callback.
+type oauthConnectWebhookEP struct {
+	Provider  string `json:"provider"`
+	WorkerKey string `json:"worker_key"`
+	URL       string `json:"url"`
+}
+
+func (h *oauthConnectHandlers) webhookEndpoints(w http.ResponseWriter, r *http.Request) {
+	if _, ok := resolveSessionUser(r, h.app); !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	out := []oauthConnectWebhookEP{}
+	if h.app.NATSBus != nil {
+		if kv, err := h.app.NATSBus.KV("cairn_worker_presence"); err == nil {
+			out = h.collectWebhookEndpoints(r.Context(), kv, out)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"endpoints": out})
+}
+
+func (h *oauthConnectHandlers) collectWebhookEndpoints(ctx context.Context, kv port.KV, out []oauthConnectWebhookEP) []oauthConnectWebhookEP {
+	seen := map[string]bool{}
+	keys, _ := kv.Keys(ctx)
+	for _, k := range keys {
+		entry, err := kv.Get(ctx, k)
 		if err != nil {
-			logger.Error("create connection failed", "error", err)
+			// Presence keys carry a TTL; one can expire between Keys and Get.
+			h.logger.Debug("webhook endpoints: presence key vanished", "key", k, "error", err)
+			continue
+		}
+		var hb struct {
+			WorkerKey string `json:"worker_key"`
+			Provider  string `json:"provider"`
+			Webhooks  bool   `json:"webhooks"`
+		}
+		if json.Unmarshal(entry.Value, &hb) != nil || !hb.Webhooks || hb.WorkerKey == "" {
+			continue
+		}
+		if seen[hb.WorkerKey] {
+			continue
+		}
+		seen[hb.WorkerKey] = true
+		out = append(out, oauthConnectWebhookEP{
+			Provider:  hb.Provider,
+			WorkerKey: hb.WorkerKey,
+			URL:       strings.TrimRight(h.publicURL, "/") + "/webhooks/" + hb.WorkerKey,
+		})
+	}
+	return out
+}
+
+// oauthConnectCreateBody is the POST /api/connections payload.
+type oauthConnectCreateBody struct {
+	Provider     string `json:"provider"`
+	Label        string `json:"label"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+func (h *oauthConnectHandlers) create(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if !requireJSON(w, r) {
+		return
+	}
+	var body oauthConnectCreateBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	meta, ok := providerRegistry[body.Provider]
+	if !ok {
+		http.Error(w, "unknown provider", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.ClientID) == "" {
+		http.Error(w, "client_id is required", http.StatusBadRequest)
+		return
+	}
+	if !oauthProvider(meta) && strings.TrimSpace(body.ClientSecret) == "" {
+		// Credential providers: client_id/client_secret are the login —
+		// without the secret the connection could never authenticate.
+		http.Error(w, "client_secret is required", http.StatusBadRequest)
+		return
+	}
+	id, err := h.app.UserProviderConfigs.Create(r.Context(), domain.UserProviderConfig{
+		UserID: userID, Provider: body.Provider, Label: strings.TrimSpace(body.Label),
+		ClientID: strings.TrimSpace(body.ClientID), ClientSecret: strings.TrimSpace(body.ClientSecret),
+	})
+	if err != nil {
+		h.logger.Error("create connection failed", "error", err)
+		http.Error(w, "could not create", http.StatusInternalServerError)
+		return
+	}
+	// Credential providers have no authorize round-trip: the credentials ARE
+	// the account link, so create the external account with the connection.
+	if !oauthProvider(meta) && h.app.ExternalAccounts != nil {
+		if !h.linkCredentialAccount(r.Context(), userID, id, body) {
 			http.Error(w, "could not create", http.StatusInternalServerError)
 			return
 		}
-		// Credential providers have no authorize round-trip: the credentials ARE
-		// the account link, so create the external account with the connection.
-		if !oauthProvider(meta) && app.ExternalAccounts != nil {
-			acctID, err := app.ExternalAccounts.CreateAccount(r.Context(), domain.ExternalAccount{
-				UserID:            userID,
-				Provider:          body.Provider,
-				ProviderAccountID: strings.TrimSpace(body.ClientID),
-				ConnectionID:      &id,
-				DisplayLabel:      strings.TrimSpace(body.ClientID),
-				Status:            domain.ExternalAccountStatusActive,
-				AutoImportEnabled: true,
-			})
-			if err != nil {
-				// Roll the config back so the user can retry cleanly instead of
-				// being left with a credential-less half-connection.
-				_ = app.UserProviderConfigs.Delete(r.Context(), id)
-				logger.Error("create connection: account link failed", "provider", body.Provider, "error", err)
-				http.Error(w, "could not create", http.StatusInternalServerError)
-				return
-			}
-			logger.Info("connection + account created", "provider", body.Provider, "account", acctID)
-		}
-		writeJSON(w, http.StatusCreated, map[string]any{"id": id.String()})
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id.String()})
+}
+
+// linkCredentialAccount creates the external account for a credential provider;
+// on failure it rolls the connection back and returns false.
+func (h *oauthConnectHandlers) linkCredentialAccount(ctx context.Context, userID domain.UserID, id domain.ConnectionID, body oauthConnectCreateBody) bool {
+	acctID, err := h.app.ExternalAccounts.CreateAccount(ctx, domain.ExternalAccount{
+		UserID:            userID,
+		Provider:          body.Provider,
+		ProviderAccountID: strings.TrimSpace(body.ClientID),
+		ConnectionID:      &id,
+		DisplayLabel:      strings.TrimSpace(body.ClientID),
+		Status:            domain.ExternalAccountStatusActive,
+		AutoImportEnabled: true,
 	})
+	if err != nil {
+		// Roll the config back so the user can retry cleanly instead of
+		// being left with a credential-less half-connection.
+		_ = h.app.UserProviderConfigs.Delete(ctx, id)
+		h.logger.Error("create connection: account link failed", "provider", body.Provider, "error", err)
+		return false
+	}
+	h.logger.Info("connection + account created", "provider", body.Provider, "account", acctID)
+	return true
+}
 
-	// PUT /api/connections/{id} — update a connection (ownership-checked).
-	mux.HandleFunc("PUT /api/connections/{id}", func(w http.ResponseWriter, r *http.Request) {
-		conn, ok := ownConnection(r, app)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if !requireJSON(w, r) {
-			return
-		}
-		var body struct {
-			Label        string `json:"label"`
-			ClientID     string `json:"client_id"`
-			ClientSecret string `json:"client_secret"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "bad body", http.StatusBadRequest)
-			return
-		}
-		conn.Label = strings.TrimSpace(body.Label)
-		if strings.TrimSpace(body.ClientID) != "" {
-			conn.ClientID = strings.TrimSpace(body.ClientID)
-		}
-		conn.ClientSecret = strings.TrimSpace(body.ClientSecret) // empty keeps existing
-		if err := app.UserProviderConfigs.Update(r.Context(), conn); err != nil {
-			http.Error(w, "could not update", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+func (h *oauthConnectHandlers) update(w http.ResponseWriter, r *http.Request) {
+	conn, ok := ownConnection(r, h.app)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !requireJSON(w, r) {
+		return
+	}
+	var body struct {
+		Label        string `json:"label"`
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	conn.Label = strings.TrimSpace(body.Label)
+	if strings.TrimSpace(body.ClientID) != "" {
+		conn.ClientID = strings.TrimSpace(body.ClientID)
+	}
+	conn.ClientSecret = strings.TrimSpace(body.ClientSecret) // empty keeps existing
+	if err := h.app.UserProviderConfigs.Update(r.Context(), conn); err != nil {
+		http.Error(w, "could not update", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *oauthConnectHandlers) delete(w http.ResponseWriter, r *http.Request) {
+	conn, ok := ownConnection(r, h.app)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := h.app.UserProviderConfigs.Delete(r.Context(), conn.ID); err != nil {
+		http.Error(w, "could not delete", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// oauthProviderFromPath resolves {provider} to an OAuth provider, writing the
+// error response itself on failure.
+func (h *oauthConnectHandlers) oauthProviderFromPath(w http.ResponseWriter, r *http.Request) (domain.UserID, providerMeta, bool) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "login required", http.StatusUnauthorized)
+		return userID, providerMeta{}, false
+	}
+	meta, ok := providerRegistry[r.PathValue("provider")]
+	if !ok {
+		http.Error(w, "unknown provider", http.StatusNotFound)
+		return userID, providerMeta{}, false
+	}
+	if !oauthProvider(meta) {
+		http.Error(w, "provider does not use OAuth", http.StatusBadRequest)
+		return userID, providerMeta{}, false
+	}
+	return userID, meta, true
+}
+
+func (h *oauthConnectHandlers) connect(w http.ResponseWriter, r *http.Request) {
+	userID, meta, ok := h.oauthProviderFromPath(w, r)
+	if !ok {
+		return
+	}
+	connID, err := uuid.Parse(r.URL.Query().Get("connection"))
+	if err != nil {
+		http.Redirect(w, r, "/connections?error=no_connection", http.StatusFound)
+		return
+	}
+	conn, err := h.app.UserProviderConfigs.GetByID(r.Context(), domain.ConnectionID(connID))
+	if err != nil || conn.UserID != userID || conn.Provider != meta.Provider || conn.ClientID == "" {
+		http.Redirect(w, r, "/connections?error=configure_first", http.StatusFound)
+		return
+	}
+	// Secret stored but unreadable (AAD/key change) — the token exchange in
+	// the callback would fail. Tell the user to re-enter it rather than
+	// bouncing them through Strava only to fail at the end.
+	if conn.SecretUnreadable {
+		http.Redirect(w, r, "/connections?error=secret_unreadable", http.StatusFound)
+		return
+	}
+
+	state := randToken()
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
+		Name: oauthStateCookie, Value: state, Path: "/auth/oauth/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: cookieSecure(r), MaxAge: 600,
 	})
-
-	// DELETE /api/connections/{id}
-	mux.HandleFunc("DELETE /api/connections/{id}", func(w http.ResponseWriter, r *http.Request) {
-		conn, ok := ownConnection(r, app)
-		if !ok {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		if err := app.UserProviderConfigs.Delete(r.Context(), conn.ID); err != nil {
-			http.Error(w, "could not delete", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure unless the public URL and the request are plain http (dev)
+		Name: oauthConnectionCookie, Value: conn.ID.String(), Path: "/auth/oauth/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: cookieSecure(r), MaxAge: 600,
 	})
+	q := url.Values{}
+	q.Set("client_id", conn.ClientID)
+	q.Set("redirect_uri", strings.TrimRight(h.publicURL, "/")+"/auth/oauth/"+meta.Provider+"/callback")
+	q.Set("response_type", "code")
+	q.Set("scope", meta.Scopes)
+	// force so the provider always shows its auth screen — lets a user pick a
+	// different account for a separate connection.
+	q.Set("approval_prompt", "force")
+	q.Set("state", state)
+	http.Redirect(w, r, meta.AuthorizeURL+"?"+q.Encode(), http.StatusFound)
+}
 
-	mux.HandleFunc("GET /auth/oauth/{provider}/connect", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "login required", http.StatusUnauthorized)
-			return
-		}
-		meta, ok := providerRegistry[r.PathValue("provider")]
-		if !ok {
-			http.Error(w, "unknown provider", http.StatusNotFound)
-			return
-		}
-		if !oauthProvider(meta) {
-			http.Error(w, "provider does not use OAuth", http.StatusBadRequest)
-			return
-		}
-		connID, err := uuid.Parse(r.URL.Query().Get("connection"))
-		if err != nil {
-			http.Redirect(w, r, "/connections?error=no_connection", http.StatusFound)
-			return
-		}
-		conn, err := app.UserProviderConfigs.GetByID(r.Context(), domain.ConnectionID(connID))
-		if err != nil || conn.UserID != userID || conn.Provider != meta.Provider || conn.ClientID == "" {
-			http.Redirect(w, r, "/connections?error=configure_first", http.StatusFound)
-			return
-		}
-		// Secret stored but unreadable (AAD/key change) — the token exchange in
-		// the callback would fail. Tell the user to re-enter it rather than
-		// bouncing them through Strava only to fail at the end.
-		if conn.SecretUnreadable {
-			http.Redirect(w, r, "/connections?error=secret_unreadable", http.StatusFound)
-			return
-		}
+// callbackConnection checks state, reads the connection cookie and the code,
+// and loads the user's connection; it writes the response itself on failure.
+func (h *oauthConnectHandlers) callbackConnection(w http.ResponseWriter, r *http.Request, userID domain.UserID) (domain.UserProviderConfig, string, bool) {
+	c, err := r.Cookie(oauthStateCookie)
+	if err != nil || c.Value == "" || c.Value != r.URL.Query().Get("state") {
+		http.Error(w, "state mismatch", http.StatusBadRequest)
+		return domain.UserProviderConfig{}, "", false
+	}
+	cc, err := r.Cookie(oauthConnectionCookie)
+	if err != nil || cc.Value == "" {
+		http.Redirect(w, r, "/connections?error=no_connection", http.StatusFound)
+		return domain.UserProviderConfig{}, "", false
+	}
+	connUUID, err := uuid.Parse(cc.Value)
+	if err != nil {
+		http.Redirect(w, r, "/connections?error=no_connection", http.StatusFound)
+		return domain.UserProviderConfig{}, "", false
+	}
+	if e := r.URL.Query().Get("error"); e != "" {
+		http.Redirect(w, r, "/connections?error="+url.QueryEscape(e), http.StatusFound)
+		return domain.UserProviderConfig{}, "", false
+	}
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "missing code", http.StatusBadRequest)
+		return domain.UserProviderConfig{}, "", false
+	}
+	conn, err := h.app.UserProviderConfigs.GetByID(r.Context(), domain.ConnectionID(connUUID))
+	if err != nil || conn.UserID != userID {
+		http.Redirect(w, r, "/connections?error=configure_first", http.StatusFound)
+		return domain.UserProviderConfig{}, "", false
+	}
+	return conn, code, true
+}
 
-		state := randToken()
-		http.SetCookie(w, &http.Cookie{
-			Name: oauthStateCookie, Value: state, Path: "/auth/oauth/",
-			HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r), MaxAge: 600,
-		})
-		http.SetCookie(w, &http.Cookie{
-			Name: oauthConnectionCookie, Value: conn.ID.String(), Path: "/auth/oauth/",
-			HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r), MaxAge: 600,
-		})
-		q := url.Values{}
-		q.Set("client_id", conn.ClientID)
-		q.Set("redirect_uri", strings.TrimRight(publicURL, "/")+"/auth/oauth/"+meta.Provider+"/callback")
-		q.Set("response_type", "code")
-		q.Set("scope", meta.Scopes)
-		// force so the provider always shows its auth screen — lets a user pick a
-		// different account for a separate connection.
-		q.Set("approval_prompt", "force")
-		q.Set("state", state)
-		http.Redirect(w, r, meta.AuthorizeURL+"?"+q.Encode(), http.StatusFound)
+func (h *oauthConnectHandlers) callback(w http.ResponseWriter, r *http.Request) {
+	userID, meta, ok := h.oauthProviderFromPath(w, r)
+	if !ok {
+		return
+	}
+	conn, code, ok := h.callbackConnection(w, r, userID)
+	if !ok {
+		return
+	}
+
+	tok, providerAcctID, err := exchangeOAuthCode(r.Context(), meta, conn, code)
+	if err != nil {
+		h.logger.Error("oauth code exchange failed", "provider", meta.Provider, "error", err)
+		http.Redirect(w, r, "/connections?error=exchange_failed", http.StatusFound)
+		return
+	}
+
+	connID := conn.ID
+	label := meta.DisplayName
+	if conn.Label != "" {
+		label = conn.Label
+	}
+	acctID, err := h.app.ExternalAccounts.CreateAccount(r.Context(), domain.ExternalAccount{
+		UserID: userID, Provider: meta.Provider, ProviderAccountID: providerAcctID,
+		ConnectionID: &connID, DisplayLabel: label, GrantedScopes: splitScopes(meta.Scopes),
 	})
-
-	mux.HandleFunc("GET /auth/oauth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "login required", http.StatusUnauthorized)
-			return
-		}
-		meta, ok := providerRegistry[r.PathValue("provider")]
-		if !ok {
-			http.Error(w, "unknown provider", http.StatusNotFound)
-			return
-		}
-		if !oauthProvider(meta) {
-			http.Error(w, "provider does not use OAuth", http.StatusBadRequest)
-			return
-		}
-		c, err := r.Cookie(oauthStateCookie)
-		if err != nil || c.Value == "" || c.Value != r.URL.Query().Get("state") {
-			http.Error(w, "state mismatch", http.StatusBadRequest)
-			return
-		}
-		cc, err := r.Cookie(oauthConnectionCookie)
-		if err != nil || cc.Value == "" {
-			http.Redirect(w, r, "/connections?error=no_connection", http.StatusFound)
-			return
-		}
-		connUUID, err := uuid.Parse(cc.Value)
-		if err != nil {
-			http.Redirect(w, r, "/connections?error=no_connection", http.StatusFound)
-			return
-		}
-		if e := r.URL.Query().Get("error"); e != "" {
-			http.Redirect(w, r, "/connections?error="+url.QueryEscape(e), http.StatusFound)
-			return
-		}
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			http.Error(w, "missing code", http.StatusBadRequest)
-			return
-		}
-		conn, err := app.UserProviderConfigs.GetByID(r.Context(), domain.ConnectionID(connUUID))
-		if err != nil || conn.UserID != userID {
-			http.Redirect(w, r, "/connections?error=configure_first", http.StatusFound)
-			return
-		}
-
-		tok, providerAcctID, err := exchangeOAuthCode(r.Context(), meta, conn, code)
-		if err != nil {
-			logger.Error("oauth code exchange failed", "provider", meta.Provider, "error", err)
-			http.Redirect(w, r, "/connections?error=exchange_failed", http.StatusFound)
-			return
-		}
-
-		connID := conn.ID
-		label := meta.DisplayName
-		if conn.Label != "" {
-			label = conn.Label
-		}
-		acctID, err := app.ExternalAccounts.CreateAccount(r.Context(), domain.ExternalAccount{
-			UserID: userID, Provider: meta.Provider, ProviderAccountID: providerAcctID,
-			ConnectionID: &connID, DisplayLabel: label, GrantedScopes: splitScopes(meta.Scopes),
-		})
-		if err != nil {
-			logger.Error("create external account failed", "error", err)
-			http.Error(w, "could not save account", http.StatusInternalServerError)
-			return
-		}
-		if err := app.OAuthTokens.StoreToken(r.Context(), acctID, port.StoreTokenInput{State: tok}); err != nil {
-			logger.Error("store oauth token failed", "error", err)
-			http.Error(w, "could not save token", http.StatusInternalServerError)
-			return
-		}
-		logger.Info("oauth account connected", "provider", meta.Provider, "account_id", acctID, "connection_id", connID)
-		http.Redirect(w, r, "/connections?connected="+meta.Provider, http.StatusFound)
-	})
-
-	logger.Info("oauth connect endpoints mounted", "providers", len(providerRegistry))
+	if err != nil {
+		h.logger.Error("create external account failed", "error", err)
+		http.Error(w, "could not save account", http.StatusInternalServerError)
+		return
+	}
+	if err := h.app.OAuthTokens.StoreToken(r.Context(), acctID, port.StoreTokenInput{State: tok}); err != nil {
+		h.logger.Error("store oauth token failed", "error", err)
+		http.Error(w, "could not save token", http.StatusInternalServerError)
+		return
+	}
+	h.logger.Info("oauth account connected", "provider", meta.Provider, "account_id", acctID, "connection_id", connID)
+	http.Redirect(w, r, "/connections?connected="+meta.Provider, http.StatusFound)
 }
 
 // ownConnection resolves {id} and confirms it belongs to the session user.
@@ -451,7 +502,7 @@ func exchangeOAuthCode(ctx context.Context, meta providerMeta, conn domain.UserP
 	if err != nil {
 		return port.TokenState{}, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return port.TokenState{}, "", fmt.Errorf("token endpoint %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))

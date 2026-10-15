@@ -29,128 +29,174 @@ import (
 // a group the user didn't ask for (recency would otherwise let the newest
 // source steal un-pinned groups).
 func mountSourceFromEndpoint(mux *http.ServeMux, app *App, logger *slog.Logger) {
-	mux.HandleFunc("POST /api/activities/{id}/source-from", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-		if app.FieldOverrides == nil || app.RecomputeActivity == nil {
-			http.Error(w, "not available", http.StatusServiceUnavailable)
-			return
-		}
+	h := &sourceFromAPI{app: app, logger: logger}
+	mux.HandleFunc("POST /api/activities/{id}/source-from", h.handle)
 
-		tid, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid activity id", http.StatusBadRequest)
-			return
-		}
-		targetID := domain.ActivityID(tid)
+	logger.Info("source-from endpoint mounted", "path", "/api/activities/{id}/source-from")
+}
 
-		var body struct {
-			DonorID string   `json:"donor_id"`
-			Groups  []string `json:"groups"`
+// sourceFromAPI holds the dependencies of the source-from handler.
+type sourceFromAPI struct {
+	app    *App
+	logger *slog.Logger
+}
+
+// sourceFromRequest is a validated source-from request.
+type sourceFromRequest struct {
+	targetID   domain.ActivityID
+	donorID    domain.ActivityID
+	groups     []domain.FieldGroup
+	copyStream bool
+}
+
+// parse validates the path + body or writes a 400.
+func (h *sourceFromAPI) parse(w http.ResponseWriter, r *http.Request) (sourceFromRequest, bool) {
+	var req sourceFromRequest
+	tid, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid activity id", http.StatusBadRequest)
+		return req, false
+	}
+	req.targetID = domain.ActivityID(tid)
+
+	var body struct {
+		DonorID string   `json:"donor_id"`
+		Groups  []string `json:"groups"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+		return req, false
+	}
+	did, err := uuid.Parse(body.DonorID)
+	if err != nil {
+		http.Error(w, "invalid donor_id", http.StatusBadRequest)
+		return req, false
+	}
+	req.donorID = domain.ActivityID(did)
+	if req.donorID == req.targetID {
+		http.Error(w, "donor must differ from the target activity", http.StatusBadRequest)
+		return req, false
+	}
+	req.groups, req.copyStream, err = parseSourceGroups(body.Groups)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return req, false
+	}
+	return req, true
+}
+
+// loadPair loads the caller's target and donor activities or writes a 404.
+func (h *sourceFromAPI) loadPair(ctx context.Context, w http.ResponseWriter, userID domain.UserID, req sourceFromRequest) (target, donor domain.Activity, ok bool) {
+	target, err := h.app.Activities.GetActivity(ctx, req.targetID)
+	if err != nil || target.UserID != userID || target.IsDeleted() {
+		http.Error(w, "activity not found", http.StatusNotFound)
+		return target, donor, false
+	}
+	donor, err = h.app.Activities.GetActivity(ctx, req.donorID)
+	if err != nil || donor.UserID != userID || donor.IsDeleted() {
+		http.Error(w, "donor activity not found", http.StatusNotFound)
+		return target, donor, false
+	}
+	return target, donor, true
+}
+
+// sourceFromDerived builds the derived source. It Provides only the requested groups.
+func sourceFromDerived(userID domain.UserID, req sourceFromRequest, donor domain.Activity) domain.ActivitySource {
+	sid := domain.SourceID(uuid.New())
+	now := time.Now().UTC()
+	payload := domain.ActivitySourcePayload{}
+	applySummaryGroups(&payload, donor.Summary, req.groups)
+	if req.copyStream {
+		payload.HasStream = true
+	}
+	return domain.ActivitySource{
+		ID:                  sid,
+		ActivityID:          req.targetID,
+		UserID:              userID,
+		Provider:            "derived",
+		ExternalID:          uuid.NewString(),
+		SourceWorkerName:    "derived",
+		SourceWorkerVersion: "1",
+		SourceWorkerPackage: "cairn",
+		Parsed:              payload,
+		Status:              domain.SourceStatusActive,
+		StatusReason:        "derived from activity " + req.donorID.String(),
+		ReimportStatus:      domain.ReimportStatusCurrent,
+		ImportedAt:          now,
+		UpdatedAt:           now,
+	}
+}
+
+// pinAndRecompute pins the groups to the derived source and recomputes; it writes a 500 on failure.
+func (h *sourceFromAPI) pinAndRecompute(ctx context.Context, w http.ResponseWriter, req sourceFromRequest, srcID domain.SourceID) bool {
+	// Pin exactly the requested groups to the derived source.
+	for _, g := range req.groups {
+		if err := h.app.FieldOverrides.Set(ctx, domain.FieldSourceOverride{
+			ActivityID: req.targetID, FieldKey: g, SourceID: srcID,
+		}); err != nil {
+			h.logger.Error("source-from: set override", "group", g, "error", err)
+			http.Error(w, "set override failed", http.StatusInternalServerError)
+			return false
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
-			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		did, err := uuid.Parse(body.DonorID)
-		if err != nil {
-			http.Error(w, "invalid donor_id", http.StatusBadRequest)
-			return
-		}
-		donorID := domain.ActivityID(did)
-		if donorID == targetID {
-			http.Error(w, "donor must differ from the target activity", http.StatusBadRequest)
-			return
-		}
-		groups, copyStream, err := parseSourceGroups(body.Groups)
-		if err != nil {
+	}
+	if _, err := h.app.RecomputeActivity.Execute(ctx, req.targetID); err != nil {
+		h.logger.Error("source-from: recompute", "error", err)
+		http.Error(w, "recompute failed", http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
+
+func (h *sourceFromAPI) handle(w http.ResponseWriter, r *http.Request) {
+	app := h.app
+	userID, ok := resolveSessionUser(r, app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if app.FieldOverrides == nil || app.RecomputeActivity == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	req, ok := h.parse(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	target, donor, ok := h.loadPair(ctx, w, userID, req)
+	if !ok {
+		return
+	}
+
+	src := sourceFromDerived(userID, req, donor)
+	if err := app.Activities.SaveSource(ctx, src); err != nil {
+		h.logger.Error("source-from: save source", "error", err)
+		http.Error(w, "save source failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Borrow the donor's geo stream, rebased so its first sample aligns with
+	// the target's start time.
+	if req.copyStream {
+		if err := borrowStream(ctx, app, donor, src.ID, target.StartTime); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+	}
 
-		ctx := r.Context()
-		target, err := app.Activities.GetActivity(ctx, targetID)
-		if err != nil || target.UserID != userID || target.IsDeleted() {
-			http.Error(w, "activity not found", http.StatusNotFound)
-			return
-		}
-		donor, err := app.Activities.GetActivity(ctx, donorID)
-		if err != nil || donor.UserID != userID || donor.IsDeleted() {
-			http.Error(w, "donor activity not found", http.StatusNotFound)
-			return
-		}
+	if !h.pinAndRecompute(ctx, w, req, src.ID) {
+		return
+	}
 
-		// Build the derived source. It Provides only the requested groups.
-		sid := domain.SourceID(uuid.New())
-		now := time.Now().UTC()
-		payload := domain.ActivitySourcePayload{}
-		applySummaryGroups(&payload, donor.Summary, groups)
-		if copyStream {
-			payload.HasStream = true
+	// Refresh the borrowed stream's downsampled aggregates (must run outside
+	// a transaction) so charts/map read non-empty buckets.
+	if req.copyStream {
+		if err := app.Streams.RefreshAggregates(ctx, src.ID); err != nil {
+			h.logger.Warn("source-from: refresh aggregates", "source_id", src.ID, "error", err)
 		}
-		src := domain.ActivitySource{
-			ID:                  sid,
-			ActivityID:          targetID,
-			UserID:              userID,
-			Provider:            "derived",
-			ExternalID:          uuid.NewString(),
-			SourceWorkerName:    "derived",
-			SourceWorkerVersion: "1",
-			SourceWorkerPackage: "cairn",
-			Parsed:              payload,
-			Status:              domain.SourceStatusActive,
-			StatusReason:        "derived from activity " + donorID.String(),
-			ReimportStatus:      domain.ReimportStatusCurrent,
-			ImportedAt:          now,
-			UpdatedAt:           now,
-		}
-		if err := app.Activities.SaveSource(ctx, src); err != nil {
-			logger.Error("source-from: save source", "error", err)
-			http.Error(w, "save source failed", http.StatusInternalServerError)
-			return
-		}
+	}
 
-		// Borrow the donor's geo stream, rebased so its first sample aligns with
-		// the target's start time.
-		if copyStream {
-			if err := borrowStream(ctx, app, donor, src.ID, target.StartTime); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-
-		// Pin exactly the requested groups to the derived source.
-		for _, g := range groups {
-			if err := app.FieldOverrides.Set(ctx, domain.FieldSourceOverride{
-				ActivityID: targetID, FieldKey: g, SourceID: src.ID,
-			}); err != nil {
-				logger.Error("source-from: set override", "group", g, "error", err)
-				http.Error(w, "set override failed", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if _, err := app.RecomputeActivity.Execute(ctx, targetID); err != nil {
-			logger.Error("source-from: recompute", "error", err)
-			http.Error(w, "recompute failed", http.StatusInternalServerError)
-			return
-		}
-
-		// Refresh the borrowed stream's downsampled aggregates (must run outside
-		// a transaction) so charts/map read non-empty buckets.
-		if copyStream {
-			if err := app.Streams.RefreshAggregates(ctx, src.ID); err != nil {
-				logger.Warn("source-from: refresh aggregates", "source_id", src.ID, "error", err)
-			}
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{"source_id": src.ID.String()})
-	})
-
-	logger.Info("source-from endpoint mounted", "path", "/api/activities/{id}/source-from")
+	writeJSON(w, http.StatusOK, map[string]any{"source_id": src.ID.String()})
 }
 
 // parseSourceGroups validates the requested field-group keys and reports

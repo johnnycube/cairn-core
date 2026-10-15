@@ -42,7 +42,7 @@ func (r *ImportQueueRepo) Enqueue(ctx context.Context, items []domain.ImportQueu
 			string(it.ItemType), it.ExternalID, it.ItemTime)
 	}
 	br := r.pool.SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() { _ = br.Close() }()
 
 	inserted := 0
 	for range items {

@@ -58,30 +58,54 @@ func (r *MetricRepo) SaveMetrics(ctx context.Context, metrics []domain.Metric) e
 
 	batch := &pgx.Batch{}
 	for _, m := range metrics {
-		var (
-			extAcctParam  any
-			activityParam any
-			structParam   any
-		)
-		if m.ExternalAccountID != nil {
-			extAcctParam = m.ExternalAccountID.UUID()
-		}
-		if m.ActivityID != nil {
-			activityParam = m.ActivityID.UUID()
-		}
-		if len(m.ValueStruct) > 0 {
-			structParam = []byte(m.ValueStruct)
-		}
-		// metrics.tags is NOT NULL; a nil Go slice binds as SQL NULL and
-		// violates the constraint. Coalesce to an empty array.
-		tags := m.Tags
-		if tags == nil {
-			tags = []string{}
-		}
+		batch.Queue(metricSaveSQL, metricSaveArgs(m)...)
+	}
 
-		// ON CONFLICT on a partial unique index requires repeating the
-		// WHERE clause so Postgres knows which index to use.
-		batch.Queue(`
+	br := db.(pgxBatchExecer).SendBatch(ctx, batch)
+	defer func() { _ = br.Close() }()
+	for i := range metrics {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("save metric %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// metricSaveArgs builds the metricSaveSQL bind parameters for m.
+func metricSaveArgs(m domain.Metric) []any {
+	var (
+		extAcctParam  any
+		activityParam any
+		structParam   any
+	)
+	if m.ExternalAccountID != nil {
+		extAcctParam = m.ExternalAccountID.UUID()
+	}
+	if m.ActivityID != nil {
+		activityParam = m.ActivityID.UUID()
+	}
+	if len(m.ValueStruct) > 0 {
+		structParam = []byte(m.ValueStruct)
+	}
+	// metrics.tags is NOT NULL; a nil Go slice binds as SQL NULL and
+	// violates the constraint. Coalesce to an empty array.
+	tags := m.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	return []any{
+		m.ID.UUID(), m.UserID.UUID(), m.Key, m.Timestamp, m.PeriodSeconds,
+		m.ValueNumeric, structParam,
+		m.Provider, extAcctParam, m.ExternalID,
+		m.SourceWorkerName, m.SourceWorkerVersion,
+		activityParam, tags, m.Notes,
+		nullableTime(m.CreatedAt), nullableTime(m.UpdatedAt),
+	}
+}
+
+// metricSaveSQL upserts one metric. ON CONFLICT on a partial unique index requires repeating the
+// WHERE clause so Postgres knows which index to use.
+const metricSaveSQL = `
 			INSERT INTO metrics (
 				id, user_id, key, ts, period_seconds,
 				value_numeric, value_struct,
@@ -108,25 +132,7 @@ func (r *MetricRepo) SaveMetrics(ctx context.Context, metrics []domain.Metric) e
 				activity_id          = EXCLUDED.activity_id,
 				tags                 = EXCLUDED.tags,
 				notes                = EXCLUDED.notes
-			`,
-			m.ID.UUID(), m.UserID.UUID(), m.Key, m.Timestamp, m.PeriodSeconds,
-			m.ValueNumeric, structParam,
-			m.Provider, extAcctParam, m.ExternalID,
-			m.SourceWorkerName, m.SourceWorkerVersion,
-			activityParam, tags, m.Notes,
-			nullableTime(m.CreatedAt), nullableTime(m.UpdatedAt),
-		)
-	}
-
-	br := db.(pgxBatchExecer).SendBatch(ctx, batch)
-	defer br.Close()
-	for i := range metrics {
-		if _, err := br.Exec(); err != nil {
-			return fmt.Errorf("save metric %d: %w", i, err)
-		}
-	}
-	return nil
-}
+			`
 
 // ListMetricsForUser returns metrics for the user. Empty key matches all.
 func (r *MetricRepo) ListMetricsForUser(
@@ -152,20 +158,7 @@ func (r *MetricRepo) ListMetricsForUser(
 	if err != nil {
 		return nil, fmt.Errorf("list metrics for %s: %w", userID, err)
 	}
-	defer rows.Close()
-
-	var out []domain.Metric
-	for rows.Next() {
-		m, err := scanMetricRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan metric row: %w", err)
-		}
-		out = append(out, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate metrics: %w", err)
-	}
-	return out, nil
+	return pgCollectRows(rows, scanMetricRow, "scan metric row", "iterate metrics")
 }
 
 // DeleteComputedForUser removes provider='cairn' rows for the given keys

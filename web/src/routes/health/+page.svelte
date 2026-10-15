@@ -34,7 +34,7 @@
 			} catch {
 				/* ignore */
 			}
-			out.push({ ...d, series, latest: series.length ? series[series.length - 1] : null });
+			out.push({ ...d, series, latest: series.at(-1) ?? null });
 		}
 		metrics = out;
 		loaded = true;
@@ -90,13 +90,22 @@
 					<div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
 						<div class="flex items-baseline justify-between">
 							<span class="text-xs uppercase tracking-wide text-zinc-500">{m.label}</span>
-							{#if m.latest}<span class="text-lg font-semibold text-zinc-100">{m.format(m.latest.value)}</span>{/if}
+							{#if m.latest}<span class="text-lg font-semibold text-zinc-100"
+									>{m.format(m.latest.value)}</span
+								>{/if}
 						</div>
 						<svg viewBox="0 0 100 30" preserveAspectRatio="none" class="mt-2 h-10 w-full">
-							<path d={spark(m.series)} fill="none" stroke="#38bdf8" stroke-width="1" vector-effect="non-scaling-stroke" />
+							<path
+								d={spark(m.series)}
+								fill="none"
+								stroke="#38bdf8"
+								stroke-width="1"
+								vector-effect="non-scaling-stroke"
+							/>
 						</svg>
 						<div class="mt-1 text-right text-[10px] text-zinc-600">
-							{m.series.length} days{#if m.latest?.provider} · {m.latest.provider}{/if}
+							{m.series.length} days{#if m.latest?.provider}
+								· {m.latest.provider}{/if}
 						</div>
 					</div>
 				{/if}

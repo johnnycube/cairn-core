@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -40,7 +41,7 @@ func (r *ShareLinkRepo) GetActive(ctx context.Context, token string) (domain.Sha
 		   FROM activity_share_links WHERE token = $1 AND revoked_at IS NULL`,
 		token).Scan(&l.Token, &actID, &creator, &l.CreatedAt, &l.RevokedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShareLink{}, domain.ErrNotFound
 		}
 		return domain.ShareLink{}, fmt.Errorf("get share link: %w", err)

@@ -3,9 +3,24 @@
 // discipline sub-splits. Types not listed in DISCIPLINES have no sub-split.
 
 export const ACTIVITY_TYPES = [
-	'ride', 'run', 'swim', 'hike', 'walk', 'row', 'ski', 'workout',
-	'snowboard', 'skate', 'kayak', 'sup', 'surf', 'golf', 'climb', 'tennis',
-	'elliptical', 'wheelchair'
+	'ride',
+	'run',
+	'swim',
+	'hike',
+	'walk',
+	'row',
+	'ski',
+	'workout',
+	'snowboard',
+	'skate',
+	'kayak',
+	'sup',
+	'surf',
+	'golf',
+	'climb',
+	'tennis',
+	'elliptical',
+	'wheelchair'
 ];
 
 export const DISCIPLINES: Record<string, string[]> = {

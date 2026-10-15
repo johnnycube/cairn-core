@@ -116,7 +116,9 @@
 	}
 
 	async function rotate(h: Webhook) {
-		const res = await fetch(`/api/notifications/webhooks/${h.id}/rotate-secret`, { method: 'POST' });
+		const res = await fetch(`/api/notifications/webhooks/${h.id}/rotate-secret`, {
+			method: 'POST'
+		});
 		if (res.ok) newSecret = (await res.json()).secret;
 	}
 
@@ -152,8 +154,8 @@
 	<h2 class="mb-1 text-sm font-medium text-zinc-300">Outbound webhooks</h2>
 	<p class="mb-3 text-xs text-zinc-500">
 		POST notifications to your own services. Each delivery is signed
-		<code class="text-zinc-400">X-Cairn-Signature: sha256=HMAC(secret, body)</code>. Verify it before
-		trusting the payload. The signing secret is shown once.
+		<code class="text-zinc-400">X-Cairn-Signature: sha256=HMAC(secret, body)</code>. Verify it
+		before trusting the payload. The signing secret is shown once.
 	</p>
 
 	{#if error}
@@ -202,7 +204,9 @@
 					<button
 						type="button"
 						onclick={() => toggleType(t.value)}
-						class="rounded border px-2 py-0.5 text-[11px] max-md:py-1.5 {selectedTypes.includes(t.value)
+						class="rounded border px-2 py-0.5 text-[11px] max-md:py-1.5 {selectedTypes.includes(
+							t.value
+						)
 							? 'border-accent-500 bg-accent-500/15 text-accent-200'
 							: 'border-zinc-700 text-zinc-400 hover:border-zinc-600'}"
 					>
@@ -222,7 +226,9 @@
 	</div>
 
 	{#if newSecret}
-		<div class="mb-3 rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+		<div
+			class="mb-3 rounded border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200"
+		>
 			<div class="font-medium">Copy the signing secret now — it won't be shown again:</div>
 			<code class="mt-1 block break-all rounded bg-zinc-950/60 px-2 py-1 font-mono text-amber-100"
 				>{newSecret}</code
@@ -244,15 +250,21 @@
 						<div class="min-w-0">
 							<span class="font-medium text-zinc-200">{h.name}</span>
 							{#if h.auto_disabled}
-								<span class="ml-2 rounded bg-red-500/15 px-1.5 py-0.5 text-red-300">auto-disabled</span>
+								<span class="ml-2 rounded bg-red-500/15 px-1.5 py-0.5 text-red-300"
+									>auto-disabled</span
+								>
 							{:else if !h.enabled}
 								<span class="ml-2 rounded bg-zinc-700/40 px-1.5 py-0.5 text-zinc-400">paused</span>
 							{:else}
-								<span class="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300">active</span>
+								<span class="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300"
+									>active</span
+								>
 							{/if}
 							<div class="mt-0.5 truncate font-mono text-zinc-500">{h.url}</div>
 							<div class="mt-0.5 text-zinc-600">
-								{h.event_types.length === 0 ? 'all events' : h.event_types.map(typeLabel).join(', ')}
+								{h.event_types.length === 0
+									? 'all events'
+									: h.event_types.map(typeLabel).join(', ')}
 								· ≥ {h.min_severity}
 							</div>
 							{#if h.last_delivery_at}
@@ -267,7 +279,9 @@
 								<div class="mt-0.5 text-accent-300">test: {testMsg[h.id]}</div>
 							{/if}
 						</div>
-						<div class="flex shrink-0 flex-wrap items-center justify-end gap-2 max-md:justify-start">
+						<div
+							class="flex shrink-0 flex-wrap items-center justify-end gap-2 max-md:justify-start"
+						>
 							<button
 								type="button"
 								onclick={() => test(h)}

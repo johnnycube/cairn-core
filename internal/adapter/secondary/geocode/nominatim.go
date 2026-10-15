@@ -116,7 +116,7 @@ func (n *Nominatim) ReverseGeocode(ctx context.Context, lat, lon float64) (port.
 	if err != nil {
 		return port.Place{}, fmt.Errorf("geocode: request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return port.Place{}, fmt.Errorf("geocode: unexpected status %d", resp.StatusCode)

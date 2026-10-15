@@ -97,12 +97,15 @@
 		</a>
 		<h1 class="mt-2 text-2xl font-semibold tracking-tight">Similar routes</h1>
 		<p class="mt-1 text-sm text-zinc-400">
-			Other times you've covered roughly the same route — matched by start location, distance and sport.
+			Other times you've covered roughly the same route — matched by start location, distance and
+			sport.
 		</p>
 	</header>
 
 	{#if loadError}
-		<div class="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">{loadError}</div>
+		<div class="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">
+			{loadError}
+		</div>
 	{:else if payload && payload.summary.count > 1}
 		<dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
 			{#each [{ label: 'Times on this route', value: String(payload.summary.count) }, { label: 'This effort ranks', value: `#${payload.summary.current_rank} of ${payload.summary.count}` }, { label: 'Your best', value: formatDuration(payload.summary.best_moving_s) }, { label: 'This effort', value: formatDuration(payload.summary.current_moving_s) }] as c (c.label)}
@@ -114,7 +117,9 @@
 		</dl>
 
 		{#if payload.summary.is_best}
-			<div class="rounded-lg border border-emerald-800/50 bg-emerald-950/30 p-3 text-sm text-emerald-300">
+			<div
+				class="rounded-lg border border-emerald-800/50 bg-emerald-950/30 p-3 text-sm text-emerald-300"
+			>
 				🏆 This is your fastest time on this route.
 			</div>
 		{/if}
@@ -124,7 +129,12 @@
 				<h2 class="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
 					Moving time per effort (oldest → newest)
 				</h2>
-				<svg viewBox={`0 0 ${chart.W} ${chart.H}`} class="w-full" role="img" aria-label="Moving time trend">
+				<svg
+					viewBox={`0 0 ${chart.W} ${chart.H}`}
+					class="w-full"
+					role="img"
+					aria-label="Moving time trend"
+				>
 					{#each chart.bars as b (b.row.id)}
 						<rect
 							x={b.x}
@@ -143,7 +153,9 @@
 					{/each}
 				</svg>
 				<div class="mt-1 flex gap-4 text-[11px] text-zinc-500">
-					<span><span class="inline-block h-2 w-2 rounded-sm bg-accent-400"></span> this effort</span>
+					<span
+						><span class="inline-block h-2 w-2 rounded-sm bg-accent-400"></span> this effort</span
+					>
 					<span><span class="inline-block h-2 w-2 rounded-sm bg-emerald-500"></span> fastest</span>
 				</div>
 			</section>
@@ -171,12 +183,15 @@
 									<a href={`/activities/${r.id}`} class="text-accent-400 hover:text-accent-300">
 										{formatDateOnly(r.start_time)}
 									</a>
-									{#if r.is_current}<span class="ml-1 text-[10px] text-accent-300">(this)</span>{/if}
+									{#if r.is_current}<span class="ml-1 text-[10px] text-accent-300">(this)</span
+										>{/if}
 								</td>
 								<td class="px-3 py-2 text-right tabular-nums">{formatDistance(r.distance_m)}</td>
 								<td class="px-3 py-2 text-right font-medium tabular-nums">
 									{formatDuration(r.moving_s)}
-									{#if r.moving_s === payload.summary.best_moving_s}<span class="ml-1 text-emerald-400">★</span>{/if}
+									{#if r.moving_s === payload.summary.best_moving_s}<span
+											class="ml-1 text-emerald-400">★</span
+										>{/if}
 								</td>
 								<td class="px-3 py-2 text-right tabular-nums">{pace(r.pace_s_per_km)}</td>
 								<td class="px-3 py-2 text-right tabular-nums">{r.avg_heart_rate ?? '—'}</td>
@@ -193,9 +208,11 @@
 			</div>
 		</section>
 	{:else if payload}
-		<div class="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center text-sm text-zinc-400">
-			No similar routes found. Matches need a GPS start location and distance, and at least one other
-			activity from the same start with a similar length.
+		<div
+			class="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center text-sm text-zinc-400"
+		>
+			No similar routes found. Matches need a GPS start location and distance, and at least one
+			other activity from the same start with a similar length.
 		</div>
 	{:else}
 		<p class="text-sm text-zinc-500">Loading…</p>

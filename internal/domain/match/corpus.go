@@ -43,12 +43,22 @@ var ValidLabels = map[string]struct{}{
 
 func ll(v float64) *float64 { return &v }
 
+// Shared GPS start reused by outdoor pairs.
+const corpusBaseLat, corpusBaseLng = 52.5170, 13.3889
+
 // Corpus returns the labeled fixture corpus. Synthetic — augment with real
 // exports via scripts/extract-match-corpus.sh + calibration_test.go.
 func Corpus() []Fixture {
-	// Shared GPS start reused by outdoor pairs.
-	const baseLat, baseLng = 52.5170, 13.3889
+	var out []Fixture
+	out = append(out, corpusFixturesAutopush()...)
+	out = append(out, corpusFixturesBoundary()...)
+	out = append(out, corpusFixturesTimezoneIndoor()...)
+	out = append(out, corpusFixturesSportClass()...)
+	out = append(out, corpusFixturesTimeGap()...)
+	return out
+}
 
+func corpusFixturesAutopush() []Fixture {
 	return []Fixture{
 		// --- SAME: Garmin↔Strava auto-push of one ride -------------------
 		// Strava auto-import from a connected Garmin account: start within a
@@ -60,13 +70,13 @@ func Corpus() []Fixture {
 				Provider: "garmin", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC),
 				DistanceM: 30050, MovingS: 3360, ElapsedS: 3600,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			B: SourceFeatures{
 				Provider: "strava", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 1, 9, 0, 2, 0, time.UTC), // +2s
 				DistanceM: 30000, MovingS: 3300, ElapsedS: 3600,        // ~0.17% dist, ~1.8% moving
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			Label: LabelSame,
 			Note:  "auto-push duplicate; start +2s, distance ~0.17%, same GPS start",
@@ -79,7 +89,7 @@ func Corpus() []Fixture {
 				Provider: "garmin", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 2, 7, 0, 0, 0, time.UTC),
 				DistanceM: 25000, MovingS: 3000, ElapsedS: 3200,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			B: SourceFeatures{
 				Provider: "garmin", SportClass: "Ride",
@@ -90,7 +100,11 @@ func Corpus() []Fixture {
 			Label: LabelDifferent,
 			Note:  "morning vs late-morning ride; ~3h gap, different start point",
 		},
+	}
+}
 
+func corpusFixturesBoundary() []Fixture {
+	return []Fixture{
 		// --- DIFFERENT: treadmill run (no GPS) vs outdoor run ------------
 		// Same sport class, similar distance, but one is indoor (no GPS) and
 		// they are ~2h apart — genuinely different sessions.
@@ -106,7 +120,7 @@ func Corpus() []Fixture {
 				Provider: "strava", SportClass: "Run",
 				StartUTC:  time.Date(2026, 5, 3, 8, 30, 0, 0, time.UTC), // +2h
 				DistanceM: 10100, MovingS: 3010, ElapsedS: 3100,
-				StartLat: ll(baseLat), StartLng: ll(baseLng), // outdoor
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng), // outdoor
 			},
 			Label: LabelDifferent,
 			Note:  "indoor_nogps treadmill vs outdoor run, ~2h apart; absent GPS must not imply 'same'",
@@ -122,18 +136,22 @@ func Corpus() []Fixture {
 				Provider: "garmin", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 4, 23, 59, 58, 0, time.UTC),
 				DistanceM: 18000, MovingS: 2400, ElapsedS: 2500,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			B: SourceFeatures{
 				Provider: "strava", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 5, 0, 0, 1, 0, time.UTC), // +3s, next UTC day
 				DistanceM: 18020, MovingS: 2410, ElapsedS: 2500,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			Label: LabelSame,
 			Note:  "crosses the UTC day boundary by 3s; day-bucket margin must keep them together",
 		},
+	}
+}
 
+func corpusFixturesTimezoneIndoor() []Fixture {
+	return []Fixture{
 		// --- SAME: cross-timezone, identical UTC instant -----------------
 		// Both records describe the SAME instant in UTC. If the matcher ever
 		// compared local wall-clock times they'd look hours apart; in UTC
@@ -177,7 +195,11 @@ func Corpus() []Fixture {
 			Label: LabelIndoorNoGPS,
 			Note:  "no GPS on either side; cluster on time+distance+sport only",
 		},
+	}
+}
 
+func corpusFixturesSportClass() []Fixture {
+	return []Fixture{
 		// --- Extra coverage for breadth ----------------------------------
 
 		// SAME: sport-class synonyms ("Run" vs "Running") of one upload.
@@ -187,13 +209,13 @@ func Corpus() []Fixture {
 				Provider: "garmin", SportClass: "Running",
 				StartUTC:  time.Date(2026, 5, 8, 5, 45, 0, 0, time.UTC),
 				DistanceM: 12000, MovingS: 3300, ElapsedS: 3360,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			B: SourceFeatures{
 				Provider: "strava", SportClass: "Run",
 				StartUTC:  time.Date(2026, 5, 8, 5, 45, 1, 0, time.UTC),
 				DistanceM: 12010, MovingS: 3305, ElapsedS: 3360,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			Label: LabelSame,
 			Note:  "fuzzy sport-class compatibility: 'Running' ~ 'Run'",
@@ -208,18 +230,22 @@ func Corpus() []Fixture {
 				Provider: "garmin", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
 				DistanceM: 30000, MovingS: 3600, ElapsedS: 3700,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			B: SourceFeatures{
 				Provider: "strava", SportClass: "Run",
 				StartUTC:  time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
 				DistanceM: 8000, MovingS: 2400, ElapsedS: 2450,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			Label: LabelDifferent,
 			Note:  "identical start instant but incompatible sport classes — gating must split",
 		},
+	}
+}
 
+func corpusFixturesTimeGap() []Fixture {
+	return []Fixture{
 		// DIFFERENT: same provider, same sport, far apart in time (a backfill
 		// must never collapse two real sessions just because metrics rhyme).
 		{
@@ -228,13 +254,13 @@ func Corpus() []Fixture {
 				Provider: "strava", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 10, 9, 0, 0, 0, time.UTC),
 				DistanceM: 30000, MovingS: 3600, ElapsedS: 3700,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			B: SourceFeatures{
 				Provider: "strava", SportClass: "Ride",
 				StartUTC:  time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC), // +2 days
 				DistanceM: 30050, MovingS: 3610, ElapsedS: 3710,
-				StartLat: ll(baseLat), StartLng: ll(baseLng),
+				StartLat: ll(corpusBaseLat), StartLng: ll(corpusBaseLng),
 			},
 			Label: LabelDifferent,
 			Note:  "two days apart; near-identical metrics must not cluster across the time gap",

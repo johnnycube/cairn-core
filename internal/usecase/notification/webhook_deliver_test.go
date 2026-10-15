@@ -59,9 +59,9 @@ func (f *fakeWebhookRepo) RecordDeliveryResult(_ context.Context, id domain.Webh
 	return nil
 }
 
-func webhookNotif(t domain.NotificationType, sev domain.NotificationSeverity) domain.Notification {
+func webhookNotif(t domain.NotificationType) domain.Notification {
 	nid, _ := uuid.NewV7()
-	return domain.Notification{ID: domain.NotificationID(nid), UserID: domain.UserID(uuid.New()), Type: t, Severity: sev}
+	return domain.Notification{ID: domain.NotificationID(nid), UserID: domain.UserID(uuid.New()), Type: t, Severity: domain.NotificationSeverityInfo}
 }
 
 func deliverWithWebhooks(repo *fakeWebhookRepo) *DeliverNotifications {
@@ -115,7 +115,7 @@ func TestDeliverWebhook_SignsAndRecords(t *testing.T) {
 		URL: srv.URL, SigningSecret: secret, MinSeverity: domain.NotificationSeverityInfo,
 	}}}
 	deliverWithWebhooks(repo).Execute(context.Background(),
-		[]domain.Notification{webhookNotif(domain.NotificationTypeSegmentPersonalRecord, domain.NotificationSeverityInfo)})
+		[]domain.Notification{webhookNotif(domain.NotificationTypeSegmentPersonalRecord)})
 
 	if len(gotBody) == 0 {
 		t.Fatal("endpoint received no body")
@@ -147,7 +147,7 @@ func TestDeliverWebhook_SeverityFilteredOut(t *testing.T) {
 		URL: srv.URL, SigningSecret: "x", MinSeverity: domain.NotificationSeverityError,
 	}}}
 	deliverWithWebhooks(repo).Execute(context.Background(),
-		[]domain.Notification{webhookNotif(domain.NotificationTypeActivityImported, domain.NotificationSeverityInfo)})
+		[]domain.Notification{webhookNotif(domain.NotificationTypeActivityImported)})
 
 	if hit {
 		t.Fatal("info notification must not reach an error-min endpoint")
@@ -168,7 +168,7 @@ func TestDeliverWebhook_Non2xxRecordsFailure(t *testing.T) {
 		URL: srv.URL, SigningSecret: "x", MinSeverity: domain.NotificationSeverityInfo,
 	}}}
 	deliverWithWebhooks(repo).Execute(context.Background(),
-		[]domain.Notification{webhookNotif(domain.NotificationTypeActivityImported, domain.NotificationSeverityInfo)})
+		[]domain.Notification{webhookNotif(domain.NotificationTypeActivityImported)})
 
 	if len(repo.results) != 1 || repo.results[0].code != 500 || repo.results[0].err == "" {
 		t.Fatalf("expected one recorded failure with 500, got %+v", repo.results)
@@ -177,7 +177,7 @@ func TestDeliverWebhook_Non2xxRecordsFailure(t *testing.T) {
 
 func TestDeliverWebhook_NilRepoNoPanic(t *testing.T) {
 	NewDeliverNotifications(nil, nil, nil, nil, nil, nil, nil, "http://x", nil).
-		Execute(context.Background(), []domain.Notification{webhookNotif(domain.NotificationTypeActivityImported, domain.NotificationSeverityInfo)})
+		Execute(context.Background(), []domain.Notification{webhookNotif(domain.NotificationTypeActivityImported)})
 }
 
 func TestIsBlockedWebhookIP(t *testing.T) {

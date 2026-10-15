@@ -85,7 +85,7 @@ func casBackoff(attempt int) time.Duration {
 	if span > cap {
 		span = cap
 	}
-	return time.Duration(rand.Int63n(int64(span) + 1))
+	return time.Duration(rand.Int63n(int64(span) + 1)) //nolint:gosec // G404: backoff jitter, not security-sensitive
 }
 
 // rateLimitState is the JSON value stored under each bucket key.
@@ -162,38 +162,9 @@ func (r *RateLimiter) Reserve(
 		if attempt > 0 {
 			r.sleep(casBackoff(attempt))
 		}
-		state, rev, err := r.readState(ctx, bucket)
-		if err != nil {
-			return false, 0, err
-		}
-
-		now := r.now()
-		// Window roll-over: if the previous window has expired, start fresh.
-		if state.WindowStart.IsZero() || !now.Before(state.WindowResetAt) {
-			state = rateLimitState{
-				Capacity:      capacity,
-				Used:          0,
-				WindowStart:   now,
-				WindowResetAt: now.Add(window),
-			}
-		}
-
-		if state.Used+tokens > state.Capacity {
-			retryAfter := state.WindowResetAt.Sub(now)
-			if retryAfter < 0 {
-				retryAfter = 0
-			}
-			return false, retryAfter, nil
-		}
-
-		state.Used += tokens
-		newRev, ok, err := r.writeState(ctx, bucket, state, rev)
-		if err != nil {
-			return false, 0, err
-		}
-		if ok {
-			_ = newRev
-			return true, 0, nil
+		settled, granted, retryAfter, err := r.rateReserveAttempt(ctx, bucket, tokens, capacity, window)
+		if settled {
+			return granted, retryAfter, err
 		}
 		// CAS lost: another worker advanced; back off (top of loop) and retry.
 	}
@@ -202,6 +173,50 @@ func (r *RateLimiter) Reserve(
 	// reserve, retry after a short jittered delay" so it flows through the
 	// caller's NakWithDelay backoff path, same as an exhausted bucket.
 	return false, 50*time.Millisecond + casBackoff(8), nil
+}
+
+// rateReserveAttempt runs one read-advance-CAS round; settled is false only when the CAS lost.
+func (r *RateLimiter) rateReserveAttempt(
+	ctx context.Context,
+	bucket string,
+	tokens, capacity int,
+	window time.Duration,
+) (settled, granted bool, retryAfter time.Duration, err error) {
+	state, rev, err := r.readState(ctx, bucket)
+	if err != nil {
+		return true, false, 0, err
+	}
+
+	now := r.now()
+	// Window roll-over: if the previous window has expired, start fresh.
+	if state.WindowStart.IsZero() || !now.Before(state.WindowResetAt) {
+		state = rateLimitState{
+			Capacity:      capacity,
+			Used:          0,
+			WindowStart:   now,
+			WindowResetAt: now.Add(window),
+		}
+	}
+
+	if state.Used+tokens > state.Capacity {
+		retryAfter = state.WindowResetAt.Sub(now)
+		if retryAfter < 0 {
+			retryAfter = 0
+		}
+		return true, false, retryAfter, nil
+	}
+
+	state.Used += tokens
+	newRev, ok, err := r.writeState(ctx, bucket, state, rev)
+	if err != nil {
+		return true, false, 0, err
+	}
+	if ok {
+		_ = newRev
+		return true, true, 0, nil
+	}
+	// CAS lost: another worker advanced; back off (top of loop) and retry.
+	return false, false, 0, nil
 }
 
 // ForceRefill is called after a 429 from the upstream API. Sets the

@@ -83,35 +83,40 @@ func routeJobResult(ctx context.Context, app *App, log *slog.Logger, msg port.Me
 	// a NAK'd redelivery must still find the object (lifecycle rule reaps
 	// orphans that never process).
 	if ref := jr.GetPayloadRef(); ref != nil {
-		if app.BlobStore == nil {
-			log.Error("claim-checked result but no blob store configured", "subject", msg.Subject, "blob_id", ref.GetBlobId())
-			return &port.TerminalError{Reason: "no_blob_store", Cause: errors.New("payload_ref without blob store")}
-		}
-		data, _, err := app.BlobStore.Get(ctx, ref.GetBlobId())
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				// Expired (envelope older than the lifecycle backstop) or
-				// already consumed by a duplicate delivery. Not retryable.
-				log.Error("claim-checked payload missing", "subject", msg.Subject, "blob_id", ref.GetBlobId())
-				return &port.TerminalError{Reason: "payload_missing", Cause: err}
-			}
-			return fmt.Errorf("fetch claim-checked payload %s: %w", ref.GetBlobId(), err)
-		}
-		var full workerv1.JobResult
-		if err := protojson.Unmarshal(data, &full); err != nil {
-			log.Warn("decode claim-checked JobResult failed", "subject", msg.Subject, "blob_id", ref.GetBlobId(), "error", err)
-			return &port.TerminalError{Reason: "bad_payload", Cause: err}
-		}
-		if err := processJobResult(ctx, app, log, msg.Subject, &full); err != nil {
-			return err
-		}
-		if err := app.BlobStore.Delete(ctx, ref.GetBlobId()); err != nil {
-			log.Warn("delete claim-checked payload failed (lifecycle rule will reap)", "blob_id", ref.GetBlobId(), "error", err)
-		}
-		return nil
+		return routeClaimCheckedResult(ctx, app, log, msg.Subject, ref)
 	}
 
 	return processJobResult(ctx, app, log, msg.Subject, &jr)
+}
+
+// routeClaimCheckedResult fetches, processes and then deletes a claim-checked JobResult.
+func routeClaimCheckedResult(ctx context.Context, app *App, log *slog.Logger, subject string, ref *workerv1.PayloadRef) error {
+	if app.BlobStore == nil {
+		log.Error("claim-checked result but no blob store configured", "subject", subject, "blob_id", ref.GetBlobId())
+		return &port.TerminalError{Reason: "no_blob_store", Cause: errors.New("payload_ref without blob store")}
+	}
+	data, _, err := app.BlobStore.Get(ctx, ref.GetBlobId())
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			// Expired (envelope older than the lifecycle backstop) or
+			// already consumed by a duplicate delivery. Not retryable.
+			log.Error("claim-checked payload missing", "subject", subject, "blob_id", ref.GetBlobId())
+			return &port.TerminalError{Reason: "payload_missing", Cause: err}
+		}
+		return fmt.Errorf("fetch claim-checked payload %s: %w", ref.GetBlobId(), err)
+	}
+	var full workerv1.JobResult
+	if err := protojson.Unmarshal(data, &full); err != nil {
+		log.Warn("decode claim-checked JobResult failed", "subject", subject, "blob_id", ref.GetBlobId(), "error", err)
+		return &port.TerminalError{Reason: "bad_payload", Cause: err}
+	}
+	if err := processJobResult(ctx, app, log, subject, &full); err != nil {
+		return err
+	}
+	if err := app.BlobStore.Delete(ctx, ref.GetBlobId()); err != nil {
+		log.Warn("delete claim-checked payload failed (lifecycle rule will reap)", "blob_id", ref.GetBlobId(), "error", err)
+	}
+	return nil
 }
 
 // processJobResult routes a fully-materialized JobResult (inline or
@@ -135,50 +140,58 @@ func processJobResult(ctx context.Context, app *App, log *slog.Logger, subject s
 	b := &ingestBundle{segByExternal: map[string]domain.SegmentID{}}
 
 	for _, ev := range jr.GetEvents() {
-		switch ev.GetType() {
-		case workerv1.WorkerEventType_WORKER_EVENT_TYPE_ACTIVITY:
-			if _, err := ingestActivityEvent(ctx, app, log, jr, ev.GetActivity()); err != nil {
-				// Terminal (bad data) → fail the queue item + ACK; retrying the
-				// same payload can't help, and leaving it in_progress would
-				// deadlock the account's capacity-gated queue. Postgres
-				// integrity/data violations are equally deterministic for a
-				// given payload — without this they NAK-loop into the DLQ and
-				// the item wedges as a masked "stale: no result" (live case:
-				// duplicate stream timestamps, 5 wasted provider re-fetches
-				// per activity).
-				if domain.IsActivityValidationError(err) || isDeterministicDBError(err) {
-					failQueueItem(ctx, app, log, ev.GetActivity().GetRef(), err)
-					continue
-				}
-				// Transient (DB blip) → NAK; JetStream redelivers. Re-processing
-				// is safe — ingest dedups on (provider, external_id).
-				return err
-			}
-
-		case workerv1.WorkerEventType_WORKER_EVENT_TYPE_SEGMENT:
-			// Non-fatal: a bad segment must not fail the durable activity ingest.
-			if err := ingestSegmentEvent(ctx, app, b, ev.GetSegment()); err != nil {
-				log.Warn("segment ingest failed", "error", err)
-			}
-
-		case workerv1.WorkerEventType_WORKER_EVENT_TYPE_SEGMENT_EFFORT:
-			if err := ingestSegmentEffortEvent(ctx, app, log, b, ev.GetSegmentEffort()); err != nil {
-				log.Warn("segment effort ingest failed", "error", err)
-			}
-
-		case workerv1.WorkerEventType_WORKER_EVENT_TYPE_METRIC:
-			// Non-fatal: a health sample must not fail the batch.
-			if err := ingestMetricEvent(ctx, app, ev.GetMetric()); err != nil {
-				log.Warn("metric ingest failed", "error", err)
-			}
-
-		case workerv1.WorkerEventType_WORKER_EVENT_TYPE_RECORD:
-			// Provider records ingestion is a separate milestone; Cairn computes
-			// canonical best-efforts itself from streams.
-			log.Info("entity ingest pending for event type", "type", ev.GetType().String())
-		default:
-			log.Warn("unknown worker event type", "type", ev.GetType().String())
+		if err := processWorkerEvent(ctx, app, log, jr, b, ev); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// processWorkerEvent ingests one event; a returned error NAKs the message.
+func processWorkerEvent(ctx context.Context, app *App, log *slog.Logger, jr *workerv1.JobResult, b *ingestBundle, ev *workerv1.WorkerEvent) error {
+	switch ev.GetType() {
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_ACTIVITY:
+		if _, err := ingestActivityEvent(ctx, app, log, jr, ev.GetActivity()); err != nil {
+			// Terminal (bad data) → fail the queue item + ACK; retrying the
+			// same payload can't help, and leaving it in_progress would
+			// deadlock the account's capacity-gated queue. Postgres
+			// integrity/data violations are equally deterministic for a
+			// given payload — without this they NAK-loop into the DLQ and
+			// the item wedges as a masked "stale: no result" (live case:
+			// duplicate stream timestamps, 5 wasted provider re-fetches
+			// per activity).
+			if domain.IsActivityValidationError(err) || isDeterministicDBError(err) {
+				failQueueItem(ctx, app, log, ev.GetActivity().GetRef(), err)
+				return nil
+			}
+			// Transient (DB blip) → NAK; JetStream redelivers. Re-processing
+			// is safe — ingest dedups on (provider, external_id).
+			return err
+		}
+
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_SEGMENT:
+		// Non-fatal: a bad segment must not fail the durable activity ingest.
+		if err := ingestSegmentEvent(ctx, app, b, ev.GetSegment()); err != nil {
+			log.Warn("segment ingest failed", "error", err)
+		}
+
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_SEGMENT_EFFORT:
+		if err := ingestSegmentEffortEvent(ctx, app, log, b, ev.GetSegmentEffort()); err != nil {
+			log.Warn("segment effort ingest failed", "error", err)
+		}
+
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_METRIC:
+		// Non-fatal: a health sample must not fail the batch.
+		if err := ingestMetricEvent(ctx, app, ev.GetMetric()); err != nil {
+			log.Warn("metric ingest failed", "error", err)
+		}
+
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_RECORD:
+		// Provider records ingestion is a separate milestone; Cairn computes
+		// canonical best-efforts itself from streams.
+		log.Info("entity ingest pending for event type", "type", ev.GetType().String())
+	default:
+		log.Warn("unknown worker event type", "type", ev.GetType().String())
 	}
 	return nil
 }
@@ -445,19 +458,9 @@ func ingestActivityEvent(
 	}
 	ref := ia.GetRef()
 
-	uid, err := uuid.Parse(ref.GetUserId())
+	uid, extAcct, err := ingestActivityParseRef(ref)
 	if err != nil {
-		return activity.IngestResult{}, &port.TerminalError{Reason: "bad_user_id", Cause: err}
-	}
-
-	var extAcct *domain.ExternalAccountID
-	if s := ref.GetExternalAccountId(); s != "" {
-		eu, err := uuid.Parse(s)
-		if err != nil {
-			return activity.IngestResult{}, &port.TerminalError{Reason: "bad_external_account_id", Cause: err}
-		}
-		ea := domain.ExternalAccountID(eu)
-		extAcct = &ea
+		return activity.IngestResult{}, err
 	}
 
 	payload := protoconv.ActivitySourcePayloadFromProto(ia.GetPayload())
@@ -489,53 +492,102 @@ func ingestActivityEvent(
 			"provider", in.Provider, "external_id", in.ExternalID, "error", err)
 		return activity.IngestResult{}, err
 	}
-	if app.ReclusterBucket != nil {
-		if res, rerr := app.ReclusterBucket.Execute(ctx, matchuc.Input{
-			UserID: in.UserID,
-			Around: payload.StartTime,
-		}); rerr != nil {
-			// Re-cluster is a follow-up: the source is durably persisted; a
-			// failure here leaves it as its singleton activity to be re-clustered
-			// on the next ingest in the bucket or via an admin re-run.
-			log.Warn("recluster failed", "user_id", in.UserID, "error", rerr)
-		} else if res.Conflicts > 0 || len(res.SoftDeleted) > 0 {
-			log.Info("recluster applied",
-				"affected", len(res.AffectedActivityIDs),
-				"soft_deleted", len(res.SoftDeleted), "conflicts", res.Conflicts)
-		}
-	}
+	ingestActivityRecluster(ctx, app, log, in.UserID, payload.StartTime)
 	log.Info("ingest succeeded",
 		"activity_id", out.ActivityID, "source_id", out.SourceID, "action", out.Action)
 
-	// Persist attachments the worker mirrored into blob storage. Replace-by-
-	// source so a reimport refreshes exactly this source's set. Best-effort:
-	// a failure here must not fail the durable ingest.
-	if app.Attachments != nil && len(ia.GetAttachments()) > 0 {
-		atts := make([]domain.Attachment, 0, len(ia.GetAttachments()))
-		for _, a := range ia.GetAttachments() {
-			if a.GetBlobId() == "" {
-				continue
-			}
-			atts = append(atts, domain.Attachment{
-				ActivityID:  out.ActivityID,
-				UserID:      in.UserID,
-				BlobID:      a.GetBlobId(),
-				ExternalURL: a.GetExternalUrl(),
-				ContentType: a.GetContentType(),
-				Caption:     a.GetCaption(),
-				Width:       int(a.GetWidth()),
-				Height:      int(a.GetHeight()),
-			})
-		}
-		if err := app.Attachments.ReplaceForSource(ctx, out.ActivityID, out.SourceID, atts); err != nil {
-			log.Warn("persist attachments failed", "source_id", out.SourceID, "error", err)
-		}
+	ingestActivityAttachments(ctx, app, log, ia, out, in.UserID)
+	if extAcct != nil {
+		ingestActivityAccountBookkeeping(ctx, app, log, *extAcct, ref.GetExternalId(), payload.StartTime, out)
 	}
 
+	runFollowUps(ctx, app, log, out)
+	return out, nil
+}
+
+// ingestActivityParseRef parses the user and optional external-account ids of an activity ref.
+func ingestActivityParseRef(ref *workerv1.ExternalRef) (uuid.UUID, *domain.ExternalAccountID, error) {
+	uid, err := uuid.Parse(ref.GetUserId())
+	if err != nil {
+		return uuid.UUID{}, nil, &port.TerminalError{Reason: "bad_user_id", Cause: err}
+	}
+	s := ref.GetExternalAccountId()
+	if s == "" {
+		return uid, nil, nil
+	}
+	eu, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.UUID{}, nil, &port.TerminalError{Reason: "bad_external_account_id", Cause: err}
+	}
+	ea := domain.ExternalAccountID(eu)
+	return uid, &ea, nil
+}
+
+// ingestActivityRecluster re-derives same-activity grouping around the new source.
+func ingestActivityRecluster(ctx context.Context, app *App, log *slog.Logger, userID domain.UserID, around time.Time) {
+	if app.ReclusterBucket == nil {
+		return
+	}
+	res, rerr := app.ReclusterBucket.Execute(ctx, matchuc.Input{
+		UserID: userID,
+		Around: around,
+	})
+	if rerr != nil {
+		// Re-cluster is a follow-up: the source is durably persisted; a
+		// failure here leaves it as its singleton activity to be re-clustered
+		// on the next ingest in the bucket or via an admin re-run.
+		log.Warn("recluster failed", "user_id", userID, "error", rerr)
+		return
+	}
+	if res.Conflicts > 0 || len(res.SoftDeleted) > 0 {
+		log.Info("recluster applied",
+			"affected", len(res.AffectedActivityIDs),
+			"soft_deleted", len(res.SoftDeleted), "conflicts", res.Conflicts)
+	}
+}
+
+// ingestActivityAttachments persists attachments the worker mirrored into blob
+// storage. Replace-by-source so a reimport refreshes exactly this source's set.
+// Best-effort: a failure here must not fail the durable ingest.
+func ingestActivityAttachments(ctx context.Context, app *App, log *slog.Logger, ia *workerv1.ImportedActivity, out activity.IngestResult, userID domain.UserID) {
+	if app.Attachments == nil || len(ia.GetAttachments()) == 0 {
+		return
+	}
+	atts := make([]domain.Attachment, 0, len(ia.GetAttachments()))
+	for _, a := range ia.GetAttachments() {
+		if a.GetBlobId() == "" {
+			continue
+		}
+		atts = append(atts, domain.Attachment{
+			ActivityID:  out.ActivityID,
+			UserID:      userID,
+			BlobID:      a.GetBlobId(),
+			ExternalURL: a.GetExternalUrl(),
+			ContentType: a.GetContentType(),
+			Caption:     a.GetCaption(),
+			Width:       int(a.GetWidth()),
+			Height:      int(a.GetHeight()),
+		})
+	}
+	if err := app.Attachments.ReplaceForSource(ctx, out.ActivityID, out.SourceID, atts); err != nil {
+		log.Warn("persist attachments failed", "source_id", out.SourceID, "error", err)
+	}
+}
+
+// ingestActivityAccountBookkeeping updates the queue item, sync watermark and import history of the account.
+func ingestActivityAccountBookkeeping(
+	ctx context.Context,
+	app *App,
+	log *slog.Logger,
+	extAcct domain.ExternalAccountID,
+	externalID string,
+	startTime time.Time,
+	out activity.IngestResult,
+) {
 	// Mark the matching import-queue item done (correlate by the dedup key).
-	if app.ImportQueue != nil && extAcct != nil {
-		if err := app.ImportQueue.MarkDoneByExternalID(ctx, *extAcct, domain.ImportItemActivity, ref.GetExternalId()); err != nil {
-			log.Warn("mark queue item done failed", "external_id", ref.GetExternalId(), "error", err)
+	if app.ImportQueue != nil {
+		if err := app.ImportQueue.MarkDoneByExternalID(ctx, extAcct, domain.ImportItemActivity, externalID); err != nil {
+			log.Warn("mark queue item done failed", "external_id", externalID, "error", err)
 		}
 	}
 
@@ -544,41 +596,49 @@ func ingestActivityEvent(
 	// bounded to genuinely-recent activity so the auto-reconciler never
 	// re-lists the full history. Full backfill is the user-driven import
 	// queue's job; reconcile only catches new activity since the watermark.
-	if app.ExternalAccounts != nil && extAcct != nil && !payload.StartTime.IsZero() {
-		if err := app.ExternalAccounts.UpdateSyncWatermark(ctx, *extAcct, payload.StartTime, true, time.Now().UTC()); err != nil {
-			log.Warn("advance sync watermark failed", "account_id", *extAcct, "error", err)
+	if app.ExternalAccounts != nil && !startTime.IsZero() {
+		if err := app.ExternalAccounts.UpdateSyncWatermark(ctx, extAcct, startTime, true, time.Now().UTC()); err != nil {
+			log.Warn("advance sync watermark failed", "account_id", extAcct, "error", err)
 		}
 	}
 
-	// Append to the connection's import history (best-effort). Captures every
-	// import path — full sync, reconcile, webhook — since they all land here.
-	if app.ImportEvents != nil && extAcct != nil {
-		kind := domain.ImportEventActivityImported
-		if out.Action == activity.IngestActionReimportedExisting || out.Action == activity.IngestActionMergedIntoExisting {
-			kind = domain.ImportEventActivityUpdated
-		}
-		title := out.Activity.Title
-		if title == "" {
-			title = ref.GetExternalId()
-		}
-		if err := app.ImportEvents.Record(ctx, domain.ConnectionImportEvent{
-			ExternalAccountID: *extAcct,
-			Kind:              kind,
-			Detail:            title,
-			ExternalID:        ref.GetExternalId(),
-		}); err != nil {
-			log.Warn("record import event failed", "account_id", *extAcct, "error", err)
-		}
-	}
+	ingestActivityRecordEvent(ctx, app, log, extAcct, externalID, out)
+}
 
-	runFollowUps(ctx, app, log, out)
-	return out, nil
+// ingestActivityRecordEvent appends to the connection's import history (best-effort).
+// Captures every import path — full sync, reconcile, webhook — since they all land here.
+func ingestActivityRecordEvent(ctx context.Context, app *App, log *slog.Logger, extAcct domain.ExternalAccountID, externalID string, out activity.IngestResult) {
+	if app.ImportEvents == nil {
+		return
+	}
+	kind := domain.ImportEventActivityImported
+	if out.Action == activity.IngestActionReimportedExisting || out.Action == activity.IngestActionMergedIntoExisting {
+		kind = domain.ImportEventActivityUpdated
+	}
+	title := out.Activity.Title
+	if title == "" {
+		title = externalID
+	}
+	if err := app.ImportEvents.Record(ctx, domain.ConnectionImportEvent{
+		ExternalAccountID: extAcct,
+		Kind:              kind,
+		Detail:            title,
+		ExternalID:        externalID,
+	}); err != nil {
+		log.Warn("record import event failed", "account_id", extAcct, "error", err)
+	}
 }
 
 // runFollowUps invokes the four post-ingest steps. Each logs-and-continues;
 // the underlying ingest is durable regardless and an operator can re-run any
 // follow-up via the admin endpoints.
 func runFollowUps(ctx context.Context, app *App, log *slog.Logger, out activity.IngestResult) {
+	runFollowUpsSourceDerived(ctx, app, log, out)
+	runFollowUpsUserDerived(ctx, app, log, out)
+}
+
+// runFollowUpsSourceDerived refreshes stream aggregates, best efforts and segment matches of the source.
+func runFollowUpsSourceDerived(ctx context.Context, app *App, log *slog.Logger, out activity.IngestResult) {
 	// Materialise the downsampled CAggs for this (often historical) stream — the
 	// recent-window refresh policy won't, so without this the GPS track and
 	// downsampled charts come back empty for any backfilled activity.
@@ -601,6 +661,10 @@ func runFollowUps(ctx context.Context, app *App, log *slog.Logger, out activity.
 			log.Warn("segment matching failed", "source_id", out.SourceID, "error", err)
 		}
 	}
+}
+
+// runFollowUpsUserDerived recomputes training load, dispatches PRs and federates new activities.
+func runFollowUpsUserDerived(ctx context.Context, app *App, log *slog.Logger, out activity.IngestResult) {
 	if app.ComputeTrainingLoad != nil {
 		// Recompute over a fixed rolling window anchored at "now" rather than
 		// the (zero-valued) default Input window — a zero Start/End collapses

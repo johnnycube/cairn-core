@@ -119,9 +119,14 @@ func (r *OAuthServerRepo) CreateAccessToken(ctx context.Context, t domain.OAuthA
 }
 
 func (r *OAuthServerRepo) FindAccessToken(ctx context.Context, tokenHash []byte) (domain.OAuthAccessToken, error) {
-	row := r.pool.QueryRow(ctx, `
+	return r.oauthASFindToken(ctx, `
 		SELECT client_id, user_id, scope, expires_at, revoked_at
-		FROM oauth_access_tokens WHERE token_hash = $1`, tokenHash)
+		FROM oauth_access_tokens WHERE token_hash = $1`, "access token", tokenHash)
+}
+
+// oauthASFindToken loads one access/refresh token row; label prefixes the not-found error.
+func (r *OAuthServerRepo) oauthASFindToken(ctx context.Context, query, label string, tokenHash []byte) (domain.OAuthAccessToken, error) {
+	row := r.pool.QueryRow(ctx, query, tokenHash)
 	var (
 		t         domain.OAuthAccessToken
 		uid       uuid.UUID
@@ -129,7 +134,7 @@ func (r *OAuthServerRepo) FindAccessToken(ctx context.Context, tokenHash []byte)
 	)
 	err := row.Scan(&t.ClientID, &uid, &t.Scope, &t.ExpiresAt, &revokedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.OAuthAccessToken{}, fmt.Errorf("access token: %w", domain.ErrNotFound)
+		return domain.OAuthAccessToken{}, fmt.Errorf("%s: %w", label, domain.ErrNotFound)
 	}
 	if err != nil {
 		return domain.OAuthAccessToken{}, err
@@ -159,24 +164,13 @@ func (r *OAuthServerRepo) CreateRefreshToken(ctx context.Context, t domain.OAuth
 }
 
 func (r *OAuthServerRepo) FindRefreshToken(ctx context.Context, tokenHash []byte) (domain.OAuthRefreshToken, error) {
-	row := r.pool.QueryRow(ctx, `
+	t, err := r.oauthASFindToken(ctx, `
 		SELECT client_id, user_id, scope, expires_at, revoked_at
-		FROM oauth_refresh_tokens WHERE token_hash = $1`, tokenHash)
-	var (
-		t         domain.OAuthRefreshToken
-		uid       uuid.UUID
-		revokedAt *time.Time
-	)
-	err := row.Scan(&t.ClientID, &uid, &t.Scope, &t.ExpiresAt, &revokedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.OAuthRefreshToken{}, fmt.Errorf("refresh token: %w", domain.ErrNotFound)
-	}
+		FROM oauth_refresh_tokens WHERE token_hash = $1`, "refresh token", tokenHash)
 	if err != nil {
 		return domain.OAuthRefreshToken{}, err
 	}
-	t.UserID = domain.UserID(uid)
-	t.RevokedAt = revokedAt
-	return t, nil
+	return domain.OAuthRefreshToken(t), nil
 }
 
 func (r *OAuthServerRepo) RevokeRefreshToken(ctx context.Context, tokenHash []byte) error {

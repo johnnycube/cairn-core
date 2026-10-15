@@ -1,6 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":dependencyDashboard"],
+  "extends": [
+    "config:best-practices",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "customManagers:makefileVersions",
+    "customManagers:githubActionsVersions"
+  ],
   "automerge": true,
   "postUpdateOptions": ["gomodTidy"],
   "platformAutomerge": false,
@@ -9,6 +15,11 @@
   "rebaseWhen": "behind-base-branch",
   "prConcurrentLimit": 10,
   "prHourlyLimit": 0,
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "pre-commit": { "enabled": true },
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": { "labels": ["security"] },
   "packageRules": [
     {
       "matchManagers": ["gomod"],
@@ -19,6 +30,11 @@
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "web npm (non-major)"
+    },
+    {
+      "description": "The build-base image floats on its major tag by design; downstream repos pull :1.",
+      "matchDepNames": ["ghcr.io/johnnycube/cairn-build-base"],
+      "pinDigests": false
     }
   ]
 }

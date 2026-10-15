@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -233,21 +234,7 @@ func (b *Bus) handlePushMessage(
 	// mid-processing and the same result is ingested again on every cycle.
 	hbDone := make(chan struct{})
 	defer close(hbDone)
-	go func() {
-		t := time.NewTicker(ackExtendInterval)
-		defer t.Stop()
-		for {
-			select {
-			case <-hbDone:
-				return
-			case <-t.C:
-				if err := jm.InProgress(); err != nil {
-					b.logger.Debug("nats: ack-deadline extend failed", "subject", jm.Subject(), "error", err)
-					return
-				}
-			}
-		}
-	}()
+	go b.natsExtendAckLoop(jm, hbDone)
 
 	pm := wrapMessage(jm)
 	err := handler(ctx, pm)
@@ -258,6 +245,28 @@ func (b *Bus) handlePushMessage(
 		return
 	}
 
+	b.natsSettleFailed(jm, err)
+}
+
+// natsExtendAckLoop extends jm's ack deadline every ackExtendInterval until done closes.
+func (b *Bus) natsExtendAckLoop(jm jetstream.Msg, done <-chan struct{}) {
+	t := time.NewTicker(ackExtendInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-t.C:
+			if err := jm.InProgress(); err != nil {
+				b.logger.Debug("nats: ack-deadline extend failed", "subject", jm.Subject(), "error", err)
+				return
+			}
+		}
+	}
+}
+
+// natsSettleFailed terms, delayed-naks or naks jm according to the handler error.
+func (b *Bus) natsSettleFailed(jm jetstream.Msg, err error) {
 	// Distinguish the three failure dispositions:
 	var term *port.TerminalError
 	var nakDelay *port.NakWithDelayError
@@ -596,7 +605,7 @@ func wrapMessage(jm jetstream.Msg) port.Message {
 	}
 	attempt := 0
 	if meta, err := jm.Metadata(); err == nil && meta != nil {
-		attempt = int(meta.NumDelivered)
+		attempt = int(min(meta.NumDelivered, math.MaxInt))
 	}
 	return port.Message{
 		Subject:         jm.Subject(),

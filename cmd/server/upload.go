@@ -33,99 +33,140 @@ import (
 //
 // Session-authed: the cairn_session cookie resolves the owning user.
 func mountUploadEndpoint(mux *http.ServeMux, app *App, logger *slog.Logger) {
-	mux.HandleFunc("POST /api/activities/upload", func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := resolveSessionUser(r, app)
-		if !ok {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-
-		// Enforce the per-user activity quota before doing any parsing work.
-		if app.Quotas != nil {
-			if st := activityQuotaStatus(r.Context(), app, userID); st.OverLimit {
-				w.Header().Set("Content-Type", "application/json")
-				writeJSON(w, http.StatusForbidden, map[string]any{
-					"error":            "activity quota reached",
-					"activities_used":  st.Used,
-					"activities_limit": st.Limit,
-				})
-				return
-			}
-		}
-
-		if err := r.ParseMultipartForm(64 << 20); err != nil {
-			http.Error(w, "bad multipart form: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			http.Error(w, "missing file field", http.StatusBadRequest)
-			return
-		}
-		defer file.Close()
-
-		raw, err := io.ReadAll(io.LimitReader(file, 64<<20))
-		if err != nil {
-			http.Error(w, "read file: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		payload, stream, err := parseUpload(header.Filename, raw)
-		if err != nil {
-			http.Error(w, "parse failed: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		sum := sha256.Sum256(raw)
-		extID := hex.EncodeToString(sum[:16])
-
-		jr := &workerv1.JobResult{
-			WorkerName:    "file-upload",
-			WorkerVersion: "1",
-		}
-		ev := &workerv1.ImportedActivity{
-			Ref: &workerv1.ExternalRef{
-				UserId:     userID.String(),
-				Provider:   "upload",
-				ExternalId: extID,
-			},
-			Payload: payload,
-			Stream:  stream,
-		}
-
-		out, err := ingestActivityEvent(r.Context(), app, logger, jr, ev)
-		if err != nil {
-			logger.Error("upload ingest failed", "user_id", userID, "file", header.Filename, "error", err)
-			http.Error(w, "ingest failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Archive the original file (best-effort — the activity is already
-		// ingested). Server-side Put because the server holds the bytes; the
-		// raw_blob_id lets the user download the original later.
-		if app.BlobStore != nil {
-			ext := ""
-			if i := strings.LastIndex(header.Filename, "."); i >= 0 {
-				ext = strings.ToLower(header.Filename[i:])
-			}
-			ct := uploadContentType(ext)
-			key := fmt.Sprintf("raw/%s/%s%s", userID.String(), out.SourceID.String(), ext)
-			if err := app.BlobStore.Put(r.Context(), key, raw, ct); err != nil {
-				logger.Warn("archive raw upload failed", "source_id", out.SourceID, "error", err)
-			} else if err := app.Activities.SetSourceRawBlob(r.Context(), out.SourceID, key, ct, int64(len(raw))); err != nil {
-				logger.Warn("record raw blob ref failed", "source_id", out.SourceID, "error", err)
-			}
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"activity_id": out.ActivityID.String(),
-			"source_id":   out.SourceID.String(),
-			"action":      string(out.Action),
-			"filename":    header.Filename,
-		})
-	})
+	h := &uploadAPI{app: app, logger: logger}
+	mux.HandleFunc("POST /api/activities/upload", h.handle)
 
 	logger.Info("file upload endpoint mounted", "path", "/api/activities/upload")
+}
+
+// uploadMaxFileBytes caps the uploaded file; the body cap adds slack for multipart framing.
+const (
+	uploadMaxFileBytes = 64 << 20
+	uploadMaxBodyBytes = uploadMaxFileBytes + 1<<20
+)
+
+// uploadAPI holds the dependencies of the file-upload handler.
+type uploadAPI struct {
+	app    *App
+	logger *slog.Logger
+}
+
+// quotaExceeded writes a 403 when the user is over the activity quota.
+func (h *uploadAPI) quotaExceeded(w http.ResponseWriter, r *http.Request, userID domain.UserID) bool {
+	if h.app.Quotas == nil {
+		return false
+	}
+	st := activityQuotaStatus(r.Context(), h.app, userID)
+	if !st.OverLimit {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, http.StatusForbidden, map[string]any{
+		"error":            "activity quota reached",
+		"activities_used":  st.Used,
+		"activities_limit": st.Limit,
+	})
+	return true
+}
+
+// readFile reads the multipart "file" field or writes a 400.
+func (h *uploadAPI) readFile(w http.ResponseWriter, r *http.Request) ([]byte, string, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, uploadMaxBodyBytes)
+	if err := r.ParseMultipartForm(uploadMaxFileBytes); err != nil { //nolint:gosec // G120: body capped by MaxBytesReader above
+		http.Error(w, "bad multipart form: "+err.Error(), http.StatusBadRequest)
+		return nil, "", false
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing file field", http.StatusBadRequest)
+		return nil, "", false
+	}
+	defer func() { _ = file.Close() }()
+
+	raw, err := io.ReadAll(io.LimitReader(file, uploadMaxFileBytes))
+	if err != nil {
+		http.Error(w, "read file: "+err.Error(), http.StatusBadRequest)
+		return nil, "", false
+	}
+	return raw, header.Filename, true
+}
+
+// archiveRaw stores the original file (best-effort — the activity is already
+// ingested). Server-side Put because the server holds the bytes; the
+// raw_blob_id lets the user download the original later.
+func (h *uploadAPI) archiveRaw(r *http.Request, userID domain.UserID, sourceID domain.SourceID, filename string, raw []byte) {
+	app := h.app
+	if app.BlobStore == nil {
+		return
+	}
+	ext := ""
+	if i := strings.LastIndex(filename, "."); i >= 0 {
+		ext = strings.ToLower(filename[i:])
+	}
+	ct := uploadContentType(ext)
+	key := fmt.Sprintf("raw/%s/%s%s", userID.String(), sourceID.String(), ext)
+	if err := app.BlobStore.Put(r.Context(), key, raw, ct); err != nil {
+		h.logger.Warn("archive raw upload failed", "source_id", sourceID, "error", err)
+	} else if err := app.Activities.SetSourceRawBlob(r.Context(), sourceID, key, ct, int64(len(raw))); err != nil {
+		h.logger.Warn("record raw blob ref failed", "source_id", sourceID, "error", err)
+	}
+}
+
+func (h *uploadAPI) handle(w http.ResponseWriter, r *http.Request) {
+	userID, ok := resolveSessionUser(r, h.app)
+	if !ok {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Enforce the per-user activity quota before doing any parsing work.
+	if h.quotaExceeded(w, r, userID) {
+		return
+	}
+
+	raw, filename, ok := h.readFile(w, r)
+	if !ok {
+		return
+	}
+
+	payload, stream, err := parseUpload(filename, raw)
+	if err != nil {
+		http.Error(w, "parse failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	sum := sha256.Sum256(raw)
+	extID := hex.EncodeToString(sum[:16])
+
+	jr := &workerv1.JobResult{
+		WorkerName:    "file-upload",
+		WorkerVersion: "1",
+	}
+	ev := &workerv1.ImportedActivity{
+		Ref: &workerv1.ExternalRef{
+			UserId:     userID.String(),
+			Provider:   "upload",
+			ExternalId: extID,
+		},
+		Payload: payload,
+		Stream:  stream,
+	}
+
+	out, err := ingestActivityEvent(r.Context(), h.app, h.logger, jr, ev)
+	if err != nil {
+		h.logger.Error("upload ingest failed", "user_id", userID, "file", filename, "error", err)
+		http.Error(w, "ingest failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.archiveRaw(r, userID, out.SourceID, filename, raw)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"activity_id": out.ActivityID.String(),
+		"source_id":   out.SourceID.String(),
+		"action":      string(out.Action),
+		"filename":    filename,
+	})
 }
 
 // uploadContentType maps a file extension to a content type for the archived
@@ -186,7 +227,7 @@ func resolveOAuthREST(r *http.Request, app *App) (domain.UserID, bool) {
 
 // patTokenPrefix marks a personal access token so the resolver can tell it
 // apart from other bearer tokens.
-const patTokenPrefix = "cairn_pat_"
+const patTokenPrefix = "cairn_pat_" //nolint:gosec // G101: token prefix, not a credential
 
 // resolvePAT authenticates an `Authorization: Bearer cairn_pat_...` request.
 func resolvePAT(r *http.Request, app *App) (domain.UserID, bool) {
@@ -254,7 +295,7 @@ type gpxPt struct {
 
 func parseGPX(raw []byte) (*cairnv1.ActivitySourcePayload, *cairnv1.ActivityStream, error) {
 	var g gpxFile
-	if err := xml.Unmarshal(raw, &g); err != nil {
+	if err := xml.Unmarshal(raw, &g); err != nil { //nolint:gosec // G709: encoding/xml resolves no external entities; decodes into a fixed struct
 		return nil, nil, fmt.Errorf("gpx: %w", err)
 	}
 	if len(g.Trk) == 0 {
@@ -326,7 +367,7 @@ type tcxPt struct {
 
 func parseTCX(raw []byte) (*cairnv1.ActivitySourcePayload, *cairnv1.ActivityStream, error) {
 	var x tcxFile
-	if err := xml.Unmarshal(raw, &x); err != nil {
+	if err := xml.Unmarshal(raw, &x); err != nil { //nolint:gosec // G709: encoding/xml resolves no external entities; decodes into a fixed struct
 		return nil, nil, fmt.Errorf("tcx: %w", err)
 	}
 	if len(x.Activities.Activity) == 0 {
@@ -376,40 +417,45 @@ func parseFIT(raw []byte) (*cairnv1.ActivitySourcePayload, *cairnv1.ActivityStre
 		if rec.Timestamp.IsZero() {
 			continue
 		}
-		sp := samplePoint{Time: rec.Timestamp}
-		if !rec.PositionLat.Invalid() && !rec.PositionLong.Invalid() {
-			sp.HasLatLon = true
-			sp.Lat = rec.PositionLat.Degrees()
-			sp.Lon = rec.PositionLong.Degrees()
-		}
-		if v := rec.GetAltitudeScaled(); !math.IsNaN(v) {
-			sp.Alt = &v
-		}
-		if v := rec.GetDistanceScaled(); !math.IsNaN(v) {
-			sp.Dist = &v
-		}
-		if v := rec.GetSpeedScaled(); !math.IsNaN(v) {
-			sp.Speed = &v
-		}
-		if rec.HeartRate != 0xFF {
-			hr := int(rec.HeartRate)
-			sp.HR = &hr
-		}
-		if rec.Cadence != 0xFF {
-			c := int(rec.Cadence)
-			sp.Cad = &c
-		}
-		if rec.Power != 0xFFFF {
-			p := int(rec.Power)
-			sp.Power = &p
-		}
-		if rec.Temperature != 0x7F {
-			t := float64(rec.Temperature)
-			sp.Temp = &t
-		}
-		b.add(sp)
+		b.add(fitRecordSample(rec))
 	}
 	return b.finish()
+}
+
+// fitRecordSample converts one FIT record, skipping invalid (sentinel) fields.
+func fitRecordSample(rec *fit.RecordMsg) samplePoint {
+	sp := samplePoint{Time: rec.Timestamp}
+	if !rec.PositionLat.Invalid() && !rec.PositionLong.Invalid() {
+		sp.HasLatLon = true
+		sp.Lat = rec.PositionLat.Degrees()
+		sp.Lon = rec.PositionLong.Degrees()
+	}
+	if v := rec.GetAltitudeScaled(); !math.IsNaN(v) {
+		sp.Alt = &v
+	}
+	if v := rec.GetDistanceScaled(); !math.IsNaN(v) {
+		sp.Dist = &v
+	}
+	if v := rec.GetSpeedScaled(); !math.IsNaN(v) {
+		sp.Speed = &v
+	}
+	if rec.HeartRate != 0xFF {
+		hr := int(rec.HeartRate)
+		sp.HR = &hr
+	}
+	if rec.Cadence != 0xFF {
+		c := int(rec.Cadence)
+		sp.Cad = &c
+	}
+	if rec.Power != 0xFFFF {
+		p := int(rec.Power)
+		sp.Power = &p
+	}
+	if rec.Temperature != 0x7F {
+		t := float64(rec.Temperature)
+		sp.Temp = &t
+	}
+	return sp
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +491,145 @@ func (b *activityBuilder) add(p samplePoint) {
 	b.pts = append(b.pts, p)
 }
 
+// uploadColumns accumulates the per-sample stream columns and running totals.
+type uploadColumns struct {
+	lat, lon, alt, dist, speed, temp              []float64
+	hr, power, cad                                []int32
+	haveLL, haveAlt, haveDist                     bool
+	haveSpeed, haveHR, havePow, haveCad, haveTemp bool
+	cumDist                                       float64
+	sumHR, cntHR, sumPow, cntPow                  float64
+	elevGain                                      float64
+	prevAlt                                       *float64
+}
+
+func newUploadColumns(n int) *uploadColumns {
+	return &uploadColumns{
+		lat: mkF(n), lon: mkF(n), alt: mkF(n), dist: mkF(n), speed: mkF(n),
+		hr: mkI(n), power: mkI(n), cad: mkI(n),
+		temp: mkF(n),
+	}
+}
+
+// uploadInt32 converts an int sample value, saturating at the int32 range.
+func uploadInt32(v int) int32 {
+	return int32(max(math.MinInt32, min(v, math.MaxInt32))) //nolint:gosec // G115: clamped to int32 range
+}
+
+// addGeo records position, distance and altitude for sample i.
+func (c *uploadColumns) addGeo(pts []samplePoint, i int) {
+	p := pts[i]
+	if p.HasLatLon {
+		c.lat[i], c.lon[i] = p.Lat, p.Lon
+		c.haveLL = true
+		if i > 0 && pts[i-1].HasLatLon {
+			c.cumDist += haversine(pts[i-1].Lat, pts[i-1].Lon, p.Lat, p.Lon)
+		}
+	}
+	if p.Dist != nil {
+		c.dist[i] = *p.Dist
+		c.haveDist = true
+	} else if c.haveLL {
+		c.dist[i] = c.cumDist
+		c.haveDist = true
+	}
+	if p.Alt != nil {
+		c.alt[i] = *p.Alt
+		c.haveAlt = true
+		if c.prevAlt != nil && *p.Alt > *c.prevAlt {
+			c.elevGain += *p.Alt - *c.prevAlt
+		}
+		c.prevAlt = p.Alt
+	}
+}
+
+// addSensors records speed, HR, power, cadence and temperature for sample i.
+func (c *uploadColumns) addSensors(p samplePoint, i int) {
+	if p.Speed != nil {
+		c.speed[i] = *p.Speed
+		c.haveSpeed = true
+	}
+	if p.HR != nil {
+		c.hr[i] = uploadInt32(*p.HR)
+		c.haveHR = true
+		c.sumHR += float64(*p.HR)
+		c.cntHR++
+	}
+	if p.Power != nil {
+		c.power[i] = uploadInt32(*p.Power)
+		c.havePow = true
+		c.sumPow += float64(*p.Power)
+		c.cntPow++
+	}
+	if p.Cad != nil {
+		c.cad[i] = uploadInt32(*p.Cad)
+		c.haveCad = true
+	}
+	if p.Temp != nil {
+		c.temp[i] = *p.Temp
+		c.haveTemp = true
+	}
+}
+
+// fillStream attaches the present columns to st and lists their channels.
+func (c *uploadColumns) fillStream(st *cairnv1.ActivityStream) {
+	var ch []cairnv1.StreamChannel
+	if c.haveLL {
+		st.Latitude, st.Longitude = c.lat, c.lon
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_LATITUDE, cairnv1.StreamChannel_STREAM_CHANNEL_LONGITUDE)
+	}
+	if c.haveAlt {
+		st.AltitudeM = c.alt
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_ALTITUDE)
+	}
+	if c.haveDist {
+		st.DistanceM = c.dist
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_DISTANCE)
+	}
+	if c.haveSpeed {
+		st.SpeedMps = c.speed
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_SPEED)
+	}
+	if c.haveHR {
+		st.HeartRateBpm = c.hr
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_HEART_RATE)
+	}
+	if c.havePow {
+		st.PowerW = c.power
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_POWER)
+	}
+	if c.haveCad {
+		st.Cadence = c.cad
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_CADENCE)
+	}
+	if c.haveTemp {
+		st.TemperatureC = c.temp
+		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_TEMPERATURE)
+	}
+	st.Channels = ch
+}
+
+// summary derives the activity summary from the accumulated columns.
+func (c *uploadColumns) summary(n int) *cairnv1.ActivitySummary {
+	summary := &cairnv1.ActivitySummary{}
+	if c.haveDist {
+		d := c.dist[n-1]
+		summary.DistanceM = &d
+	}
+	if c.haveAlt {
+		summary.ElevationGainM = &c.elevGain
+	}
+	if c.cntHR > 0 {
+		v := int32(c.sumHR / c.cntHR)
+		summary.AvgHeartRateBpm = &v
+	}
+	if c.cntPow > 0 {
+		v := int32(c.sumPow / c.cntPow)
+		summary.AvgPowerW = &v
+	}
+	return summary
+}
+
 func (b *activityBuilder) finish() (*cairnv1.ActivitySourcePayload, *cairnv1.ActivityStream, error) {
 	if len(b.pts) == 0 {
 		return nil, nil, fmt.Errorf("no timestamped track points")
@@ -459,122 +644,16 @@ func (b *activityBuilder) finish() (*cairnv1.ActivitySourcePayload, *cairnv1.Act
 	}
 
 	n := len(b.pts)
-	st := &cairnv1.ActivityStream{SampleCount: int32(n), ResolutionHz: 1.0}
+	st := &cairnv1.ActivityStream{SampleCount: uploadInt32(n), ResolutionHz: 1.0}
 	st.TimeS = make([]float64, n)
 
-	var (
-		lat, lon, alt, dist, speed                    = mkF(n), mkF(n), mkF(n), mkF(n), mkF(n)
-		hr, power, cad                                = mkI(n), mkI(n), mkI(n)
-		temp                                          = mkF(n)
-		haveLL, haveAlt, haveDist                     bool
-		haveSpeed, haveHR, havePow, haveCad, haveTemp bool
-		cumDist                                       float64
-		sumHR, cntHR, sumPow, cntPow                  float64
-		elevGain                                      float64
-		prevAlt                                       *float64
-	)
-
+	c := newUploadColumns(n)
 	for i, p := range b.pts {
 		st.TimeS[i] = p.Time.Sub(start).Seconds()
-		if p.HasLatLon {
-			lat[i], lon[i] = p.Lat, p.Lon
-			haveLL = true
-			if i > 0 && b.pts[i-1].HasLatLon {
-				cumDist += haversine(b.pts[i-1].Lat, b.pts[i-1].Lon, p.Lat, p.Lon)
-			}
-		}
-		if p.Dist != nil {
-			dist[i] = *p.Dist
-			haveDist = true
-		} else if haveLL {
-			dist[i] = cumDist
-			haveDist = true
-		}
-		if p.Alt != nil {
-			alt[i] = *p.Alt
-			haveAlt = true
-			if prevAlt != nil && *p.Alt > *prevAlt {
-				elevGain += *p.Alt - *prevAlt
-			}
-			prevAlt = p.Alt
-		}
-		if p.Speed != nil {
-			speed[i] = *p.Speed
-			haveSpeed = true
-		}
-		if p.HR != nil {
-			hr[i] = int32(*p.HR)
-			haveHR = true
-			sumHR += float64(*p.HR)
-			cntHR++
-		}
-		if p.Power != nil {
-			power[i] = int32(*p.Power)
-			havePow = true
-			sumPow += float64(*p.Power)
-			cntPow++
-		}
-		if p.Cad != nil {
-			cad[i] = int32(*p.Cad)
-			haveCad = true
-		}
-		if p.Temp != nil {
-			temp[i] = *p.Temp
-			haveTemp = true
-		}
+		c.addGeo(b.pts, i)
+		c.addSensors(p, i)
 	}
-
-	var ch []cairnv1.StreamChannel
-	if haveLL {
-		st.Latitude, st.Longitude = lat, lon
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_LATITUDE, cairnv1.StreamChannel_STREAM_CHANNEL_LONGITUDE)
-	}
-	if haveAlt {
-		st.AltitudeM = alt
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_ALTITUDE)
-	}
-	if haveDist {
-		st.DistanceM = dist
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_DISTANCE)
-	}
-	if haveSpeed {
-		st.SpeedMps = speed
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_SPEED)
-	}
-	if haveHR {
-		st.HeartRateBpm = hr
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_HEART_RATE)
-	}
-	if havePow {
-		st.PowerW = power
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_POWER)
-	}
-	if haveCad {
-		st.Cadence = cad
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_CADENCE)
-	}
-	if haveTemp {
-		st.TemperatureC = temp
-		ch = append(ch, cairnv1.StreamChannel_STREAM_CHANNEL_TEMPERATURE)
-	}
-	st.Channels = ch
-
-	summary := &cairnv1.ActivitySummary{}
-	if haveDist {
-		d := dist[n-1]
-		summary.DistanceM = &d
-	}
-	if haveAlt {
-		summary.ElevationGainM = &elevGain
-	}
-	if cntHR > 0 {
-		v := int32(sumHR / cntHR)
-		summary.AvgHeartRateBpm = &v
-	}
-	if cntPow > 0 {
-		v := int32(sumPow / cntPow)
-		summary.AvgPowerW = &v
-	}
+	c.fillStream(st)
 
 	payload := &cairnv1.ActivitySourcePayload{
 		Type:               typ,
@@ -586,7 +665,7 @@ func (b *activityBuilder) finish() (*cairnv1.ActivitySourcePayload, *cairnv1.Act
 		ElapsedDuration:    durationpb.New(end.Sub(start)),
 		MovingDuration:     durationpb.New(end.Sub(start)),
 		Timezone:           "UTC",
-		Summary:            summary,
+		Summary:            c.summary(n),
 	}
 	return payload, st, nil
 }

@@ -456,28 +456,20 @@ redeploy that image with the new token. The routing key stays
 ## Tests & CI
 
 ```sh
-make test              # unit tests (DB-free, fast)
-make test-race         # unit tests with the race detector
-make vet               # go vet
-make fmt-check         # fail if any Go file isn't gofmt-clean
-make ci                # fmt-check + vet + test + build (the DB-free CI gate)
-
-# Integration tests run against a REAL Postgres (TimescaleDB + PostGIS). They
-# are build-tagged `integration`, run every embedded migration against the
-# target DB first, and skip when CAIRN_TEST_DATABASE_URL is unset:
-CAIRN_TEST_DATABASE_URL="postgres://cairn:cairn@localhost:5432/cairn_test?sslmode=disable" \
-  make test-integration
+make check             # the definition of green; CI runs exactly this
+make test              # unit tests (DB-free, -race) + web vitest
+make test-db-up        # throwaway TimescaleDB+PostGIS (podman or docker); prints CAIRN_TEST_DATABASE_URL
+make test-integration  # integration suites against CAIRN_TEST_DATABASE_URL
 ```
 
-CI runs as GitHub Actions (`.github/workflows/`): **build-core.yml** builds and
-unit-tests the Go packages inside the shared build-base toolchain image, then
-builds + pushes the distroless image on `main`/`v*` tags; **web-check.yml** runs
-`svelte-check` + the web build; **build-base.yml** publishes the toolchain image
-when it changes. The integration suite (build-tagged `integration`, against a
-real `timescale/timescaledb-ha`) is **not** run in CI — it needs a live DB, so
-run it locally via `make test-integration`. Its harness lives in
-`internal/adapter/secondary/postgres/integration_test.go`; add new real-DB tests
-there off the shared `requirePool(t)` helper.
+The integration suites are build-tagged `integration` and skip when
+`CAIRN_TEST_DATABASE_URL` is unset: the Postgres adapter tests
+(`internal/adapter/secondary/postgres`, shared `requirePool(t)` helper) and an
+end-to-end run of the HTTP API and CLI against a fresh database
+(`cmd/server/*_integration_test.go`). CI (`.github/workflows/check.yml`) runs
+`make check` inside the build-base toolchain image with a
+`timescale/timescaledb-ha` service, so coverage is gated on unit + integration
+together; see CONTRIBUTING.md.
 
 ## Rotating the master encryption key
 
@@ -531,4 +523,3 @@ AGPL-3.0 for this repository (`LICENSE`). The provider contract under
 `api/proto/` is Apache-2.0 (`api/proto/LICENSE`) so third-party workers and
 clients can implement it without copyleft obligations; the provider worker
 repos are Apache-2.0 as well.
-

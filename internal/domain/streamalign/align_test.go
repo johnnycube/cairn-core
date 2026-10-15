@@ -17,14 +17,14 @@ func fptr(v float64) *float64 { return &v }
 func i16(v int16) *int16      { return &v }
 
 // build a stream from per-second altitude + hr values starting at offset.
-func mkStream(id string, offset time.Duration, step time.Duration, alt []float64, hr []int16) domain.Stream {
+func mkStream(id string, offset time.Duration, alt []float64, hr []int16) domain.Stream {
 	n := len(alt)
 	if len(hr) > n {
 		n = len(hr)
 	}
 	samples := make([]domain.StreamSample, n)
 	for i := 0; i < n; i++ {
-		s := domain.StreamSample{Timestamp: t0.Add(offset + time.Duration(i)*step)}
+		s := domain.StreamSample{Timestamp: t0.Add(offset + time.Duration(i)*time.Second)}
 		if i < len(alt) {
 			s.AltitudeM = fptr(alt[i])
 		}
@@ -39,9 +39,9 @@ func mkStream(id string, offset time.Duration, step time.Duration, alt []float64
 func TestBuild_PerChannelFromDifferentSources(t *testing.T) {
 	// Garmin has altitude (barometric), Strava has heart rate. Per-channel merge
 	// should take altitude from garmin and HR from strava.
-	garmin := mkStream("11111111-1111-1111-1111-111111111111", 0, time.Second,
+	garmin := mkStream("11111111-1111-1111-1111-111111111111", 0,
 		[]float64{100, 101, 102, 103, 104}, nil)
-	strava := mkStream("22222222-2222-2222-2222-222222222222", 0, time.Second,
+	strava := mkStream("22222222-2222-2222-2222-222222222222", 0,
 		nil, []int16{120, 122, 124, 126, 128})
 
 	streams := map[domain.SourceID]domain.Stream{
@@ -93,9 +93,9 @@ func TestBuild_ClockOffsetAlignment(t *testing.T) {
 	// Same activity, but strava's clock is 3s behind garmin (constant skew).
 	// With AlignStarts, the two altitude tracks should align (same values per
 	// grid point), not be shifted apart.
-	garmin := mkStream("11111111-1111-1111-1111-111111111111", 0, time.Second,
+	garmin := mkStream("11111111-1111-1111-1111-111111111111", 0,
 		[]float64{100, 110, 120, 130, 140}, nil)
-	strava := mkStream("22222222-2222-2222-2222-222222222222", 3*time.Second, time.Second,
+	strava := mkStream("22222222-2222-2222-2222-222222222222", 3*time.Second,
 		[]float64{100, 110, 120, 130, 140}, nil)
 	streams := map[domain.SourceID]domain.Stream{
 		garmin.ActivitySourceID: garmin,

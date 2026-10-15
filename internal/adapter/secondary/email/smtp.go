@@ -7,11 +7,15 @@ package email
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	"time"
+
+	gomail "github.com/wneessen/go-mail"
 
 	"github.com/johnnycube/cairn-core/internal/config"
 	"github.com/johnnycube/cairn-core/internal/port"
@@ -26,8 +30,8 @@ type SMTPSender struct {
 	username string
 	password string
 	startTLS bool
-	from     string // RFC5322 From header value, e.g. `Cairn <no-reply@…>`
-	fromAddr string // bare address for the SMTP envelope
+	fromName string // display name for the From header, may be empty
+	fromAddr string // bare address for the envelope and the From header
 }
 
 // NewSMTP builds an SMTP sender from config. Returns an error if the SMTP host
@@ -39,9 +43,12 @@ func NewSMTP(cfg config.EmailConfig) (*SMTPSender, error) {
 	if cfg.FromAddress == "" {
 		return nil, fmt.Errorf("email: FROM_ADDRESS required")
 	}
-	from := cfg.FromAddress
-	if cfg.FromName != "" {
-		from = fmt.Sprintf("%s <%s>", cfg.FromName, cfg.FromAddress)
+	fromAddr, err := mail.ParseAddress(cfg.FromAddress)
+	if err != nil || fromAddr.Name != "" {
+		return nil, fmt.Errorf("email: FROM_ADDRESS %q is not a bare address", cfg.FromAddress)
+	}
+	if strings.ContainsAny(cfg.FromName, "\r\n") {
+		return nil, errors.New("email: FROM_NAME must not contain line breaks")
 	}
 	p := cfg.SMTPPort
 	if p == 0 {
@@ -53,15 +60,20 @@ func NewSMTP(cfg config.EmailConfig) (*SMTPSender, error) {
 		username: cfg.SMTPUsername,
 		password: cfg.SMTPPassword,
 		startTLS: cfg.SMTPStartTLS,
-		from:     from,
-		fromAddr: cfg.FromAddress,
+		fromName: cfg.FromName,
+		fromAddr: fromAddr.Address,
 	}, nil
 }
 
 // Send delivers one message. The whole exchange is bounded by a 30s deadline.
 func (s *SMTPSender) Send(ctx context.Context, msg port.EmailMessage) error {
-	if msg.To == "" {
-		return fmt.Errorf("email: empty recipient")
+	to, err := parseRecipient(msg.To)
+	if err != nil {
+		return err
+	}
+	m, err := s.compose(to, msg)
+	if err != nil {
+		return err
 	}
 	addr := net.JoinHostPort(s.host, fmt.Sprintf("%d", s.port))
 
@@ -72,11 +84,35 @@ func (s *SMTPSender) Send(ctx context.Context, msg port.EmailMessage) error {
 	}
 	c, err := smtp.NewClient(conn, s.host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("email: smtp client: %w", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
+	if err := s.smtpNegotiate(c); err != nil {
+		return err
+	}
+	if err := c.Mail(s.fromAddr); err != nil {
+		return fmt.Errorf("email: MAIL FROM: %w", err)
+	}
+	if err := c.Rcpt(to.Address); err != nil {
+		return fmt.Errorf("email: RCPT TO: %w", err)
+	}
+	w, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("email: DATA: %w", err)
+	}
+	if _, err := m.WriteTo(w); err != nil {
+		return fmt.Errorf("email: write body: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("email: close body: %w", err)
+	}
+	return c.Quit()
+}
+
+// smtpNegotiate runs the optional STARTTLS upgrade and authentication.
+func (s *SMTPSender) smtpNegotiate(c *smtp.Client) error {
 	if s.startTLS {
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
@@ -90,50 +126,43 @@ func (s *SMTPSender) Send(ctx context.Context, msg port.EmailMessage) error {
 			return fmt.Errorf("email: auth: %w", err)
 		}
 	}
-	if err := c.Mail(s.fromAddr); err != nil {
-		return fmt.Errorf("email: MAIL FROM: %w", err)
-	}
-	if err := c.Rcpt(msg.To); err != nil {
-		return fmt.Errorf("email: RCPT TO: %w", err)
-	}
-	w, err := c.Data()
-	if err != nil {
-		return fmt.Errorf("email: DATA: %w", err)
-	}
-	if _, err := w.Write(s.buildMessage(msg)); err != nil {
-		return fmt.Errorf("email: write body: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("email: close body: %w", err)
-	}
-	return c.Quit()
+	return nil
 }
 
-// buildMessage renders the RFC5322 message. multipart/alternative when an HTML
-// body is supplied, otherwise text/plain.
-func (s *SMTPSender) buildMessage(msg port.EmailMessage) []byte {
-	var b strings.Builder
-	b.WriteString("From: " + s.from + "\r\n")
-	b.WriteString("To: " + msg.To + "\r\n")
-	b.WriteString("Subject: " + msg.Subject + "\r\n")
-	b.WriteString("MIME-Version: 1.0\r\n")
-
-	if msg.HTMLBody == "" {
-		b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
-		b.WriteString(msg.TextBody)
-		return []byte(b.String())
+// parseRecipient accepts a single bare address; display names, lists and line breaks are rejected.
+func parseRecipient(raw string) (*mail.Address, error) {
+	if raw == "" {
+		return nil, errors.New("email: empty recipient")
 	}
+	to, err := mail.ParseAddress(raw)
+	if err != nil {
+		return nil, fmt.Errorf("email: invalid recipient: %w", err)
+	}
+	if to.Name != "" || to.Address != strings.TrimSpace(raw) {
+		return nil, errors.New("email: recipient must be a bare address")
+	}
+	return to, nil
+}
 
-	const boundary = "cairn_alt_boundary_8f3a1c"
-	b.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n")
-	b.WriteString("--" + boundary + "\r\n")
-	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
-	b.WriteString(msg.TextBody + "\r\n")
-	b.WriteString("--" + boundary + "\r\n")
-	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
-	b.WriteString(msg.HTMLBody + "\r\n")
-	b.WriteString("--" + boundary + "--\r\n")
-	return []byte(b.String())
+// compose builds the RFC 5322 message with go-mail, which validates the addresses and
+// encodes the headers. multipart/alternative when an HTML body is supplied, otherwise text/plain.
+func (s *SMTPSender) compose(to *mail.Address, msg port.EmailMessage) (*gomail.Msg, error) {
+	if strings.ContainsAny(msg.Subject, "\r\n") {
+		return nil, errors.New("email: subject must not contain line breaks")
+	}
+	m := gomail.NewMsg()
+	if err := m.FromFormat(s.fromName, s.fromAddr); err != nil {
+		return nil, fmt.Errorf("email: from: %w", err)
+	}
+	if err := m.To(to.Address); err != nil {
+		return nil, fmt.Errorf("email: to: %w", err)
+	}
+	m.Subject(msg.Subject)
+	m.SetBodyString(gomail.TypeTextPlain, msg.TextBody)
+	if msg.HTMLBody != "" {
+		m.AddAlternativeString(gomail.TypeTextHTML, msg.HTMLBody)
+	}
+	return m, nil
 }
 
 // Compile-time assertion.

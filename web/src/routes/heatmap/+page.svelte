@@ -35,7 +35,9 @@
 		for (const f of fc.features) {
 			if (f.geometry.type !== 'LineString') continue;
 			for (const c of f.geometry.coordinates) {
-				const ll: [number, number] = [c[0], c[1]];
+				const [lng, lat] = c;
+				if (lng === undefined || lat === undefined) continue;
+				const ll: [number, number] = [lng, lat];
 				b = b ? b.extend(ll) : new LngLatBounds(ll, ll);
 			}
 		}
@@ -88,7 +90,7 @@
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let debounceInit = false;
 	$effect(() => {
-		filter.textKey;
+		void filter.textKey;
 		if (!debounceInit) {
 			debounceInit = true;
 			return;
@@ -97,8 +99,8 @@
 		debounceTimer = setTimeout(() => (debounced += 1), 350);
 	});
 	$effect(() => {
-		filter.immediateKey;
-		debounced;
+		void filter.immediateKey;
+		void debounced;
 		load();
 	});
 
@@ -183,7 +185,9 @@
 			class="h-[70vh] min-h-96 w-full overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900"
 		></div>
 		{#if loading}
-			<div class="pointer-events-none absolute top-3 left-3 rounded bg-zinc-900/80 px-2 py-1 text-xs text-zinc-300">
+			<div
+				class="pointer-events-none absolute top-3 left-3 rounded bg-zinc-900/80 px-2 py-1 text-xs text-zinc-300"
+			>
 				Loading tracks…
 			</div>
 		{:else if data && data.with_track === 0}

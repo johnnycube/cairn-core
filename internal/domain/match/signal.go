@@ -46,7 +46,7 @@ var sportGroups = map[string]string{
 	"gravelride": "ride", "mountainbikeride": "ride", "mtb": "ride", "handcycle": "ride",
 	"swim": "swim", "swimming": "swim", "openwaterswim": "swim", "lapswim": "swim",
 	"poolswim": "swim",
-	"walk": "walk", "walking": "walk", "hike": "walk", "hiking": "walk",
+	"walk":     "walk", "walking": "walk", "hike": "walk", "hiking": "walk",
 	"row": "row", "rowing": "row", "kayaking": "row", "canoeing": "row",
 	"nordicski": "ski", "alpineski": "ski", "backcountryski": "ski", "snowboard": "ski",
 	"rollerski": "ski",
