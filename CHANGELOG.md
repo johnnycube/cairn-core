@@ -6,6 +6,8 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-10-15
+
 ### Changed
 - Worker enrollments accept any well-formed provider type (lowercase letters,
   digits, `-`, `_`, at most 48 characters) instead of only the built-in
