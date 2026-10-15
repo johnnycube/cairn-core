@@ -1,0 +1,31 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.go]
+indent_style = tab
+
+[{Makefile,*.mk}]
+indent_style = tab
+
+[*.py]
+indent_size = 4
+
+[*.proto]
+indent_size = 2
+
+# web/ follows Prettier (.prettierrc): tabs, package.json excepted.
+[web/**.{ts,js,svelte,css,html,json}]
+indent_style = tab
+
+[web/package{,-lock}.json]
+indent_style = space
+
+[*.md]
+trim_trailing_whitespace = false
