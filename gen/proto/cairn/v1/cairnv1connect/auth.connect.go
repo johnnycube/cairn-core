@@ -34,20 +34,11 @@
 package cairnv1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// AuthServiceName is the fully-qualified name of the AuthService service.
@@ -56,1002 +47,1204 @@ const (
 	ExternalAccountServiceName = "cairn.v1.ExternalAccountService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// AuthServiceGetLoginMethodsProcedure is the fully-qualified name of the AuthService's
-	// GetLoginMethods RPC.
-	AuthServiceGetLoginMethodsProcedure = "/cairn.v1.AuthService/GetLoginMethods"
-	// AuthServiceLoginPasswordProcedure is the fully-qualified name of the AuthService's LoginPassword
+	// AuthServiceGetLoginMethodsProcedure is the procedure name of the AuthService's GetLoginMethods
 	// RPC.
+	AuthServiceGetLoginMethodsProcedure = "/cairn.v1.AuthService/GetLoginMethods"
+	// AuthServiceLoginPasswordProcedure is the procedure name of the AuthService's LoginPassword RPC.
 	AuthServiceLoginPasswordProcedure = "/cairn.v1.AuthService/LoginPassword"
-	// AuthServiceComplete2FAProcedure is the fully-qualified name of the AuthService's Complete2FA RPC.
+	// AuthServiceComplete2FAProcedure is the procedure name of the AuthService's Complete2FA RPC.
 	AuthServiceComplete2FAProcedure = "/cairn.v1.AuthService/Complete2FA"
-	// AuthServiceRegisterProcedure is the fully-qualified name of the AuthService's Register RPC.
+	// AuthServiceRegisterProcedure is the procedure name of the AuthService's Register RPC.
 	AuthServiceRegisterProcedure = "/cairn.v1.AuthService/Register"
-	// AuthServiceChangePasswordProcedure is the fully-qualified name of the AuthService's
-	// ChangePassword RPC.
+	// AuthServiceChangePasswordProcedure is the procedure name of the AuthService's ChangePassword RPC.
 	AuthServiceChangePasswordProcedure = "/cairn.v1.AuthService/ChangePassword"
-	// AuthServiceRequestPasswordResetProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceRequestPasswordResetProcedure is the procedure name of the AuthService's
 	// RequestPasswordReset RPC.
 	AuthServiceRequestPasswordResetProcedure = "/cairn.v1.AuthService/RequestPasswordReset"
-	// AuthServiceConfirmPasswordResetProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceConfirmPasswordResetProcedure is the procedure name of the AuthService's
 	// ConfirmPasswordReset RPC.
 	AuthServiceConfirmPasswordResetProcedure = "/cairn.v1.AuthService/ConfirmPasswordReset"
-	// AuthServiceStartOIDCLoginProcedure is the fully-qualified name of the AuthService's
-	// StartOIDCLogin RPC.
+	// AuthServiceStartOIDCLoginProcedure is the procedure name of the AuthService's StartOIDCLogin RPC.
 	AuthServiceStartOIDCLoginProcedure = "/cairn.v1.AuthService/StartOIDCLogin"
-	// AuthServiceStartOIDCLinkProcedure is the fully-qualified name of the AuthService's StartOIDCLink
-	// RPC.
+	// AuthServiceStartOIDCLinkProcedure is the procedure name of the AuthService's StartOIDCLink RPC.
 	AuthServiceStartOIDCLinkProcedure = "/cairn.v1.AuthService/StartOIDCLink"
-	// AuthServiceUnlinkOIDCIdentityProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceUnlinkOIDCIdentityProcedure is the procedure name of the AuthService's
 	// UnlinkOIDCIdentity RPC.
 	AuthServiceUnlinkOIDCIdentityProcedure = "/cairn.v1.AuthService/UnlinkOIDCIdentity"
-	// AuthServiceListLinkedIdentitiesProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceListLinkedIdentitiesProcedure is the procedure name of the AuthService's
 	// ListLinkedIdentities RPC.
 	AuthServiceListLinkedIdentitiesProcedure = "/cairn.v1.AuthService/ListLinkedIdentities"
-	// AuthServiceLogoutProcedure is the fully-qualified name of the AuthService's Logout RPC.
+	// AuthServiceLogoutProcedure is the procedure name of the AuthService's Logout RPC.
 	AuthServiceLogoutProcedure = "/cairn.v1.AuthService/Logout"
-	// AuthServiceGetCurrentUserProcedure is the fully-qualified name of the AuthService's
-	// GetCurrentUser RPC.
+	// AuthServiceGetCurrentUserProcedure is the procedure name of the AuthService's GetCurrentUser RPC.
 	AuthServiceGetCurrentUserProcedure = "/cairn.v1.AuthService/GetCurrentUser"
-	// AuthServiceUpdateProfileProcedure is the fully-qualified name of the AuthService's UpdateProfile
-	// RPC.
+	// AuthServiceUpdateProfileProcedure is the procedure name of the AuthService's UpdateProfile RPC.
 	AuthServiceUpdateProfileProcedure = "/cairn.v1.AuthService/UpdateProfile"
-	// AuthServiceUpdateUserPreferencesProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceUpdateUserPreferencesProcedure is the procedure name of the AuthService's
 	// UpdateUserPreferences RPC.
 	AuthServiceUpdateUserPreferencesProcedure = "/cairn.v1.AuthService/UpdateUserPreferences"
-	// AuthServiceListSessionsProcedure is the fully-qualified name of the AuthService's ListSessions
-	// RPC.
+	// AuthServiceListSessionsProcedure is the procedure name of the AuthService's ListSessions RPC.
 	AuthServiceListSessionsProcedure = "/cairn.v1.AuthService/ListSessions"
-	// AuthServiceRevokeSessionProcedure is the fully-qualified name of the AuthService's RevokeSession
-	// RPC.
+	// AuthServiceRevokeSessionProcedure is the procedure name of the AuthService's RevokeSession RPC.
 	AuthServiceRevokeSessionProcedure = "/cairn.v1.AuthService/RevokeSession"
-	// AuthServiceCreatePersonalAccessTokenProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceCreatePersonalAccessTokenProcedure is the procedure name of the AuthService's
 	// CreatePersonalAccessToken RPC.
 	AuthServiceCreatePersonalAccessTokenProcedure = "/cairn.v1.AuthService/CreatePersonalAccessToken"
-	// AuthServiceListPersonalAccessTokensProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceListPersonalAccessTokensProcedure is the procedure name of the AuthService's
 	// ListPersonalAccessTokens RPC.
 	AuthServiceListPersonalAccessTokensProcedure = "/cairn.v1.AuthService/ListPersonalAccessTokens"
-	// AuthServiceRevokePersonalAccessTokenProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceRevokePersonalAccessTokenProcedure is the procedure name of the AuthService's
 	// RevokePersonalAccessToken RPC.
 	AuthServiceRevokePersonalAccessTokenProcedure = "/cairn.v1.AuthService/RevokePersonalAccessToken"
-	// ExternalAccountServiceListExternalAccountsProcedure is the fully-qualified name of the
+	// ExternalAccountServiceListExternalAccountsProcedure is the procedure name of the
 	// ExternalAccountService's ListExternalAccounts RPC.
 	ExternalAccountServiceListExternalAccountsProcedure = "/cairn.v1.ExternalAccountService/ListExternalAccounts"
-	// ExternalAccountServiceListAvailableProvidersProcedure is the fully-qualified name of the
+	// ExternalAccountServiceListAvailableProvidersProcedure is the procedure name of the
 	// ExternalAccountService's ListAvailableProviders RPC.
 	ExternalAccountServiceListAvailableProvidersProcedure = "/cairn.v1.ExternalAccountService/ListAvailableProviders"
-	// ExternalAccountServiceCreateExternalAccountProcedure is the fully-qualified name of the
+	// ExternalAccountServiceCreateExternalAccountProcedure is the procedure name of the
 	// ExternalAccountService's CreateExternalAccount RPC.
 	ExternalAccountServiceCreateExternalAccountProcedure = "/cairn.v1.ExternalAccountService/CreateExternalAccount"
-	// ExternalAccountServiceUpdateExternalAccountConfigProcedure is the fully-qualified name of the
+	// ExternalAccountServiceUpdateExternalAccountConfigProcedure is the procedure name of the
 	// ExternalAccountService's UpdateExternalAccountConfig RPC.
 	ExternalAccountServiceUpdateExternalAccountConfigProcedure = "/cairn.v1.ExternalAccountService/UpdateExternalAccountConfig"
-	// ExternalAccountServiceStartExternalAccountReauthorizeProcedure is the fully-qualified name of the
+	// ExternalAccountServiceStartExternalAccountReauthorizeProcedure is the procedure name of the
 	// ExternalAccountService's StartExternalAccountReauthorize RPC.
 	ExternalAccountServiceStartExternalAccountReauthorizeProcedure = "/cairn.v1.ExternalAccountService/StartExternalAccountReauthorize"
-	// ExternalAccountServiceSetExternalAccountEnabledProcedure is the fully-qualified name of the
+	// ExternalAccountServiceSetExternalAccountEnabledProcedure is the procedure name of the
 	// ExternalAccountService's SetExternalAccountEnabled RPC.
 	ExternalAccountServiceSetExternalAccountEnabledProcedure = "/cairn.v1.ExternalAccountService/SetExternalAccountEnabled"
-	// ExternalAccountServiceDeleteExternalAccountProcedure is the fully-qualified name of the
+	// ExternalAccountServiceDeleteExternalAccountProcedure is the procedure name of the
 	// ExternalAccountService's DeleteExternalAccount RPC.
 	ExternalAccountServiceDeleteExternalAccountProcedure = "/cairn.v1.ExternalAccountService/DeleteExternalAccount"
-	// ExternalAccountServiceTriggerSyncProcedure is the fully-qualified name of the
-	// ExternalAccountService's TriggerSync RPC.
+	// ExternalAccountServiceTriggerSyncProcedure is the procedure name of the ExternalAccountService's
+	// TriggerSync RPC.
 	ExternalAccountServiceTriggerSyncProcedure = "/cairn.v1.ExternalAccountService/TriggerSync"
-	// ExternalAccountServiceRotateWebhookTokenProcedure is the fully-qualified name of the
+	// ExternalAccountServiceRotateWebhookTokenProcedure is the procedure name of the
 	// ExternalAccountService's RotateWebhookToken RPC.
 	ExternalAccountServiceRotateWebhookTokenProcedure = "/cairn.v1.ExternalAccountService/RotateWebhookToken"
+)
+
+var (
+	authServiceGetLoginMethodsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("GetLoginMethods"),
+			Procedure:  AuthServiceGetLoginMethodsProcedure,
+		}
+	})
+	authServiceLoginPasswordSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("LoginPassword"),
+			Procedure:  AuthServiceLoginPasswordProcedure,
+		}
+	})
+	authServiceComplete2FASpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("Complete2FA"),
+			Procedure:  AuthServiceComplete2FAProcedure,
+		}
+	})
+	authServiceRegisterSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("Register"),
+			Procedure:  AuthServiceRegisterProcedure,
+		}
+	})
+	authServiceChangePasswordSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ChangePassword"),
+			Procedure:  AuthServiceChangePasswordProcedure,
+		}
+	})
+	authServiceRequestPasswordResetSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("RequestPasswordReset"),
+			Procedure:  AuthServiceRequestPasswordResetProcedure,
+		}
+	})
+	authServiceConfirmPasswordResetSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ConfirmPasswordReset"),
+			Procedure:  AuthServiceConfirmPasswordResetProcedure,
+		}
+	})
+	authServiceStartOIDCLoginSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("StartOIDCLogin"),
+			Procedure:  AuthServiceStartOIDCLoginProcedure,
+		}
+	})
+	authServiceStartOIDCLinkSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("StartOIDCLink"),
+			Procedure:  AuthServiceStartOIDCLinkProcedure,
+		}
+	})
+	authServiceUnlinkOIDCIdentitySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("UnlinkOIDCIdentity"),
+			Procedure:  AuthServiceUnlinkOIDCIdentityProcedure,
+		}
+	})
+	authServiceListLinkedIdentitiesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ListLinkedIdentities"),
+			Procedure:  AuthServiceListLinkedIdentitiesProcedure,
+		}
+	})
+	authServiceLogoutSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("Logout"),
+			Procedure:  AuthServiceLogoutProcedure,
+		}
+	})
+	authServiceGetCurrentUserSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("GetCurrentUser"),
+			Procedure:  AuthServiceGetCurrentUserProcedure,
+		}
+	})
+	authServiceUpdateProfileSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("UpdateProfile"),
+			Procedure:  AuthServiceUpdateProfileProcedure,
+		}
+	})
+	authServiceUpdateUserPreferencesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("UpdateUserPreferences"),
+			Procedure:  AuthServiceUpdateUserPreferencesProcedure,
+		}
+	})
+	authServiceListSessionsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ListSessions"),
+			Procedure:  AuthServiceListSessionsProcedure,
+		}
+	})
+	authServiceRevokeSessionSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("RevokeSession"),
+			Procedure:  AuthServiceRevokeSessionProcedure,
+		}
+	})
+	authServiceCreatePersonalAccessTokenSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("CreatePersonalAccessToken"),
+			Procedure:  AuthServiceCreatePersonalAccessTokenProcedure,
+		}
+	})
+	authServiceListPersonalAccessTokensSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ListPersonalAccessTokens"),
+			Procedure:  AuthServiceListPersonalAccessTokensProcedure,
+		}
+	})
+	authServiceRevokePersonalAccessTokenSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("RevokePersonalAccessToken"),
+			Procedure:  AuthServiceRevokePersonalAccessTokenProcedure,
+		}
+	})
 )
 
 // AuthServiceClient is a client for the cairn.v1.AuthService service.
 type AuthServiceClient interface {
 	// List enabled login methods for the login screen, including OIDC clients.
 	// Public; no auth required.
-	GetLoginMethods(context.Context, *connect.Request[v1.GetLoginMethodsRequest]) (*connect.Response[v1.GetLoginMethodsResponse], error)
+	GetLoginMethods(context.Context, *v1.GetLoginMethodsRequest) (*v1.GetLoginMethodsResponse, error)
 	// Username + password. Returns a session token or a 2FA challenge if
 	// the account has WebAuthn enabled as a second factor.
-	LoginPassword(context.Context, *connect.Request[v1.LoginPasswordRequest]) (*connect.Response[v1.LoginPasswordResponse], error)
+	LoginPassword(context.Context, *v1.LoginPasswordRequest) (*v1.LoginPasswordResponse, error)
 	// Complete a 2FA challenge after LoginPassword.
-	Complete2FA(context.Context, *connect.Request[v1.Complete2FARequest]) (*connect.Response[v1.Complete2FAResponse], error)
+	Complete2FA(context.Context, *v1.Complete2FARequest) (*v1.Complete2FAResponse, error)
 	// Register a new local user. May require invite code per instance policy.
-	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
+	Register(context.Context, *v1.RegisterRequest) (*v1.RegisterResponse, error)
 	// Change password (requires current password).
-	ChangePassword(context.Context, *connect.Request[v1.ChangePasswordRequest]) (*connect.Response[v1.ChangePasswordResponse], error)
+	ChangePassword(context.Context, *v1.ChangePasswordRequest) (*v1.ChangePasswordResponse, error)
 	// Initiate password reset (sends email if SMTP configured).
-	RequestPasswordReset(context.Context, *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error)
+	RequestPasswordReset(context.Context, *v1.RequestPasswordResetRequest) (*v1.RequestPasswordResetResponse, error)
 	// Complete password reset using a token from the email.
-	ConfirmPasswordReset(context.Context, *connect.Request[v1.ConfirmPasswordResetRequest]) (*connect.Response[v1.ConfirmPasswordResetResponse], error)
+	ConfirmPasswordReset(context.Context, *v1.ConfirmPasswordResetRequest) (*v1.ConfirmPasswordResetResponse, error)
 	// Begin OIDC login: returns an authorize URL the client redirects to.
 	// The state cookie is set on the response automatically.
-	StartOIDCLogin(context.Context, *connect.Request[v1.StartOIDCLoginRequest]) (*connect.Response[v1.StartOIDCLoginResponse], error)
+	StartOIDCLogin(context.Context, *v1.StartOIDCLoginRequest) (*v1.StartOIDCLoginResponse, error)
 	// Link an additional OIDC identity to the currently authenticated user.
-	StartOIDCLink(context.Context, *connect.Request[v1.StartOIDCLinkRequest]) (*connect.Response[v1.StartOIDCLinkResponse], error)
+	StartOIDCLink(context.Context, *v1.StartOIDCLinkRequest) (*v1.StartOIDCLinkResponse, error)
 	// Unlink an OIDC identity. Cannot unlink the last credential.
-	UnlinkOIDCIdentity(context.Context, *connect.Request[v1.UnlinkOIDCIdentityRequest]) (*connect.Response[v1.UnlinkOIDCIdentityResponse], error)
-	ListLinkedIdentities(context.Context, *connect.Request[v1.ListLinkedIdentitiesRequest]) (*connect.Response[v1.ListLinkedIdentitiesResponse], error)
-	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
-	GetCurrentUser(context.Context, *connect.Request[v1.GetCurrentUserRequest]) (*connect.Response[v1.GetCurrentUserResponse], error)
-	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
+	UnlinkOIDCIdentity(context.Context, *v1.UnlinkOIDCIdentityRequest) (*v1.UnlinkOIDCIdentityResponse, error)
+	ListLinkedIdentities(context.Context, *v1.ListLinkedIdentitiesRequest) (*v1.ListLinkedIdentitiesResponse, error)
+	Logout(context.Context, *v1.LogoutRequest) (*v1.LogoutResponse, error)
+	GetCurrentUser(context.Context, *v1.GetCurrentUserRequest) (*v1.GetCurrentUserResponse, error)
+	UpdateProfile(context.Context, *v1.UpdateProfileRequest) (*v1.UpdateProfileResponse, error)
 	// Update the caller's display-format preferences (date/time/units). Applies
 	// site-wide on every client (web + mobile); clients re-read on change.
-	UpdateUserPreferences(context.Context, *connect.Request[v1.UpdateUserPreferencesRequest]) (*connect.Response[v1.UpdateUserPreferencesResponse], error)
-	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
-	RevokeSession(context.Context, *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error)
-	CreatePersonalAccessToken(context.Context, *connect.Request[v1.CreatePersonalAccessTokenRequest]) (*connect.Response[v1.CreatePersonalAccessTokenResponse], error)
-	ListPersonalAccessTokens(context.Context, *connect.Request[v1.ListPersonalAccessTokensRequest]) (*connect.Response[v1.ListPersonalAccessTokensResponse], error)
-	RevokePersonalAccessToken(context.Context, *connect.Request[v1.RevokePersonalAccessTokenRequest]) (*connect.Response[v1.RevokePersonalAccessTokenResponse], error)
+	UpdateUserPreferences(context.Context, *v1.UpdateUserPreferencesRequest) (*v1.UpdateUserPreferencesResponse, error)
+	ListSessions(context.Context, *v1.ListSessionsRequest) (*v1.ListSessionsResponse, error)
+	RevokeSession(context.Context, *v1.RevokeSessionRequest) (*v1.RevokeSessionResponse, error)
+	CreatePersonalAccessToken(context.Context, *v1.CreatePersonalAccessTokenRequest) (*v1.CreatePersonalAccessTokenResponse, error)
+	ListPersonalAccessTokens(context.Context, *v1.ListPersonalAccessTokensRequest) (*v1.ListPersonalAccessTokensResponse, error)
+	RevokePersonalAccessToken(context.Context, *v1.RevokePersonalAccessTokenRequest) (*v1.RevokePersonalAccessTokenResponse, error)
 }
 
-// NewAuthServiceClient constructs a client for the cairn.v1.AuthService service. By default, it
-// uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
-// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
-// connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AuthServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	authServiceMethods := v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods()
-	return &authServiceClient{
-		getLoginMethods: connect.NewClient[v1.GetLoginMethodsRequest, v1.GetLoginMethodsResponse](
-			httpClient,
-			baseURL+AuthServiceGetLoginMethodsProcedure,
-			connect.WithSchema(authServiceMethods.ByName("GetLoginMethods")),
-			connect.WithClientOptions(opts...),
-		),
-		loginPassword: connect.NewClient[v1.LoginPasswordRequest, v1.LoginPasswordResponse](
-			httpClient,
-			baseURL+AuthServiceLoginPasswordProcedure,
-			connect.WithSchema(authServiceMethods.ByName("LoginPassword")),
-			connect.WithClientOptions(opts...),
-		),
-		complete2FA: connect.NewClient[v1.Complete2FARequest, v1.Complete2FAResponse](
-			httpClient,
-			baseURL+AuthServiceComplete2FAProcedure,
-			connect.WithSchema(authServiceMethods.ByName("Complete2FA")),
-			connect.WithClientOptions(opts...),
-		),
-		register: connect.NewClient[v1.RegisterRequest, v1.RegisterResponse](
-			httpClient,
-			baseURL+AuthServiceRegisterProcedure,
-			connect.WithSchema(authServiceMethods.ByName("Register")),
-			connect.WithClientOptions(opts...),
-		),
-		changePassword: connect.NewClient[v1.ChangePasswordRequest, v1.ChangePasswordResponse](
-			httpClient,
-			baseURL+AuthServiceChangePasswordProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ChangePassword")),
-			connect.WithClientOptions(opts...),
-		),
-		requestPasswordReset: connect.NewClient[v1.RequestPasswordResetRequest, v1.RequestPasswordResetResponse](
-			httpClient,
-			baseURL+AuthServiceRequestPasswordResetProcedure,
-			connect.WithSchema(authServiceMethods.ByName("RequestPasswordReset")),
-			connect.WithClientOptions(opts...),
-		),
-		confirmPasswordReset: connect.NewClient[v1.ConfirmPasswordResetRequest, v1.ConfirmPasswordResetResponse](
-			httpClient,
-			baseURL+AuthServiceConfirmPasswordResetProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ConfirmPasswordReset")),
-			connect.WithClientOptions(opts...),
-		),
-		startOIDCLogin: connect.NewClient[v1.StartOIDCLoginRequest, v1.StartOIDCLoginResponse](
-			httpClient,
-			baseURL+AuthServiceStartOIDCLoginProcedure,
-			connect.WithSchema(authServiceMethods.ByName("StartOIDCLogin")),
-			connect.WithClientOptions(opts...),
-		),
-		startOIDCLink: connect.NewClient[v1.StartOIDCLinkRequest, v1.StartOIDCLinkResponse](
-			httpClient,
-			baseURL+AuthServiceStartOIDCLinkProcedure,
-			connect.WithSchema(authServiceMethods.ByName("StartOIDCLink")),
-			connect.WithClientOptions(opts...),
-		),
-		unlinkOIDCIdentity: connect.NewClient[v1.UnlinkOIDCIdentityRequest, v1.UnlinkOIDCIdentityResponse](
-			httpClient,
-			baseURL+AuthServiceUnlinkOIDCIdentityProcedure,
-			connect.WithSchema(authServiceMethods.ByName("UnlinkOIDCIdentity")),
-			connect.WithClientOptions(opts...),
-		),
-		listLinkedIdentities: connect.NewClient[v1.ListLinkedIdentitiesRequest, v1.ListLinkedIdentitiesResponse](
-			httpClient,
-			baseURL+AuthServiceListLinkedIdentitiesProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ListLinkedIdentities")),
-			connect.WithClientOptions(opts...),
-		),
-		logout: connect.NewClient[v1.LogoutRequest, v1.LogoutResponse](
-			httpClient,
-			baseURL+AuthServiceLogoutProcedure,
-			connect.WithSchema(authServiceMethods.ByName("Logout")),
-			connect.WithClientOptions(opts...),
-		),
-		getCurrentUser: connect.NewClient[v1.GetCurrentUserRequest, v1.GetCurrentUserResponse](
-			httpClient,
-			baseURL+AuthServiceGetCurrentUserProcedure,
-			connect.WithSchema(authServiceMethods.ByName("GetCurrentUser")),
-			connect.WithClientOptions(opts...),
-		),
-		updateProfile: connect.NewClient[v1.UpdateProfileRequest, v1.UpdateProfileResponse](
-			httpClient,
-			baseURL+AuthServiceUpdateProfileProcedure,
-			connect.WithSchema(authServiceMethods.ByName("UpdateProfile")),
-			connect.WithClientOptions(opts...),
-		),
-		updateUserPreferences: connect.NewClient[v1.UpdateUserPreferencesRequest, v1.UpdateUserPreferencesResponse](
-			httpClient,
-			baseURL+AuthServiceUpdateUserPreferencesProcedure,
-			connect.WithSchema(authServiceMethods.ByName("UpdateUserPreferences")),
-			connect.WithClientOptions(opts...),
-		),
-		listSessions: connect.NewClient[v1.ListSessionsRequest, v1.ListSessionsResponse](
-			httpClient,
-			baseURL+AuthServiceListSessionsProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ListSessions")),
-			connect.WithClientOptions(opts...),
-		),
-		revokeSession: connect.NewClient[v1.RevokeSessionRequest, v1.RevokeSessionResponse](
-			httpClient,
-			baseURL+AuthServiceRevokeSessionProcedure,
-			connect.WithSchema(authServiceMethods.ByName("RevokeSession")),
-			connect.WithClientOptions(opts...),
-		),
-		createPersonalAccessToken: connect.NewClient[v1.CreatePersonalAccessTokenRequest, v1.CreatePersonalAccessTokenResponse](
-			httpClient,
-			baseURL+AuthServiceCreatePersonalAccessTokenProcedure,
-			connect.WithSchema(authServiceMethods.ByName("CreatePersonalAccessToken")),
-			connect.WithClientOptions(opts...),
-		),
-		listPersonalAccessTokens: connect.NewClient[v1.ListPersonalAccessTokensRequest, v1.ListPersonalAccessTokensResponse](
-			httpClient,
-			baseURL+AuthServiceListPersonalAccessTokensProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ListPersonalAccessTokens")),
-			connect.WithClientOptions(opts...),
-		),
-		revokePersonalAccessToken: connect.NewClient[v1.RevokePersonalAccessTokenRequest, v1.RevokePersonalAccessTokenResponse](
-			httpClient,
-			baseURL+AuthServiceRevokePersonalAccessTokenProcedure,
-			connect.WithSchema(authServiceMethods.ByName("RevokePersonalAccessToken")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// authServiceClient implements AuthServiceClient.
-type authServiceClient struct {
-	getLoginMethods           *connect.Client[v1.GetLoginMethodsRequest, v1.GetLoginMethodsResponse]
-	loginPassword             *connect.Client[v1.LoginPasswordRequest, v1.LoginPasswordResponse]
-	complete2FA               *connect.Client[v1.Complete2FARequest, v1.Complete2FAResponse]
-	register                  *connect.Client[v1.RegisterRequest, v1.RegisterResponse]
-	changePassword            *connect.Client[v1.ChangePasswordRequest, v1.ChangePasswordResponse]
-	requestPasswordReset      *connect.Client[v1.RequestPasswordResetRequest, v1.RequestPasswordResetResponse]
-	confirmPasswordReset      *connect.Client[v1.ConfirmPasswordResetRequest, v1.ConfirmPasswordResetResponse]
-	startOIDCLogin            *connect.Client[v1.StartOIDCLoginRequest, v1.StartOIDCLoginResponse]
-	startOIDCLink             *connect.Client[v1.StartOIDCLinkRequest, v1.StartOIDCLinkResponse]
-	unlinkOIDCIdentity        *connect.Client[v1.UnlinkOIDCIdentityRequest, v1.UnlinkOIDCIdentityResponse]
-	listLinkedIdentities      *connect.Client[v1.ListLinkedIdentitiesRequest, v1.ListLinkedIdentitiesResponse]
-	logout                    *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
-	getCurrentUser            *connect.Client[v1.GetCurrentUserRequest, v1.GetCurrentUserResponse]
-	updateProfile             *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
-	updateUserPreferences     *connect.Client[v1.UpdateUserPreferencesRequest, v1.UpdateUserPreferencesResponse]
-	listSessions              *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	revokeSession             *connect.Client[v1.RevokeSessionRequest, v1.RevokeSessionResponse]
-	createPersonalAccessToken *connect.Client[v1.CreatePersonalAccessTokenRequest, v1.CreatePersonalAccessTokenResponse]
-	listPersonalAccessTokens  *connect.Client[v1.ListPersonalAccessTokensRequest, v1.ListPersonalAccessTokensResponse]
-	revokePersonalAccessToken *connect.Client[v1.RevokePersonalAccessTokenRequest, v1.RevokePersonalAccessTokenResponse]
-}
-
-// GetLoginMethods calls cairn.v1.AuthService.GetLoginMethods.
-func (c *authServiceClient) GetLoginMethods(ctx context.Context, req *connect.Request[v1.GetLoginMethodsRequest]) (*connect.Response[v1.GetLoginMethodsResponse], error) {
-	return c.getLoginMethods.CallUnary(ctx, req)
-}
-
-// LoginPassword calls cairn.v1.AuthService.LoginPassword.
-func (c *authServiceClient) LoginPassword(ctx context.Context, req *connect.Request[v1.LoginPasswordRequest]) (*connect.Response[v1.LoginPasswordResponse], error) {
-	return c.loginPassword.CallUnary(ctx, req)
-}
-
-// Complete2FA calls cairn.v1.AuthService.Complete2FA.
-func (c *authServiceClient) Complete2FA(ctx context.Context, req *connect.Request[v1.Complete2FARequest]) (*connect.Response[v1.Complete2FAResponse], error) {
-	return c.complete2FA.CallUnary(ctx, req)
-}
-
-// Register calls cairn.v1.AuthService.Register.
-func (c *authServiceClient) Register(ctx context.Context, req *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
-	return c.register.CallUnary(ctx, req)
-}
-
-// ChangePassword calls cairn.v1.AuthService.ChangePassword.
-func (c *authServiceClient) ChangePassword(ctx context.Context, req *connect.Request[v1.ChangePasswordRequest]) (*connect.Response[v1.ChangePasswordResponse], error) {
-	return c.changePassword.CallUnary(ctx, req)
-}
-
-// RequestPasswordReset calls cairn.v1.AuthService.RequestPasswordReset.
-func (c *authServiceClient) RequestPasswordReset(ctx context.Context, req *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error) {
-	return c.requestPasswordReset.CallUnary(ctx, req)
-}
-
-// ConfirmPasswordReset calls cairn.v1.AuthService.ConfirmPasswordReset.
-func (c *authServiceClient) ConfirmPasswordReset(ctx context.Context, req *connect.Request[v1.ConfirmPasswordResetRequest]) (*connect.Response[v1.ConfirmPasswordResetResponse], error) {
-	return c.confirmPasswordReset.CallUnary(ctx, req)
-}
-
-// StartOIDCLogin calls cairn.v1.AuthService.StartOIDCLogin.
-func (c *authServiceClient) StartOIDCLogin(ctx context.Context, req *connect.Request[v1.StartOIDCLoginRequest]) (*connect.Response[v1.StartOIDCLoginResponse], error) {
-	return c.startOIDCLogin.CallUnary(ctx, req)
-}
-
-// StartOIDCLink calls cairn.v1.AuthService.StartOIDCLink.
-func (c *authServiceClient) StartOIDCLink(ctx context.Context, req *connect.Request[v1.StartOIDCLinkRequest]) (*connect.Response[v1.StartOIDCLinkResponse], error) {
-	return c.startOIDCLink.CallUnary(ctx, req)
-}
-
-// UnlinkOIDCIdentity calls cairn.v1.AuthService.UnlinkOIDCIdentity.
-func (c *authServiceClient) UnlinkOIDCIdentity(ctx context.Context, req *connect.Request[v1.UnlinkOIDCIdentityRequest]) (*connect.Response[v1.UnlinkOIDCIdentityResponse], error) {
-	return c.unlinkOIDCIdentity.CallUnary(ctx, req)
-}
-
-// ListLinkedIdentities calls cairn.v1.AuthService.ListLinkedIdentities.
-func (c *authServiceClient) ListLinkedIdentities(ctx context.Context, req *connect.Request[v1.ListLinkedIdentitiesRequest]) (*connect.Response[v1.ListLinkedIdentitiesResponse], error) {
-	return c.listLinkedIdentities.CallUnary(ctx, req)
-}
-
-// Logout calls cairn.v1.AuthService.Logout.
-func (c *authServiceClient) Logout(ctx context.Context, req *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
-	return c.logout.CallUnary(ctx, req)
-}
-
-// GetCurrentUser calls cairn.v1.AuthService.GetCurrentUser.
-func (c *authServiceClient) GetCurrentUser(ctx context.Context, req *connect.Request[v1.GetCurrentUserRequest]) (*connect.Response[v1.GetCurrentUserResponse], error) {
-	return c.getCurrentUser.CallUnary(ctx, req)
-}
-
-// UpdateProfile calls cairn.v1.AuthService.UpdateProfile.
-func (c *authServiceClient) UpdateProfile(ctx context.Context, req *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error) {
-	return c.updateProfile.CallUnary(ctx, req)
-}
-
-// UpdateUserPreferences calls cairn.v1.AuthService.UpdateUserPreferences.
-func (c *authServiceClient) UpdateUserPreferences(ctx context.Context, req *connect.Request[v1.UpdateUserPreferencesRequest]) (*connect.Response[v1.UpdateUserPreferencesResponse], error) {
-	return c.updateUserPreferences.CallUnary(ctx, req)
-}
-
-// ListSessions calls cairn.v1.AuthService.ListSessions.
-func (c *authServiceClient) ListSessions(ctx context.Context, req *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
-	return c.listSessions.CallUnary(ctx, req)
-}
-
-// RevokeSession calls cairn.v1.AuthService.RevokeSession.
-func (c *authServiceClient) RevokeSession(ctx context.Context, req *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error) {
-	return c.revokeSession.CallUnary(ctx, req)
-}
-
-// CreatePersonalAccessToken calls cairn.v1.AuthService.CreatePersonalAccessToken.
-func (c *authServiceClient) CreatePersonalAccessToken(ctx context.Context, req *connect.Request[v1.CreatePersonalAccessTokenRequest]) (*connect.Response[v1.CreatePersonalAccessTokenResponse], error) {
-	return c.createPersonalAccessToken.CallUnary(ctx, req)
-}
-
-// ListPersonalAccessTokens calls cairn.v1.AuthService.ListPersonalAccessTokens.
-func (c *authServiceClient) ListPersonalAccessTokens(ctx context.Context, req *connect.Request[v1.ListPersonalAccessTokensRequest]) (*connect.Response[v1.ListPersonalAccessTokensResponse], error) {
-	return c.listPersonalAccessTokens.CallUnary(ctx, req)
-}
-
-// RevokePersonalAccessToken calls cairn.v1.AuthService.RevokePersonalAccessToken.
-func (c *authServiceClient) RevokePersonalAccessToken(ctx context.Context, req *connect.Request[v1.RevokePersonalAccessTokenRequest]) (*connect.Response[v1.RevokePersonalAccessTokenResponse], error) {
-	return c.revokePersonalAccessToken.CallUnary(ctx, req)
+// NewAuthServiceClient constructs a client for the cairn.v1.AuthService service. Multiple service
+// clients may share a single connect.Client.
+func NewAuthServiceClient(client *connect.Client) AuthServiceClient {
+	return &authServiceClient{client: client}
 }
 
 // AuthServiceHandler is an implementation of the cairn.v1.AuthService service.
 type AuthServiceHandler interface {
 	// List enabled login methods for the login screen, including OIDC clients.
 	// Public; no auth required.
-	GetLoginMethods(context.Context, *connect.Request[v1.GetLoginMethodsRequest]) (*connect.Response[v1.GetLoginMethodsResponse], error)
+	GetLoginMethods(context.Context, *v1.GetLoginMethodsRequest) (*v1.GetLoginMethodsResponse, error)
 	// Username + password. Returns a session token or a 2FA challenge if
 	// the account has WebAuthn enabled as a second factor.
-	LoginPassword(context.Context, *connect.Request[v1.LoginPasswordRequest]) (*connect.Response[v1.LoginPasswordResponse], error)
+	LoginPassword(context.Context, *v1.LoginPasswordRequest) (*v1.LoginPasswordResponse, error)
 	// Complete a 2FA challenge after LoginPassword.
-	Complete2FA(context.Context, *connect.Request[v1.Complete2FARequest]) (*connect.Response[v1.Complete2FAResponse], error)
+	Complete2FA(context.Context, *v1.Complete2FARequest) (*v1.Complete2FAResponse, error)
 	// Register a new local user. May require invite code per instance policy.
-	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
+	Register(context.Context, *v1.RegisterRequest) (*v1.RegisterResponse, error)
 	// Change password (requires current password).
-	ChangePassword(context.Context, *connect.Request[v1.ChangePasswordRequest]) (*connect.Response[v1.ChangePasswordResponse], error)
+	ChangePassword(context.Context, *v1.ChangePasswordRequest) (*v1.ChangePasswordResponse, error)
 	// Initiate password reset (sends email if SMTP configured).
-	RequestPasswordReset(context.Context, *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error)
+	RequestPasswordReset(context.Context, *v1.RequestPasswordResetRequest) (*v1.RequestPasswordResetResponse, error)
 	// Complete password reset using a token from the email.
-	ConfirmPasswordReset(context.Context, *connect.Request[v1.ConfirmPasswordResetRequest]) (*connect.Response[v1.ConfirmPasswordResetResponse], error)
+	ConfirmPasswordReset(context.Context, *v1.ConfirmPasswordResetRequest) (*v1.ConfirmPasswordResetResponse, error)
 	// Begin OIDC login: returns an authorize URL the client redirects to.
 	// The state cookie is set on the response automatically.
-	StartOIDCLogin(context.Context, *connect.Request[v1.StartOIDCLoginRequest]) (*connect.Response[v1.StartOIDCLoginResponse], error)
+	StartOIDCLogin(context.Context, *v1.StartOIDCLoginRequest) (*v1.StartOIDCLoginResponse, error)
 	// Link an additional OIDC identity to the currently authenticated user.
-	StartOIDCLink(context.Context, *connect.Request[v1.StartOIDCLinkRequest]) (*connect.Response[v1.StartOIDCLinkResponse], error)
+	StartOIDCLink(context.Context, *v1.StartOIDCLinkRequest) (*v1.StartOIDCLinkResponse, error)
 	// Unlink an OIDC identity. Cannot unlink the last credential.
-	UnlinkOIDCIdentity(context.Context, *connect.Request[v1.UnlinkOIDCIdentityRequest]) (*connect.Response[v1.UnlinkOIDCIdentityResponse], error)
-	ListLinkedIdentities(context.Context, *connect.Request[v1.ListLinkedIdentitiesRequest]) (*connect.Response[v1.ListLinkedIdentitiesResponse], error)
-	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
-	GetCurrentUser(context.Context, *connect.Request[v1.GetCurrentUserRequest]) (*connect.Response[v1.GetCurrentUserResponse], error)
-	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
+	UnlinkOIDCIdentity(context.Context, *v1.UnlinkOIDCIdentityRequest) (*v1.UnlinkOIDCIdentityResponse, error)
+	ListLinkedIdentities(context.Context, *v1.ListLinkedIdentitiesRequest) (*v1.ListLinkedIdentitiesResponse, error)
+	Logout(context.Context, *v1.LogoutRequest) (*v1.LogoutResponse, error)
+	GetCurrentUser(context.Context, *v1.GetCurrentUserRequest) (*v1.GetCurrentUserResponse, error)
+	UpdateProfile(context.Context, *v1.UpdateProfileRequest) (*v1.UpdateProfileResponse, error)
 	// Update the caller's display-format preferences (date/time/units). Applies
 	// site-wide on every client (web + mobile); clients re-read on change.
-	UpdateUserPreferences(context.Context, *connect.Request[v1.UpdateUserPreferencesRequest]) (*connect.Response[v1.UpdateUserPreferencesResponse], error)
-	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
-	RevokeSession(context.Context, *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error)
-	CreatePersonalAccessToken(context.Context, *connect.Request[v1.CreatePersonalAccessTokenRequest]) (*connect.Response[v1.CreatePersonalAccessTokenResponse], error)
-	ListPersonalAccessTokens(context.Context, *connect.Request[v1.ListPersonalAccessTokensRequest]) (*connect.Response[v1.ListPersonalAccessTokensResponse], error)
-	RevokePersonalAccessToken(context.Context, *connect.Request[v1.RevokePersonalAccessTokenRequest]) (*connect.Response[v1.RevokePersonalAccessTokenResponse], error)
+	UpdateUserPreferences(context.Context, *v1.UpdateUserPreferencesRequest) (*v1.UpdateUserPreferencesResponse, error)
+	ListSessions(context.Context, *v1.ListSessionsRequest) (*v1.ListSessionsResponse, error)
+	RevokeSession(context.Context, *v1.RevokeSessionRequest) (*v1.RevokeSessionResponse, error)
+	CreatePersonalAccessToken(context.Context, *v1.CreatePersonalAccessTokenRequest) (*v1.CreatePersonalAccessTokenResponse, error)
+	ListPersonalAccessTokens(context.Context, *v1.ListPersonalAccessTokensRequest) (*v1.ListPersonalAccessTokensResponse, error)
+	RevokePersonalAccessToken(context.Context, *v1.RevokePersonalAccessTokenRequest) (*v1.RevokePersonalAccessTokenResponse, error)
 }
 
-// NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
-// on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	authServiceMethods := v1.File_cairn_v1_auth_proto.Services().ByName("AuthService").Methods()
-	authServiceGetLoginMethodsHandler := connect.NewUnaryHandler(
-		AuthServiceGetLoginMethodsProcedure,
-		svc.GetLoginMethods,
-		connect.WithSchema(authServiceMethods.ByName("GetLoginMethods")),
-		connect.WithHandlerOptions(opts...),
+// RegisterAuthServiceHandler registers svc as the cairn.v1.AuthService implementation on server.
+func RegisterAuthServiceHandler(server *connect.Server, svc AuthServiceHandler) {
+	adapter := authServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: authServiceGetLoginMethodsSpec(), Handler: adapter.getLoginMethods},
+		connect.Method{Spec: authServiceLoginPasswordSpec(), Handler: adapter.loginPassword},
+		connect.Method{Spec: authServiceComplete2FASpec(), Handler: adapter.complete2FA},
+		connect.Method{Spec: authServiceRegisterSpec(), Handler: adapter.register},
+		connect.Method{Spec: authServiceChangePasswordSpec(), Handler: adapter.changePassword},
+		connect.Method{Spec: authServiceRequestPasswordResetSpec(), Handler: adapter.requestPasswordReset},
+		connect.Method{Spec: authServiceConfirmPasswordResetSpec(), Handler: adapter.confirmPasswordReset},
+		connect.Method{Spec: authServiceStartOIDCLoginSpec(), Handler: adapter.startOIDCLogin},
+		connect.Method{Spec: authServiceStartOIDCLinkSpec(), Handler: adapter.startOIDCLink},
+		connect.Method{Spec: authServiceUnlinkOIDCIdentitySpec(), Handler: adapter.unlinkOIDCIdentity},
+		connect.Method{Spec: authServiceListLinkedIdentitiesSpec(), Handler: adapter.listLinkedIdentities},
+		connect.Method{Spec: authServiceLogoutSpec(), Handler: adapter.logout},
+		connect.Method{Spec: authServiceGetCurrentUserSpec(), Handler: adapter.getCurrentUser},
+		connect.Method{Spec: authServiceUpdateProfileSpec(), Handler: adapter.updateProfile},
+		connect.Method{Spec: authServiceUpdateUserPreferencesSpec(), Handler: adapter.updateUserPreferences},
+		connect.Method{Spec: authServiceListSessionsSpec(), Handler: adapter.listSessions},
+		connect.Method{Spec: authServiceRevokeSessionSpec(), Handler: adapter.revokeSession},
+		connect.Method{Spec: authServiceCreatePersonalAccessTokenSpec(), Handler: adapter.createPersonalAccessToken},
+		connect.Method{Spec: authServiceListPersonalAccessTokensSpec(), Handler: adapter.listPersonalAccessTokens},
+		connect.Method{Spec: authServiceRevokePersonalAccessTokenSpec(), Handler: adapter.revokePersonalAccessToken},
 	)
-	authServiceLoginPasswordHandler := connect.NewUnaryHandler(
-		AuthServiceLoginPasswordProcedure,
-		svc.LoginPassword,
-		connect.WithSchema(authServiceMethods.ByName("LoginPassword")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceComplete2FAHandler := connect.NewUnaryHandler(
-		AuthServiceComplete2FAProcedure,
-		svc.Complete2FA,
-		connect.WithSchema(authServiceMethods.ByName("Complete2FA")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceRegisterHandler := connect.NewUnaryHandler(
-		AuthServiceRegisterProcedure,
-		svc.Register,
-		connect.WithSchema(authServiceMethods.ByName("Register")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceChangePasswordHandler := connect.NewUnaryHandler(
-		AuthServiceChangePasswordProcedure,
-		svc.ChangePassword,
-		connect.WithSchema(authServiceMethods.ByName("ChangePassword")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceRequestPasswordResetHandler := connect.NewUnaryHandler(
-		AuthServiceRequestPasswordResetProcedure,
-		svc.RequestPasswordReset,
-		connect.WithSchema(authServiceMethods.ByName("RequestPasswordReset")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceConfirmPasswordResetHandler := connect.NewUnaryHandler(
-		AuthServiceConfirmPasswordResetProcedure,
-		svc.ConfirmPasswordReset,
-		connect.WithSchema(authServiceMethods.ByName("ConfirmPasswordReset")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceStartOIDCLoginHandler := connect.NewUnaryHandler(
-		AuthServiceStartOIDCLoginProcedure,
-		svc.StartOIDCLogin,
-		connect.WithSchema(authServiceMethods.ByName("StartOIDCLogin")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceStartOIDCLinkHandler := connect.NewUnaryHandler(
-		AuthServiceStartOIDCLinkProcedure,
-		svc.StartOIDCLink,
-		connect.WithSchema(authServiceMethods.ByName("StartOIDCLink")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceUnlinkOIDCIdentityHandler := connect.NewUnaryHandler(
-		AuthServiceUnlinkOIDCIdentityProcedure,
-		svc.UnlinkOIDCIdentity,
-		connect.WithSchema(authServiceMethods.ByName("UnlinkOIDCIdentity")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceListLinkedIdentitiesHandler := connect.NewUnaryHandler(
-		AuthServiceListLinkedIdentitiesProcedure,
-		svc.ListLinkedIdentities,
-		connect.WithSchema(authServiceMethods.ByName("ListLinkedIdentities")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceLogoutHandler := connect.NewUnaryHandler(
-		AuthServiceLogoutProcedure,
-		svc.Logout,
-		connect.WithSchema(authServiceMethods.ByName("Logout")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceGetCurrentUserHandler := connect.NewUnaryHandler(
-		AuthServiceGetCurrentUserProcedure,
-		svc.GetCurrentUser,
-		connect.WithSchema(authServiceMethods.ByName("GetCurrentUser")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceUpdateProfileHandler := connect.NewUnaryHandler(
-		AuthServiceUpdateProfileProcedure,
-		svc.UpdateProfile,
-		connect.WithSchema(authServiceMethods.ByName("UpdateProfile")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceUpdateUserPreferencesHandler := connect.NewUnaryHandler(
-		AuthServiceUpdateUserPreferencesProcedure,
-		svc.UpdateUserPreferences,
-		connect.WithSchema(authServiceMethods.ByName("UpdateUserPreferences")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceListSessionsHandler := connect.NewUnaryHandler(
-		AuthServiceListSessionsProcedure,
-		svc.ListSessions,
-		connect.WithSchema(authServiceMethods.ByName("ListSessions")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceRevokeSessionHandler := connect.NewUnaryHandler(
-		AuthServiceRevokeSessionProcedure,
-		svc.RevokeSession,
-		connect.WithSchema(authServiceMethods.ByName("RevokeSession")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceCreatePersonalAccessTokenHandler := connect.NewUnaryHandler(
-		AuthServiceCreatePersonalAccessTokenProcedure,
-		svc.CreatePersonalAccessToken,
-		connect.WithSchema(authServiceMethods.ByName("CreatePersonalAccessToken")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceListPersonalAccessTokensHandler := connect.NewUnaryHandler(
-		AuthServiceListPersonalAccessTokensProcedure,
-		svc.ListPersonalAccessTokens,
-		connect.WithSchema(authServiceMethods.ByName("ListPersonalAccessTokens")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceRevokePersonalAccessTokenHandler := connect.NewUnaryHandler(
-		AuthServiceRevokePersonalAccessTokenProcedure,
-		svc.RevokePersonalAccessToken,
-		connect.WithSchema(authServiceMethods.ByName("RevokePersonalAccessToken")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/cairn.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case AuthServiceGetLoginMethodsProcedure:
-			authServiceGetLoginMethodsHandler.ServeHTTP(w, r)
-		case AuthServiceLoginPasswordProcedure:
-			authServiceLoginPasswordHandler.ServeHTTP(w, r)
-		case AuthServiceComplete2FAProcedure:
-			authServiceComplete2FAHandler.ServeHTTP(w, r)
-		case AuthServiceRegisterProcedure:
-			authServiceRegisterHandler.ServeHTTP(w, r)
-		case AuthServiceChangePasswordProcedure:
-			authServiceChangePasswordHandler.ServeHTTP(w, r)
-		case AuthServiceRequestPasswordResetProcedure:
-			authServiceRequestPasswordResetHandler.ServeHTTP(w, r)
-		case AuthServiceConfirmPasswordResetProcedure:
-			authServiceConfirmPasswordResetHandler.ServeHTTP(w, r)
-		case AuthServiceStartOIDCLoginProcedure:
-			authServiceStartOIDCLoginHandler.ServeHTTP(w, r)
-		case AuthServiceStartOIDCLinkProcedure:
-			authServiceStartOIDCLinkHandler.ServeHTTP(w, r)
-		case AuthServiceUnlinkOIDCIdentityProcedure:
-			authServiceUnlinkOIDCIdentityHandler.ServeHTTP(w, r)
-		case AuthServiceListLinkedIdentitiesProcedure:
-			authServiceListLinkedIdentitiesHandler.ServeHTTP(w, r)
-		case AuthServiceLogoutProcedure:
-			authServiceLogoutHandler.ServeHTTP(w, r)
-		case AuthServiceGetCurrentUserProcedure:
-			authServiceGetCurrentUserHandler.ServeHTTP(w, r)
-		case AuthServiceUpdateProfileProcedure:
-			authServiceUpdateProfileHandler.ServeHTTP(w, r)
-		case AuthServiceUpdateUserPreferencesProcedure:
-			authServiceUpdateUserPreferencesHandler.ServeHTTP(w, r)
-		case AuthServiceListSessionsProcedure:
-			authServiceListSessionsHandler.ServeHTTP(w, r)
-		case AuthServiceRevokeSessionProcedure:
-			authServiceRevokeSessionHandler.ServeHTTP(w, r)
-		case AuthServiceCreatePersonalAccessTokenProcedure:
-			authServiceCreatePersonalAccessTokenHandler.ServeHTTP(w, r)
-		case AuthServiceListPersonalAccessTokensProcedure:
-			authServiceListPersonalAccessTokensHandler.ServeHTTP(w, r)
-		case AuthServiceRevokePersonalAccessTokenProcedure:
-			authServiceRevokePersonalAccessTokenHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedAuthServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAuthServiceHandler struct{}
 
-func (UnimplementedAuthServiceHandler) GetLoginMethods(context.Context, *connect.Request[v1.GetLoginMethodsRequest]) (*connect.Response[v1.GetLoginMethodsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.GetLoginMethods is not implemented"))
+func (UnimplementedAuthServiceHandler) GetLoginMethods(context.Context, *v1.GetLoginMethodsRequest) (*v1.GetLoginMethodsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.GetLoginMethods is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) LoginPassword(context.Context, *connect.Request[v1.LoginPasswordRequest]) (*connect.Response[v1.LoginPasswordResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.LoginPassword is not implemented"))
+func (UnimplementedAuthServiceHandler) LoginPassword(context.Context, *v1.LoginPasswordRequest) (*v1.LoginPasswordResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.LoginPassword is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) Complete2FA(context.Context, *connect.Request[v1.Complete2FARequest]) (*connect.Response[v1.Complete2FAResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.Complete2FA is not implemented"))
+func (UnimplementedAuthServiceHandler) Complete2FA(context.Context, *v1.Complete2FARequest) (*v1.Complete2FAResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.Complete2FA is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.Register is not implemented"))
+func (UnimplementedAuthServiceHandler) Register(context.Context, *v1.RegisterRequest) (*v1.RegisterResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.Register is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ChangePassword(context.Context, *connect.Request[v1.ChangePasswordRequest]) (*connect.Response[v1.ChangePasswordResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.ChangePassword is not implemented"))
+func (UnimplementedAuthServiceHandler) ChangePassword(context.Context, *v1.ChangePasswordRequest) (*v1.ChangePasswordResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.ChangePassword is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) RequestPasswordReset(context.Context, *connect.Request[v1.RequestPasswordResetRequest]) (*connect.Response[v1.RequestPasswordResetResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.RequestPasswordReset is not implemented"))
+func (UnimplementedAuthServiceHandler) RequestPasswordReset(context.Context, *v1.RequestPasswordResetRequest) (*v1.RequestPasswordResetResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.RequestPasswordReset is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ConfirmPasswordReset(context.Context, *connect.Request[v1.ConfirmPasswordResetRequest]) (*connect.Response[v1.ConfirmPasswordResetResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.ConfirmPasswordReset is not implemented"))
+func (UnimplementedAuthServiceHandler) ConfirmPasswordReset(context.Context, *v1.ConfirmPasswordResetRequest) (*v1.ConfirmPasswordResetResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.ConfirmPasswordReset is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) StartOIDCLogin(context.Context, *connect.Request[v1.StartOIDCLoginRequest]) (*connect.Response[v1.StartOIDCLoginResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.StartOIDCLogin is not implemented"))
+func (UnimplementedAuthServiceHandler) StartOIDCLogin(context.Context, *v1.StartOIDCLoginRequest) (*v1.StartOIDCLoginResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.StartOIDCLogin is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) StartOIDCLink(context.Context, *connect.Request[v1.StartOIDCLinkRequest]) (*connect.Response[v1.StartOIDCLinkResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.StartOIDCLink is not implemented"))
+func (UnimplementedAuthServiceHandler) StartOIDCLink(context.Context, *v1.StartOIDCLinkRequest) (*v1.StartOIDCLinkResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.StartOIDCLink is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) UnlinkOIDCIdentity(context.Context, *connect.Request[v1.UnlinkOIDCIdentityRequest]) (*connect.Response[v1.UnlinkOIDCIdentityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.UnlinkOIDCIdentity is not implemented"))
+func (UnimplementedAuthServiceHandler) UnlinkOIDCIdentity(context.Context, *v1.UnlinkOIDCIdentityRequest) (*v1.UnlinkOIDCIdentityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.UnlinkOIDCIdentity is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ListLinkedIdentities(context.Context, *connect.Request[v1.ListLinkedIdentitiesRequest]) (*connect.Response[v1.ListLinkedIdentitiesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.ListLinkedIdentities is not implemented"))
+func (UnimplementedAuthServiceHandler) ListLinkedIdentities(context.Context, *v1.ListLinkedIdentitiesRequest) (*v1.ListLinkedIdentitiesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.ListLinkedIdentities is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.Logout is not implemented"))
+func (UnimplementedAuthServiceHandler) Logout(context.Context, *v1.LogoutRequest) (*v1.LogoutResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.Logout is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) GetCurrentUser(context.Context, *connect.Request[v1.GetCurrentUserRequest]) (*connect.Response[v1.GetCurrentUserResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.GetCurrentUser is not implemented"))
+func (UnimplementedAuthServiceHandler) GetCurrentUser(context.Context, *v1.GetCurrentUserRequest) (*v1.GetCurrentUserResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.GetCurrentUser is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.UpdateProfile is not implemented"))
+func (UnimplementedAuthServiceHandler) UpdateProfile(context.Context, *v1.UpdateProfileRequest) (*v1.UpdateProfileResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.UpdateProfile is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) UpdateUserPreferences(context.Context, *connect.Request[v1.UpdateUserPreferencesRequest]) (*connect.Response[v1.UpdateUserPreferencesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.UpdateUserPreferences is not implemented"))
+func (UnimplementedAuthServiceHandler) UpdateUserPreferences(context.Context, *v1.UpdateUserPreferencesRequest) (*v1.UpdateUserPreferencesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.UpdateUserPreferences is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.ListSessions is not implemented"))
+func (UnimplementedAuthServiceHandler) ListSessions(context.Context, *v1.ListSessionsRequest) (*v1.ListSessionsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.ListSessions is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) RevokeSession(context.Context, *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.RevokeSession is not implemented"))
+func (UnimplementedAuthServiceHandler) RevokeSession(context.Context, *v1.RevokeSessionRequest) (*v1.RevokeSessionResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.RevokeSession is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) CreatePersonalAccessToken(context.Context, *connect.Request[v1.CreatePersonalAccessTokenRequest]) (*connect.Response[v1.CreatePersonalAccessTokenResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.CreatePersonalAccessToken is not implemented"))
+func (UnimplementedAuthServiceHandler) CreatePersonalAccessToken(context.Context, *v1.CreatePersonalAccessTokenRequest) (*v1.CreatePersonalAccessTokenResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.CreatePersonalAccessToken is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ListPersonalAccessTokens(context.Context, *connect.Request[v1.ListPersonalAccessTokensRequest]) (*connect.Response[v1.ListPersonalAccessTokensResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.ListPersonalAccessTokens is not implemented"))
+func (UnimplementedAuthServiceHandler) ListPersonalAccessTokens(context.Context, *v1.ListPersonalAccessTokensRequest) (*v1.ListPersonalAccessTokensResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.ListPersonalAccessTokens is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) RevokePersonalAccessToken(context.Context, *connect.Request[v1.RevokePersonalAccessTokenRequest]) (*connect.Response[v1.RevokePersonalAccessTokenResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AuthService.RevokePersonalAccessToken is not implemented"))
+func (UnimplementedAuthServiceHandler) RevokePersonalAccessToken(context.Context, *v1.RevokePersonalAccessTokenRequest) (*v1.RevokePersonalAccessTokenResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AuthService.RevokePersonalAccessToken is not implemented")
 }
+
+type authServiceClient struct {
+	client *connect.Client
+}
+
+func (c *authServiceClient) GetLoginMethods(ctx context.Context, req *v1.GetLoginMethodsRequest) (*v1.GetLoginMethodsResponse, error) {
+	var res v1.GetLoginMethodsResponse
+	if err := c.client.CallUnary(ctx, authServiceGetLoginMethodsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) LoginPassword(ctx context.Context, req *v1.LoginPasswordRequest) (*v1.LoginPasswordResponse, error) {
+	var res v1.LoginPasswordResponse
+	if err := c.client.CallUnary(ctx, authServiceLoginPasswordSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) Complete2FA(ctx context.Context, req *v1.Complete2FARequest) (*v1.Complete2FAResponse, error) {
+	var res v1.Complete2FAResponse
+	if err := c.client.CallUnary(ctx, authServiceComplete2FASpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) Register(ctx context.Context, req *v1.RegisterRequest) (*v1.RegisterResponse, error) {
+	var res v1.RegisterResponse
+	if err := c.client.CallUnary(ctx, authServiceRegisterSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ChangePassword(ctx context.Context, req *v1.ChangePasswordRequest) (*v1.ChangePasswordResponse, error) {
+	var res v1.ChangePasswordResponse
+	if err := c.client.CallUnary(ctx, authServiceChangePasswordSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) RequestPasswordReset(ctx context.Context, req *v1.RequestPasswordResetRequest) (*v1.RequestPasswordResetResponse, error) {
+	var res v1.RequestPasswordResetResponse
+	if err := c.client.CallUnary(ctx, authServiceRequestPasswordResetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ConfirmPasswordReset(ctx context.Context, req *v1.ConfirmPasswordResetRequest) (*v1.ConfirmPasswordResetResponse, error) {
+	var res v1.ConfirmPasswordResetResponse
+	if err := c.client.CallUnary(ctx, authServiceConfirmPasswordResetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) StartOIDCLogin(ctx context.Context, req *v1.StartOIDCLoginRequest) (*v1.StartOIDCLoginResponse, error) {
+	var res v1.StartOIDCLoginResponse
+	if err := c.client.CallUnary(ctx, authServiceStartOIDCLoginSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) StartOIDCLink(ctx context.Context, req *v1.StartOIDCLinkRequest) (*v1.StartOIDCLinkResponse, error) {
+	var res v1.StartOIDCLinkResponse
+	if err := c.client.CallUnary(ctx, authServiceStartOIDCLinkSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) UnlinkOIDCIdentity(ctx context.Context, req *v1.UnlinkOIDCIdentityRequest) (*v1.UnlinkOIDCIdentityResponse, error) {
+	var res v1.UnlinkOIDCIdentityResponse
+	if err := c.client.CallUnary(ctx, authServiceUnlinkOIDCIdentitySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ListLinkedIdentities(ctx context.Context, req *v1.ListLinkedIdentitiesRequest) (*v1.ListLinkedIdentitiesResponse, error) {
+	var res v1.ListLinkedIdentitiesResponse
+	if err := c.client.CallUnary(ctx, authServiceListLinkedIdentitiesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) Logout(ctx context.Context, req *v1.LogoutRequest) (*v1.LogoutResponse, error) {
+	var res v1.LogoutResponse
+	if err := c.client.CallUnary(ctx, authServiceLogoutSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) GetCurrentUser(ctx context.Context, req *v1.GetCurrentUserRequest) (*v1.GetCurrentUserResponse, error) {
+	var res v1.GetCurrentUserResponse
+	if err := c.client.CallUnary(ctx, authServiceGetCurrentUserSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) UpdateProfile(ctx context.Context, req *v1.UpdateProfileRequest) (*v1.UpdateProfileResponse, error) {
+	var res v1.UpdateProfileResponse
+	if err := c.client.CallUnary(ctx, authServiceUpdateProfileSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) UpdateUserPreferences(ctx context.Context, req *v1.UpdateUserPreferencesRequest) (*v1.UpdateUserPreferencesResponse, error) {
+	var res v1.UpdateUserPreferencesResponse
+	if err := c.client.CallUnary(ctx, authServiceUpdateUserPreferencesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ListSessions(ctx context.Context, req *v1.ListSessionsRequest) (*v1.ListSessionsResponse, error) {
+	var res v1.ListSessionsResponse
+	if err := c.client.CallUnary(ctx, authServiceListSessionsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) RevokeSession(ctx context.Context, req *v1.RevokeSessionRequest) (*v1.RevokeSessionResponse, error) {
+	var res v1.RevokeSessionResponse
+	if err := c.client.CallUnary(ctx, authServiceRevokeSessionSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) CreatePersonalAccessToken(ctx context.Context, req *v1.CreatePersonalAccessTokenRequest) (*v1.CreatePersonalAccessTokenResponse, error) {
+	var res v1.CreatePersonalAccessTokenResponse
+	if err := c.client.CallUnary(ctx, authServiceCreatePersonalAccessTokenSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ListPersonalAccessTokens(ctx context.Context, req *v1.ListPersonalAccessTokensRequest) (*v1.ListPersonalAccessTokensResponse, error) {
+	var res v1.ListPersonalAccessTokensResponse
+	if err := c.client.CallUnary(ctx, authServiceListPersonalAccessTokensSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) RevokePersonalAccessToken(ctx context.Context, req *v1.RevokePersonalAccessTokenRequest) (*v1.RevokePersonalAccessTokenResponse, error) {
+	var res v1.RevokePersonalAccessTokenResponse
+	if err := c.client.CallUnary(ctx, authServiceRevokePersonalAccessTokenSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type authServiceHandler struct{ svc AuthServiceHandler }
+
+func (h authServiceHandler) getLoginMethods(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetLoginMethodsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetLoginMethods(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) loginPassword(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.LoginPasswordRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.LoginPassword(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) complete2FA(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.Complete2FARequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Complete2FA(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) register(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RegisterRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Register(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) changePassword(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ChangePasswordRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ChangePassword(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) requestPasswordReset(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RequestPasswordResetRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RequestPasswordReset(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) confirmPasswordReset(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ConfirmPasswordResetRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ConfirmPasswordReset(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) startOIDCLogin(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StartOIDCLoginRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.StartOIDCLogin(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) startOIDCLink(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StartOIDCLinkRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.StartOIDCLink(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) unlinkOIDCIdentity(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UnlinkOIDCIdentityRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UnlinkOIDCIdentity(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) listLinkedIdentities(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListLinkedIdentitiesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListLinkedIdentities(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) logout(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.LogoutRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Logout(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) getCurrentUser(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetCurrentUserRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetCurrentUser(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) updateProfile(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateProfileRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateProfile(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) updateUserPreferences(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateUserPreferencesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateUserPreferences(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) listSessions(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListSessionsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListSessions(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) revokeSession(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RevokeSessionRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RevokeSession(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) createPersonalAccessToken(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreatePersonalAccessTokenRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreatePersonalAccessToken(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) listPersonalAccessTokens(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListPersonalAccessTokensRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListPersonalAccessTokens(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) revokePersonalAccessToken(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RevokePersonalAccessTokenRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RevokePersonalAccessToken(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+var (
+	externalAccountServiceListExternalAccountsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("ListExternalAccounts"),
+			Procedure:  ExternalAccountServiceListExternalAccountsProcedure,
+		}
+	})
+	externalAccountServiceListAvailableProvidersSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("ListAvailableProviders"),
+			Procedure:  ExternalAccountServiceListAvailableProvidersProcedure,
+		}
+	})
+	externalAccountServiceCreateExternalAccountSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("CreateExternalAccount"),
+			Procedure:  ExternalAccountServiceCreateExternalAccountProcedure,
+		}
+	})
+	externalAccountServiceUpdateExternalAccountConfigSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("UpdateExternalAccountConfig"),
+			Procedure:  ExternalAccountServiceUpdateExternalAccountConfigProcedure,
+		}
+	})
+	externalAccountServiceStartExternalAccountReauthorizeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("StartExternalAccountReauthorize"),
+			Procedure:  ExternalAccountServiceStartExternalAccountReauthorizeProcedure,
+		}
+	})
+	externalAccountServiceSetExternalAccountEnabledSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("SetExternalAccountEnabled"),
+			Procedure:  ExternalAccountServiceSetExternalAccountEnabledProcedure,
+		}
+	})
+	externalAccountServiceDeleteExternalAccountSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("DeleteExternalAccount"),
+			Procedure:  ExternalAccountServiceDeleteExternalAccountProcedure,
+		}
+	})
+	externalAccountServiceTriggerSyncSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("TriggerSync"),
+			Procedure:  ExternalAccountServiceTriggerSyncProcedure,
+		}
+	})
+	externalAccountServiceRotateWebhookTokenSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods().ByName("RotateWebhookToken"),
+			Procedure:  ExternalAccountServiceRotateWebhookTokenProcedure,
+		}
+	})
+)
 
 // ExternalAccountServiceClient is a client for the cairn.v1.ExternalAccountService service.
 type ExternalAccountServiceClient interface {
 	// List all external accounts for the current user, with status.
-	ListExternalAccounts(context.Context, *connect.Request[v1.ListExternalAccountsRequest]) (*connect.Response[v1.ListExternalAccountsResponse], error)
+	ListExternalAccounts(context.Context, *v1.ListExternalAccountsRequest) (*v1.ListExternalAccountsResponse, error)
 	// List providers available for "Add account": only those with at least
 	// one registered, healthy worker. Returns the manifest's config_fields
 	// and auth method so the UI can render a dynamic form.
-	ListAvailableProviders(context.Context, *connect.Request[v1.ListAvailableProvidersRequest]) (*connect.Response[v1.ListAvailableProvidersResponse], error)
+	ListAvailableProviders(context.Context, *v1.ListAvailableProvidersRequest) (*v1.ListAvailableProvidersResponse, error)
 	// Create a new external account with the user-supplied config. Returns
 	// either the new account record (for AUTH_METHOD_NONE / AUTH_METHOD_API_KEY)
 	// or an authorize_url (for AUTH_METHOD_OAUTH2) the client redirects to.
-	CreateExternalAccount(context.Context, *connect.Request[v1.CreateExternalAccountRequest]) (*connect.Response[v1.CreateExternalAccountResponse], error)
+	CreateExternalAccount(context.Context, *v1.CreateExternalAccountRequest) (*v1.CreateExternalAccountResponse, error)
 	// Update an external account's config (e.g. fill in a newly required field).
-	UpdateExternalAccountConfig(context.Context, *connect.Request[v1.UpdateExternalAccountConfigRequest]) (*connect.Response[v1.UpdateExternalAccountConfigResponse], error)
+	UpdateExternalAccountConfig(context.Context, *v1.UpdateExternalAccountConfigRequest) (*v1.UpdateExternalAccountConfigResponse, error)
 	// Re-authorize an account whose OAuth tokens went invalid.
-	StartExternalAccountReauthorize(context.Context, *connect.Request[v1.StartExternalAccountReauthorizeRequest]) (*connect.Response[v1.StartExternalAccountReauthorizeResponse], error)
+	StartExternalAccountReauthorize(context.Context, *v1.StartExternalAccountReauthorizeRequest) (*v1.StartExternalAccountReauthorizeResponse, error)
 	// Enable / disable an account without deleting it.
-	SetExternalAccountEnabled(context.Context, *connect.Request[v1.SetExternalAccountEnabledRequest]) (*connect.Response[v1.SetExternalAccountEnabledResponse], error)
+	SetExternalAccountEnabled(context.Context, *v1.SetExternalAccountEnabledRequest) (*v1.SetExternalAccountEnabledResponse, error)
 	// Delete: unregisters webhook subscription, removes credentials,
 	// and detaches sources from activities (activities themselves remain
 	// visible with the source marked detached).
-	DeleteExternalAccount(context.Context, *connect.Request[v1.DeleteExternalAccountRequest]) (*connect.Response[v1.DeleteExternalAccountResponse], error)
+	DeleteExternalAccount(context.Context, *v1.DeleteExternalAccountRequest) (*v1.DeleteExternalAccountResponse, error)
 	// Trigger an immediate sync for an account (queues an IMPORT_ACTIVITIES
 	// job at high priority).
-	TriggerSync(context.Context, *connect.Request[v1.TriggerSyncRequest]) (*connect.Response[v1.TriggerSyncResponse], error)
+	TriggerSync(context.Context, *v1.TriggerSyncRequest) (*v1.TriggerSyncResponse, error)
 	// Rotate the webhook signing token. Queues unregister + register jobs.
-	RotateWebhookToken(context.Context, *connect.Request[v1.RotateWebhookTokenRequest]) (*connect.Response[v1.RotateWebhookTokenResponse], error)
+	RotateWebhookToken(context.Context, *v1.RotateWebhookTokenRequest) (*v1.RotateWebhookTokenResponse, error)
 }
 
 // NewExternalAccountServiceClient constructs a client for the cairn.v1.ExternalAccountService
-// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
-// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
-// the connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewExternalAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ExternalAccountServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	externalAccountServiceMethods := v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods()
-	return &externalAccountServiceClient{
-		listExternalAccounts: connect.NewClient[v1.ListExternalAccountsRequest, v1.ListExternalAccountsResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceListExternalAccountsProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("ListExternalAccounts")),
-			connect.WithClientOptions(opts...),
-		),
-		listAvailableProviders: connect.NewClient[v1.ListAvailableProvidersRequest, v1.ListAvailableProvidersResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceListAvailableProvidersProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("ListAvailableProviders")),
-			connect.WithClientOptions(opts...),
-		),
-		createExternalAccount: connect.NewClient[v1.CreateExternalAccountRequest, v1.CreateExternalAccountResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceCreateExternalAccountProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("CreateExternalAccount")),
-			connect.WithClientOptions(opts...),
-		),
-		updateExternalAccountConfig: connect.NewClient[v1.UpdateExternalAccountConfigRequest, v1.UpdateExternalAccountConfigResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceUpdateExternalAccountConfigProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("UpdateExternalAccountConfig")),
-			connect.WithClientOptions(opts...),
-		),
-		startExternalAccountReauthorize: connect.NewClient[v1.StartExternalAccountReauthorizeRequest, v1.StartExternalAccountReauthorizeResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceStartExternalAccountReauthorizeProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("StartExternalAccountReauthorize")),
-			connect.WithClientOptions(opts...),
-		),
-		setExternalAccountEnabled: connect.NewClient[v1.SetExternalAccountEnabledRequest, v1.SetExternalAccountEnabledResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceSetExternalAccountEnabledProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("SetExternalAccountEnabled")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteExternalAccount: connect.NewClient[v1.DeleteExternalAccountRequest, v1.DeleteExternalAccountResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceDeleteExternalAccountProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("DeleteExternalAccount")),
-			connect.WithClientOptions(opts...),
-		),
-		triggerSync: connect.NewClient[v1.TriggerSyncRequest, v1.TriggerSyncResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceTriggerSyncProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("TriggerSync")),
-			connect.WithClientOptions(opts...),
-		),
-		rotateWebhookToken: connect.NewClient[v1.RotateWebhookTokenRequest, v1.RotateWebhookTokenResponse](
-			httpClient,
-			baseURL+ExternalAccountServiceRotateWebhookTokenProcedure,
-			connect.WithSchema(externalAccountServiceMethods.ByName("RotateWebhookToken")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// externalAccountServiceClient implements ExternalAccountServiceClient.
-type externalAccountServiceClient struct {
-	listExternalAccounts            *connect.Client[v1.ListExternalAccountsRequest, v1.ListExternalAccountsResponse]
-	listAvailableProviders          *connect.Client[v1.ListAvailableProvidersRequest, v1.ListAvailableProvidersResponse]
-	createExternalAccount           *connect.Client[v1.CreateExternalAccountRequest, v1.CreateExternalAccountResponse]
-	updateExternalAccountConfig     *connect.Client[v1.UpdateExternalAccountConfigRequest, v1.UpdateExternalAccountConfigResponse]
-	startExternalAccountReauthorize *connect.Client[v1.StartExternalAccountReauthorizeRequest, v1.StartExternalAccountReauthorizeResponse]
-	setExternalAccountEnabled       *connect.Client[v1.SetExternalAccountEnabledRequest, v1.SetExternalAccountEnabledResponse]
-	deleteExternalAccount           *connect.Client[v1.DeleteExternalAccountRequest, v1.DeleteExternalAccountResponse]
-	triggerSync                     *connect.Client[v1.TriggerSyncRequest, v1.TriggerSyncResponse]
-	rotateWebhookToken              *connect.Client[v1.RotateWebhookTokenRequest, v1.RotateWebhookTokenResponse]
-}
-
-// ListExternalAccounts calls cairn.v1.ExternalAccountService.ListExternalAccounts.
-func (c *externalAccountServiceClient) ListExternalAccounts(ctx context.Context, req *connect.Request[v1.ListExternalAccountsRequest]) (*connect.Response[v1.ListExternalAccountsResponse], error) {
-	return c.listExternalAccounts.CallUnary(ctx, req)
-}
-
-// ListAvailableProviders calls cairn.v1.ExternalAccountService.ListAvailableProviders.
-func (c *externalAccountServiceClient) ListAvailableProviders(ctx context.Context, req *connect.Request[v1.ListAvailableProvidersRequest]) (*connect.Response[v1.ListAvailableProvidersResponse], error) {
-	return c.listAvailableProviders.CallUnary(ctx, req)
-}
-
-// CreateExternalAccount calls cairn.v1.ExternalAccountService.CreateExternalAccount.
-func (c *externalAccountServiceClient) CreateExternalAccount(ctx context.Context, req *connect.Request[v1.CreateExternalAccountRequest]) (*connect.Response[v1.CreateExternalAccountResponse], error) {
-	return c.createExternalAccount.CallUnary(ctx, req)
-}
-
-// UpdateExternalAccountConfig calls cairn.v1.ExternalAccountService.UpdateExternalAccountConfig.
-func (c *externalAccountServiceClient) UpdateExternalAccountConfig(ctx context.Context, req *connect.Request[v1.UpdateExternalAccountConfigRequest]) (*connect.Response[v1.UpdateExternalAccountConfigResponse], error) {
-	return c.updateExternalAccountConfig.CallUnary(ctx, req)
-}
-
-// StartExternalAccountReauthorize calls
-// cairn.v1.ExternalAccountService.StartExternalAccountReauthorize.
-func (c *externalAccountServiceClient) StartExternalAccountReauthorize(ctx context.Context, req *connect.Request[v1.StartExternalAccountReauthorizeRequest]) (*connect.Response[v1.StartExternalAccountReauthorizeResponse], error) {
-	return c.startExternalAccountReauthorize.CallUnary(ctx, req)
-}
-
-// SetExternalAccountEnabled calls cairn.v1.ExternalAccountService.SetExternalAccountEnabled.
-func (c *externalAccountServiceClient) SetExternalAccountEnabled(ctx context.Context, req *connect.Request[v1.SetExternalAccountEnabledRequest]) (*connect.Response[v1.SetExternalAccountEnabledResponse], error) {
-	return c.setExternalAccountEnabled.CallUnary(ctx, req)
-}
-
-// DeleteExternalAccount calls cairn.v1.ExternalAccountService.DeleteExternalAccount.
-func (c *externalAccountServiceClient) DeleteExternalAccount(ctx context.Context, req *connect.Request[v1.DeleteExternalAccountRequest]) (*connect.Response[v1.DeleteExternalAccountResponse], error) {
-	return c.deleteExternalAccount.CallUnary(ctx, req)
-}
-
-// TriggerSync calls cairn.v1.ExternalAccountService.TriggerSync.
-func (c *externalAccountServiceClient) TriggerSync(ctx context.Context, req *connect.Request[v1.TriggerSyncRequest]) (*connect.Response[v1.TriggerSyncResponse], error) {
-	return c.triggerSync.CallUnary(ctx, req)
-}
-
-// RotateWebhookToken calls cairn.v1.ExternalAccountService.RotateWebhookToken.
-func (c *externalAccountServiceClient) RotateWebhookToken(ctx context.Context, req *connect.Request[v1.RotateWebhookTokenRequest]) (*connect.Response[v1.RotateWebhookTokenResponse], error) {
-	return c.rotateWebhookToken.CallUnary(ctx, req)
+// service. Multiple service clients may share a single connect.Client.
+func NewExternalAccountServiceClient(client *connect.Client) ExternalAccountServiceClient {
+	return &externalAccountServiceClient{client: client}
 }
 
 // ExternalAccountServiceHandler is an implementation of the cairn.v1.ExternalAccountService
 // service.
 type ExternalAccountServiceHandler interface {
 	// List all external accounts for the current user, with status.
-	ListExternalAccounts(context.Context, *connect.Request[v1.ListExternalAccountsRequest]) (*connect.Response[v1.ListExternalAccountsResponse], error)
+	ListExternalAccounts(context.Context, *v1.ListExternalAccountsRequest) (*v1.ListExternalAccountsResponse, error)
 	// List providers available for "Add account": only those with at least
 	// one registered, healthy worker. Returns the manifest's config_fields
 	// and auth method so the UI can render a dynamic form.
-	ListAvailableProviders(context.Context, *connect.Request[v1.ListAvailableProvidersRequest]) (*connect.Response[v1.ListAvailableProvidersResponse], error)
+	ListAvailableProviders(context.Context, *v1.ListAvailableProvidersRequest) (*v1.ListAvailableProvidersResponse, error)
 	// Create a new external account with the user-supplied config. Returns
 	// either the new account record (for AUTH_METHOD_NONE / AUTH_METHOD_API_KEY)
 	// or an authorize_url (for AUTH_METHOD_OAUTH2) the client redirects to.
-	CreateExternalAccount(context.Context, *connect.Request[v1.CreateExternalAccountRequest]) (*connect.Response[v1.CreateExternalAccountResponse], error)
+	CreateExternalAccount(context.Context, *v1.CreateExternalAccountRequest) (*v1.CreateExternalAccountResponse, error)
 	// Update an external account's config (e.g. fill in a newly required field).
-	UpdateExternalAccountConfig(context.Context, *connect.Request[v1.UpdateExternalAccountConfigRequest]) (*connect.Response[v1.UpdateExternalAccountConfigResponse], error)
+	UpdateExternalAccountConfig(context.Context, *v1.UpdateExternalAccountConfigRequest) (*v1.UpdateExternalAccountConfigResponse, error)
 	// Re-authorize an account whose OAuth tokens went invalid.
-	StartExternalAccountReauthorize(context.Context, *connect.Request[v1.StartExternalAccountReauthorizeRequest]) (*connect.Response[v1.StartExternalAccountReauthorizeResponse], error)
+	StartExternalAccountReauthorize(context.Context, *v1.StartExternalAccountReauthorizeRequest) (*v1.StartExternalAccountReauthorizeResponse, error)
 	// Enable / disable an account without deleting it.
-	SetExternalAccountEnabled(context.Context, *connect.Request[v1.SetExternalAccountEnabledRequest]) (*connect.Response[v1.SetExternalAccountEnabledResponse], error)
+	SetExternalAccountEnabled(context.Context, *v1.SetExternalAccountEnabledRequest) (*v1.SetExternalAccountEnabledResponse, error)
 	// Delete: unregisters webhook subscription, removes credentials,
 	// and detaches sources from activities (activities themselves remain
 	// visible with the source marked detached).
-	DeleteExternalAccount(context.Context, *connect.Request[v1.DeleteExternalAccountRequest]) (*connect.Response[v1.DeleteExternalAccountResponse], error)
+	DeleteExternalAccount(context.Context, *v1.DeleteExternalAccountRequest) (*v1.DeleteExternalAccountResponse, error)
 	// Trigger an immediate sync for an account (queues an IMPORT_ACTIVITIES
 	// job at high priority).
-	TriggerSync(context.Context, *connect.Request[v1.TriggerSyncRequest]) (*connect.Response[v1.TriggerSyncResponse], error)
+	TriggerSync(context.Context, *v1.TriggerSyncRequest) (*v1.TriggerSyncResponse, error)
 	// Rotate the webhook signing token. Queues unregister + register jobs.
-	RotateWebhookToken(context.Context, *connect.Request[v1.RotateWebhookTokenRequest]) (*connect.Response[v1.RotateWebhookTokenResponse], error)
+	RotateWebhookToken(context.Context, *v1.RotateWebhookTokenRequest) (*v1.RotateWebhookTokenResponse, error)
 }
 
-// NewExternalAccountServiceHandler builds an HTTP handler from the service implementation. It
-// returns the path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewExternalAccountServiceHandler(svc ExternalAccountServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	externalAccountServiceMethods := v1.File_cairn_v1_auth_proto.Services().ByName("ExternalAccountService").Methods()
-	externalAccountServiceListExternalAccountsHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceListExternalAccountsProcedure,
-		svc.ListExternalAccounts,
-		connect.WithSchema(externalAccountServiceMethods.ByName("ListExternalAccounts")),
-		connect.WithHandlerOptions(opts...),
+// RegisterExternalAccountServiceHandler registers svc as the cairn.v1.ExternalAccountService
+// implementation on server.
+func RegisterExternalAccountServiceHandler(server *connect.Server, svc ExternalAccountServiceHandler) {
+	adapter := externalAccountServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: externalAccountServiceListExternalAccountsSpec(), Handler: adapter.listExternalAccounts},
+		connect.Method{Spec: externalAccountServiceListAvailableProvidersSpec(), Handler: adapter.listAvailableProviders},
+		connect.Method{Spec: externalAccountServiceCreateExternalAccountSpec(), Handler: adapter.createExternalAccount},
+		connect.Method{Spec: externalAccountServiceUpdateExternalAccountConfigSpec(), Handler: adapter.updateExternalAccountConfig},
+		connect.Method{Spec: externalAccountServiceStartExternalAccountReauthorizeSpec(), Handler: adapter.startExternalAccountReauthorize},
+		connect.Method{Spec: externalAccountServiceSetExternalAccountEnabledSpec(), Handler: adapter.setExternalAccountEnabled},
+		connect.Method{Spec: externalAccountServiceDeleteExternalAccountSpec(), Handler: adapter.deleteExternalAccount},
+		connect.Method{Spec: externalAccountServiceTriggerSyncSpec(), Handler: adapter.triggerSync},
+		connect.Method{Spec: externalAccountServiceRotateWebhookTokenSpec(), Handler: adapter.rotateWebhookToken},
 	)
-	externalAccountServiceListAvailableProvidersHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceListAvailableProvidersProcedure,
-		svc.ListAvailableProviders,
-		connect.WithSchema(externalAccountServiceMethods.ByName("ListAvailableProviders")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceCreateExternalAccountHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceCreateExternalAccountProcedure,
-		svc.CreateExternalAccount,
-		connect.WithSchema(externalAccountServiceMethods.ByName("CreateExternalAccount")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceUpdateExternalAccountConfigHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceUpdateExternalAccountConfigProcedure,
-		svc.UpdateExternalAccountConfig,
-		connect.WithSchema(externalAccountServiceMethods.ByName("UpdateExternalAccountConfig")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceStartExternalAccountReauthorizeHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceStartExternalAccountReauthorizeProcedure,
-		svc.StartExternalAccountReauthorize,
-		connect.WithSchema(externalAccountServiceMethods.ByName("StartExternalAccountReauthorize")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceSetExternalAccountEnabledHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceSetExternalAccountEnabledProcedure,
-		svc.SetExternalAccountEnabled,
-		connect.WithSchema(externalAccountServiceMethods.ByName("SetExternalAccountEnabled")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceDeleteExternalAccountHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceDeleteExternalAccountProcedure,
-		svc.DeleteExternalAccount,
-		connect.WithSchema(externalAccountServiceMethods.ByName("DeleteExternalAccount")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceTriggerSyncHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceTriggerSyncProcedure,
-		svc.TriggerSync,
-		connect.WithSchema(externalAccountServiceMethods.ByName("TriggerSync")),
-		connect.WithHandlerOptions(opts...),
-	)
-	externalAccountServiceRotateWebhookTokenHandler := connect.NewUnaryHandler(
-		ExternalAccountServiceRotateWebhookTokenProcedure,
-		svc.RotateWebhookToken,
-		connect.WithSchema(externalAccountServiceMethods.ByName("RotateWebhookToken")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/cairn.v1.ExternalAccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case ExternalAccountServiceListExternalAccountsProcedure:
-			externalAccountServiceListExternalAccountsHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceListAvailableProvidersProcedure:
-			externalAccountServiceListAvailableProvidersHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceCreateExternalAccountProcedure:
-			externalAccountServiceCreateExternalAccountHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceUpdateExternalAccountConfigProcedure:
-			externalAccountServiceUpdateExternalAccountConfigHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceStartExternalAccountReauthorizeProcedure:
-			externalAccountServiceStartExternalAccountReauthorizeHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceSetExternalAccountEnabledProcedure:
-			externalAccountServiceSetExternalAccountEnabledHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceDeleteExternalAccountProcedure:
-			externalAccountServiceDeleteExternalAccountHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceTriggerSyncProcedure:
-			externalAccountServiceTriggerSyncHandler.ServeHTTP(w, r)
-		case ExternalAccountServiceRotateWebhookTokenProcedure:
-			externalAccountServiceRotateWebhookTokenHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedExternalAccountServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedExternalAccountServiceHandler struct{}
 
-func (UnimplementedExternalAccountServiceHandler) ListExternalAccounts(context.Context, *connect.Request[v1.ListExternalAccountsRequest]) (*connect.Response[v1.ListExternalAccountsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.ListExternalAccounts is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) ListExternalAccounts(context.Context, *v1.ListExternalAccountsRequest) (*v1.ListExternalAccountsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.ListExternalAccounts is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) ListAvailableProviders(context.Context, *connect.Request[v1.ListAvailableProvidersRequest]) (*connect.Response[v1.ListAvailableProvidersResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.ListAvailableProviders is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) ListAvailableProviders(context.Context, *v1.ListAvailableProvidersRequest) (*v1.ListAvailableProvidersResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.ListAvailableProviders is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) CreateExternalAccount(context.Context, *connect.Request[v1.CreateExternalAccountRequest]) (*connect.Response[v1.CreateExternalAccountResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.CreateExternalAccount is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) CreateExternalAccount(context.Context, *v1.CreateExternalAccountRequest) (*v1.CreateExternalAccountResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.CreateExternalAccount is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) UpdateExternalAccountConfig(context.Context, *connect.Request[v1.UpdateExternalAccountConfigRequest]) (*connect.Response[v1.UpdateExternalAccountConfigResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.UpdateExternalAccountConfig is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) UpdateExternalAccountConfig(context.Context, *v1.UpdateExternalAccountConfigRequest) (*v1.UpdateExternalAccountConfigResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.UpdateExternalAccountConfig is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) StartExternalAccountReauthorize(context.Context, *connect.Request[v1.StartExternalAccountReauthorizeRequest]) (*connect.Response[v1.StartExternalAccountReauthorizeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.StartExternalAccountReauthorize is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) StartExternalAccountReauthorize(context.Context, *v1.StartExternalAccountReauthorizeRequest) (*v1.StartExternalAccountReauthorizeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.StartExternalAccountReauthorize is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) SetExternalAccountEnabled(context.Context, *connect.Request[v1.SetExternalAccountEnabledRequest]) (*connect.Response[v1.SetExternalAccountEnabledResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.SetExternalAccountEnabled is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) SetExternalAccountEnabled(context.Context, *v1.SetExternalAccountEnabledRequest) (*v1.SetExternalAccountEnabledResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.SetExternalAccountEnabled is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) DeleteExternalAccount(context.Context, *connect.Request[v1.DeleteExternalAccountRequest]) (*connect.Response[v1.DeleteExternalAccountResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.DeleteExternalAccount is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) DeleteExternalAccount(context.Context, *v1.DeleteExternalAccountRequest) (*v1.DeleteExternalAccountResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.DeleteExternalAccount is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) TriggerSync(context.Context, *connect.Request[v1.TriggerSyncRequest]) (*connect.Response[v1.TriggerSyncResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.TriggerSync is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) TriggerSync(context.Context, *v1.TriggerSyncRequest) (*v1.TriggerSyncResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.TriggerSync is not implemented")
 }
 
-func (UnimplementedExternalAccountServiceHandler) RotateWebhookToken(context.Context, *connect.Request[v1.RotateWebhookTokenRequest]) (*connect.Response[v1.RotateWebhookTokenResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ExternalAccountService.RotateWebhookToken is not implemented"))
+func (UnimplementedExternalAccountServiceHandler) RotateWebhookToken(context.Context, *v1.RotateWebhookTokenRequest) (*v1.RotateWebhookTokenResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ExternalAccountService.RotateWebhookToken is not implemented")
+}
+
+type externalAccountServiceClient struct {
+	client *connect.Client
+}
+
+func (c *externalAccountServiceClient) ListExternalAccounts(ctx context.Context, req *v1.ListExternalAccountsRequest) (*v1.ListExternalAccountsResponse, error) {
+	var res v1.ListExternalAccountsResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceListExternalAccountsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) ListAvailableProviders(ctx context.Context, req *v1.ListAvailableProvidersRequest) (*v1.ListAvailableProvidersResponse, error) {
+	var res v1.ListAvailableProvidersResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceListAvailableProvidersSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) CreateExternalAccount(ctx context.Context, req *v1.CreateExternalAccountRequest) (*v1.CreateExternalAccountResponse, error) {
+	var res v1.CreateExternalAccountResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceCreateExternalAccountSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) UpdateExternalAccountConfig(ctx context.Context, req *v1.UpdateExternalAccountConfigRequest) (*v1.UpdateExternalAccountConfigResponse, error) {
+	var res v1.UpdateExternalAccountConfigResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceUpdateExternalAccountConfigSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) StartExternalAccountReauthorize(ctx context.Context, req *v1.StartExternalAccountReauthorizeRequest) (*v1.StartExternalAccountReauthorizeResponse, error) {
+	var res v1.StartExternalAccountReauthorizeResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceStartExternalAccountReauthorizeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) SetExternalAccountEnabled(ctx context.Context, req *v1.SetExternalAccountEnabledRequest) (*v1.SetExternalAccountEnabledResponse, error) {
+	var res v1.SetExternalAccountEnabledResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceSetExternalAccountEnabledSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) DeleteExternalAccount(ctx context.Context, req *v1.DeleteExternalAccountRequest) (*v1.DeleteExternalAccountResponse, error) {
+	var res v1.DeleteExternalAccountResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceDeleteExternalAccountSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) TriggerSync(ctx context.Context, req *v1.TriggerSyncRequest) (*v1.TriggerSyncResponse, error) {
+	var res v1.TriggerSyncResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceTriggerSyncSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *externalAccountServiceClient) RotateWebhookToken(ctx context.Context, req *v1.RotateWebhookTokenRequest) (*v1.RotateWebhookTokenResponse, error) {
+	var res v1.RotateWebhookTokenResponse
+	if err := c.client.CallUnary(ctx, externalAccountServiceRotateWebhookTokenSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type externalAccountServiceHandler struct{ svc ExternalAccountServiceHandler }
+
+func (h externalAccountServiceHandler) listExternalAccounts(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListExternalAccountsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListExternalAccounts(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) listAvailableProviders(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListAvailableProvidersRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListAvailableProviders(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) createExternalAccount(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateExternalAccountRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateExternalAccount(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) updateExternalAccountConfig(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateExternalAccountConfigRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateExternalAccountConfig(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) startExternalAccountReauthorize(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StartExternalAccountReauthorizeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.StartExternalAccountReauthorize(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) setExternalAccountEnabled(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SetExternalAccountEnabledRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SetExternalAccountEnabled(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) deleteExternalAccount(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteExternalAccountRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteExternalAccount(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) triggerSync(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.TriggerSyncRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.TriggerSync(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h externalAccountServiceHandler) rotateWebhookToken(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RotateWebhookTokenRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RotateWebhookToken(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

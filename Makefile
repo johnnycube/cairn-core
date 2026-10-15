@@ -48,8 +48,8 @@ FLEETLINT_VERSION     ?= v0.4.0
 BUF_VERSION           ?= v1.73.0
 # renovate: datasource=go depName=google.golang.org/protobuf
 PROTOC_GEN_GO_VERSION ?= v1.36.12
-# renovate: datasource=go depName=connectrpc.com/connect
-PROTOC_GEN_CONNECT_GO_VERSION ?= v1.21.0
+# renovate: datasource=go depName=connectrpc.com/connect/v2
+PROTOC_GEN_CONNECT_GO_VERSION ?= v2.0.1
 # renovate: datasource=go depName=github.com/grpc-ecosystem/grpc-gateway/v2
 PROTOC_GEN_OPENAPIV2_VERSION ?= v2.31.0
 # Tools are built with this module's toolchain: golangci-lint refuses code that targets a newer Go than it was built with.
@@ -81,7 +81,7 @@ tools: ## install the pinned Go gate tools (gitleaks comes from its own release;
 proto-tools: ## install the pinned buf + Go proto plugins
 	$(GO) install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
-	$(GO) install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
+	$(GO) install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
 	$(GO) install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@$(PROTOC_GEN_OPENAPIV2_VERSION)
 
 fmt: web-deps ## format in place (Go + web)

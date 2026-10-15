@@ -33,115 +33,313 @@
 package cairnv1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// AdminServiceName is the fully-qualified name of the AdminService service.
 	AdminServiceName = "cairn.v1.AdminService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// AdminServiceListOIDCClientsProcedure is the fully-qualified name of the AdminService's
-	// ListOIDCClients RPC.
+	// AdminServiceListOIDCClientsProcedure is the procedure name of the AdminService's ListOIDCClients
+	// RPC.
 	AdminServiceListOIDCClientsProcedure = "/cairn.v1.AdminService/ListOIDCClients"
-	// AdminServiceGetInstanceSettingsProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceGetInstanceSettingsProcedure is the procedure name of the AdminService's
 	// GetInstanceSettings RPC.
 	AdminServiceGetInstanceSettingsProcedure = "/cairn.v1.AdminService/GetInstanceSettings"
-	// AdminServiceUpdateInstanceSettingsProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceUpdateInstanceSettingsProcedure is the procedure name of the AdminService's
 	// UpdateInstanceSettings RPC.
 	AdminServiceUpdateInstanceSettingsProcedure = "/cairn.v1.AdminService/UpdateInstanceSettings"
-	// AdminServiceSendTestEmailProcedure is the fully-qualified name of the AdminService's
-	// SendTestEmail RPC.
+	// AdminServiceSendTestEmailProcedure is the procedure name of the AdminService's SendTestEmail RPC.
 	AdminServiceSendTestEmailProcedure = "/cairn.v1.AdminService/SendTestEmail"
-	// AdminServiceListUsersProcedure is the fully-qualified name of the AdminService's ListUsers RPC.
+	// AdminServiceListUsersProcedure is the procedure name of the AdminService's ListUsers RPC.
 	AdminServiceListUsersProcedure = "/cairn.v1.AdminService/ListUsers"
-	// AdminServiceGetUserProcedure is the fully-qualified name of the AdminService's GetUser RPC.
+	// AdminServiceGetUserProcedure is the procedure name of the AdminService's GetUser RPC.
 	AdminServiceGetUserProcedure = "/cairn.v1.AdminService/GetUser"
-	// AdminServiceCreateUserProcedure is the fully-qualified name of the AdminService's CreateUser RPC.
+	// AdminServiceCreateUserProcedure is the procedure name of the AdminService's CreateUser RPC.
 	AdminServiceCreateUserProcedure = "/cairn.v1.AdminService/CreateUser"
-	// AdminServiceUpdateUserProcedure is the fully-qualified name of the AdminService's UpdateUser RPC.
+	// AdminServiceUpdateUserProcedure is the procedure name of the AdminService's UpdateUser RPC.
 	AdminServiceUpdateUserProcedure = "/cairn.v1.AdminService/UpdateUser"
-	// AdminServiceChangeUserRoleProcedure is the fully-qualified name of the AdminService's
-	// ChangeUserRole RPC.
+	// AdminServiceChangeUserRoleProcedure is the procedure name of the AdminService's ChangeUserRole
+	// RPC.
 	AdminServiceChangeUserRoleProcedure = "/cairn.v1.AdminService/ChangeUserRole"
-	// AdminServiceSetUserStatusProcedure is the fully-qualified name of the AdminService's
-	// SetUserStatus RPC.
+	// AdminServiceSetUserStatusProcedure is the procedure name of the AdminService's SetUserStatus RPC.
 	AdminServiceSetUserStatusProcedure = "/cairn.v1.AdminService/SetUserStatus"
-	// AdminServiceDeleteUserProcedure is the fully-qualified name of the AdminService's DeleteUser RPC.
+	// AdminServiceDeleteUserProcedure is the procedure name of the AdminService's DeleteUser RPC.
 	AdminServiceDeleteUserProcedure = "/cairn.v1.AdminService/DeleteUser"
-	// AdminServiceResetUserPasswordProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceResetUserPasswordProcedure is the procedure name of the AdminService's
 	// ResetUserPassword RPC.
 	AdminServiceResetUserPasswordProcedure = "/cairn.v1.AdminService/ResetUserPassword"
-	// AdminServiceRevokeUserCredentialsProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceRevokeUserCredentialsProcedure is the procedure name of the AdminService's
 	// RevokeUserCredentials RPC.
 	AdminServiceRevokeUserCredentialsProcedure = "/cairn.v1.AdminService/RevokeUserCredentials"
-	// AdminServiceListInvitesProcedure is the fully-qualified name of the AdminService's ListInvites
-	// RPC.
+	// AdminServiceListInvitesProcedure is the procedure name of the AdminService's ListInvites RPC.
 	AdminServiceListInvitesProcedure = "/cairn.v1.AdminService/ListInvites"
-	// AdminServiceCreateInviteProcedure is the fully-qualified name of the AdminService's CreateInvite
-	// RPC.
+	// AdminServiceCreateInviteProcedure is the procedure name of the AdminService's CreateInvite RPC.
 	AdminServiceCreateInviteProcedure = "/cairn.v1.AdminService/CreateInvite"
-	// AdminServiceRevokeInviteProcedure is the fully-qualified name of the AdminService's RevokeInvite
-	// RPC.
+	// AdminServiceRevokeInviteProcedure is the procedure name of the AdminService's RevokeInvite RPC.
 	AdminServiceRevokeInviteProcedure = "/cairn.v1.AdminService/RevokeInvite"
-	// AdminServiceResendInviteProcedure is the fully-qualified name of the AdminService's ResendInvite
-	// RPC.
+	// AdminServiceResendInviteProcedure is the procedure name of the AdminService's ResendInvite RPC.
 	AdminServiceResendInviteProcedure = "/cairn.v1.AdminService/ResendInvite"
-	// AdminServiceListAuditEntriesProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceListAuditEntriesProcedure is the procedure name of the AdminService's
 	// ListAuditEntries RPC.
 	AdminServiceListAuditEntriesProcedure = "/cairn.v1.AdminService/ListAuditEntries"
-	// AdminServiceListJobsProcedure is the fully-qualified name of the AdminService's ListJobs RPC.
+	// AdminServiceListJobsProcedure is the procedure name of the AdminService's ListJobs RPC.
 	AdminServiceListJobsProcedure = "/cairn.v1.AdminService/ListJobs"
-	// AdminServiceGetJobProcedure is the fully-qualified name of the AdminService's GetJob RPC.
+	// AdminServiceGetJobProcedure is the procedure name of the AdminService's GetJob RPC.
 	AdminServiceGetJobProcedure = "/cairn.v1.AdminService/GetJob"
-	// AdminServiceRetryJobProcedure is the fully-qualified name of the AdminService's RetryJob RPC.
+	// AdminServiceRetryJobProcedure is the procedure name of the AdminService's RetryJob RPC.
 	AdminServiceRetryJobProcedure = "/cairn.v1.AdminService/RetryJob"
-	// AdminServiceCancelJobProcedure is the fully-qualified name of the AdminService's CancelJob RPC.
+	// AdminServiceCancelJobProcedure is the procedure name of the AdminService's CancelJob RPC.
 	AdminServiceCancelJobProcedure = "/cairn.v1.AdminService/CancelJob"
-	// AdminServiceListDeadLetterJobsProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceListDeadLetterJobsProcedure is the procedure name of the AdminService's
 	// ListDeadLetterJobs RPC.
 	AdminServiceListDeadLetterJobsProcedure = "/cairn.v1.AdminService/ListDeadLetterJobs"
-	// AdminServiceRequeueDeadLetterJobProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceRequeueDeadLetterJobProcedure is the procedure name of the AdminService's
 	// RequeueDeadLetterJob RPC.
 	AdminServiceRequeueDeadLetterJobProcedure = "/cairn.v1.AdminService/RequeueDeadLetterJob"
-	// AdminServiceListOrphanedSourcesProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceListOrphanedSourcesProcedure is the procedure name of the AdminService's
 	// ListOrphanedSources RPC.
 	AdminServiceListOrphanedSourcesProcedure = "/cairn.v1.AdminService/ListOrphanedSources"
-	// AdminServiceListWebhookSigningTokensProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceListWebhookSigningTokensProcedure is the procedure name of the AdminService's
 	// ListWebhookSigningTokens RPC.
 	AdminServiceListWebhookSigningTokensProcedure = "/cairn.v1.AdminService/ListWebhookSigningTokens"
-	// AdminServiceBulkRotateWebhookSigningTokensProcedure is the fully-qualified name of the
-	// AdminService's BulkRotateWebhookSigningTokens RPC.
+	// AdminServiceBulkRotateWebhookSigningTokensProcedure is the procedure name of the AdminService's
+	// BulkRotateWebhookSigningTokens RPC.
 	AdminServiceBulkRotateWebhookSigningTokensProcedure = "/cairn.v1.AdminService/BulkRotateWebhookSigningTokens"
-	// AdminServiceGetSystemHealthProcedure is the fully-qualified name of the AdminService's
-	// GetSystemHealth RPC.
+	// AdminServiceGetSystemHealthProcedure is the procedure name of the AdminService's GetSystemHealth
+	// RPC.
 	AdminServiceGetSystemHealthProcedure = "/cairn.v1.AdminService/GetSystemHealth"
-	// AdminServiceStreamAdminEventsProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceStreamAdminEventsProcedure is the procedure name of the AdminService's
 	// StreamAdminEvents RPC.
 	AdminServiceStreamAdminEventsProcedure = "/cairn.v1.AdminService/StreamAdminEvents"
-	// AdminServiceTriggerMaintenanceProcedure is the fully-qualified name of the AdminService's
+	// AdminServiceTriggerMaintenanceProcedure is the procedure name of the AdminService's
 	// TriggerMaintenance RPC.
 	AdminServiceTriggerMaintenanceProcedure = "/cairn.v1.AdminService/TriggerMaintenance"
+)
+
+var (
+	adminServiceListOIDCClientsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListOIDCClients"),
+			Procedure:  AdminServiceListOIDCClientsProcedure,
+		}
+	})
+	adminServiceGetInstanceSettingsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("GetInstanceSettings"),
+			Procedure:  AdminServiceGetInstanceSettingsProcedure,
+		}
+	})
+	adminServiceUpdateInstanceSettingsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("UpdateInstanceSettings"),
+			Procedure:  AdminServiceUpdateInstanceSettingsProcedure,
+		}
+	})
+	adminServiceSendTestEmailSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("SendTestEmail"),
+			Procedure:  AdminServiceSendTestEmailProcedure,
+		}
+	})
+	adminServiceListUsersSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListUsers"),
+			Procedure:  AdminServiceListUsersProcedure,
+		}
+	})
+	adminServiceGetUserSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("GetUser"),
+			Procedure:  AdminServiceGetUserProcedure,
+		}
+	})
+	adminServiceCreateUserSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("CreateUser"),
+			Procedure:  AdminServiceCreateUserProcedure,
+		}
+	})
+	adminServiceUpdateUserSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("UpdateUser"),
+			Procedure:  AdminServiceUpdateUserProcedure,
+		}
+	})
+	adminServiceChangeUserRoleSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ChangeUserRole"),
+			Procedure:  AdminServiceChangeUserRoleProcedure,
+		}
+	})
+	adminServiceSetUserStatusSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("SetUserStatus"),
+			Procedure:  AdminServiceSetUserStatusProcedure,
+		}
+	})
+	adminServiceDeleteUserSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("DeleteUser"),
+			Procedure:  AdminServiceDeleteUserProcedure,
+		}
+	})
+	adminServiceResetUserPasswordSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ResetUserPassword"),
+			Procedure:  AdminServiceResetUserPasswordProcedure,
+		}
+	})
+	adminServiceRevokeUserCredentialsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("RevokeUserCredentials"),
+			Procedure:  AdminServiceRevokeUserCredentialsProcedure,
+		}
+	})
+	adminServiceListInvitesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListInvites"),
+			Procedure:  AdminServiceListInvitesProcedure,
+		}
+	})
+	adminServiceCreateInviteSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("CreateInvite"),
+			Procedure:  AdminServiceCreateInviteProcedure,
+		}
+	})
+	adminServiceRevokeInviteSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("RevokeInvite"),
+			Procedure:  AdminServiceRevokeInviteProcedure,
+		}
+	})
+	adminServiceResendInviteSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ResendInvite"),
+			Procedure:  AdminServiceResendInviteProcedure,
+		}
+	})
+	adminServiceListAuditEntriesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListAuditEntries"),
+			Procedure:  AdminServiceListAuditEntriesProcedure,
+		}
+	})
+	adminServiceListJobsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListJobs"),
+			Procedure:  AdminServiceListJobsProcedure,
+		}
+	})
+	adminServiceGetJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("GetJob"),
+			Procedure:  AdminServiceGetJobProcedure,
+		}
+	})
+	adminServiceRetryJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("RetryJob"),
+			Procedure:  AdminServiceRetryJobProcedure,
+		}
+	})
+	adminServiceCancelJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("CancelJob"),
+			Procedure:  AdminServiceCancelJobProcedure,
+		}
+	})
+	adminServiceListDeadLetterJobsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListDeadLetterJobs"),
+			Procedure:  AdminServiceListDeadLetterJobsProcedure,
+		}
+	})
+	adminServiceRequeueDeadLetterJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("RequeueDeadLetterJob"),
+			Procedure:  AdminServiceRequeueDeadLetterJobProcedure,
+		}
+	})
+	adminServiceListOrphanedSourcesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListOrphanedSources"),
+			Procedure:  AdminServiceListOrphanedSourcesProcedure,
+		}
+	})
+	adminServiceListWebhookSigningTokensSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("ListWebhookSigningTokens"),
+			Procedure:  AdminServiceListWebhookSigningTokensProcedure,
+		}
+	})
+	adminServiceBulkRotateWebhookSigningTokensSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("BulkRotateWebhookSigningTokens"),
+			Procedure:  AdminServiceBulkRotateWebhookSigningTokensProcedure,
+		}
+	})
+	adminServiceGetSystemHealthSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("GetSystemHealth"),
+			Procedure:  AdminServiceGetSystemHealthProcedure,
+		}
+	})
+	adminServiceStreamAdminEventsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeServer,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("StreamAdminEvents"),
+			Procedure:  AdminServiceStreamAdminEventsProcedure,
+		}
+	})
+	adminServiceTriggerMaintenanceSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods().ByName("TriggerMaintenance"),
+			Procedure:  AdminServiceTriggerMaintenanceProcedure,
+		}
+	})
 )
 
 // AdminServiceClient is a client for the cairn.v1.AdminService service.
@@ -150,439 +348,88 @@ type AdminServiceClient interface {
 	// OIDC providers are configured entirely via CAIRN_OIDC_* env vars; there
 	// is no client database and no create/update/delete. This RPC lets the
 	// admin UI display the active configuration.
-	ListOIDCClients(context.Context, *connect.Request[v1.ListOIDCClientsRequest]) (*connect.Response[v1.ListOIDCClientsResponse], error)
+	ListOIDCClients(context.Context, *v1.ListOIDCClientsRequest) (*v1.ListOIDCClientsResponse, error)
 	// ---- Instance settings ----
-	GetInstanceSettings(context.Context, *connect.Request[v1.GetInstanceSettingsRequest]) (*connect.Response[v1.GetInstanceSettingsResponse], error)
-	UpdateInstanceSettings(context.Context, *connect.Request[v1.UpdateInstanceSettingsRequest]) (*connect.Response[v1.UpdateInstanceSettingsResponse], error)
+	GetInstanceSettings(context.Context, *v1.GetInstanceSettingsRequest) (*v1.GetInstanceSettingsResponse, error)
+	UpdateInstanceSettings(context.Context, *v1.UpdateInstanceSettingsRequest) (*v1.UpdateInstanceSettingsResponse, error)
 	// Send a synthetic email through the configured SMTP/SES/Resend/Mailgun
 	// adapter to verify outbound delivery.
-	SendTestEmail(context.Context, *connect.Request[v1.SendTestEmailRequest]) (*connect.Response[v1.SendTestEmailResponse], error)
+	SendTestEmail(context.Context, *v1.SendTestEmailRequest) (*v1.SendTestEmailResponse, error)
 	// ---- Users ----
-	ListUsers(context.Context, *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error)
-	GetUser(context.Context, *connect.Request[v1.GetUserRequest]) (*connect.Response[v1.GetUserResponse], error)
-	CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error)
-	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
-	ChangeUserRole(context.Context, *connect.Request[v1.ChangeUserRoleRequest]) (*connect.Response[v1.ChangeUserRoleResponse], error)
-	SetUserStatus(context.Context, *connect.Request[v1.SetUserStatusRequest]) (*connect.Response[v1.SetUserStatusResponse], error)
+	ListUsers(context.Context, *v1.ListUsersRequest) (*v1.ListUsersResponse, error)
+	GetUser(context.Context, *v1.GetUserRequest) (*v1.GetUserResponse, error)
+	CreateUser(context.Context, *v1.CreateUserRequest) (*v1.CreateUserResponse, error)
+	UpdateUser(context.Context, *v1.UpdateUserRequest) (*v1.UpdateUserResponse, error)
+	ChangeUserRole(context.Context, *v1.ChangeUserRoleRequest) (*v1.ChangeUserRoleResponse, error)
+	SetUserStatus(context.Context, *v1.SetUserStatusRequest) (*v1.SetUserStatusResponse, error)
 	// Hard-delete with cascade. Two-step: caller must pass confirm_username
 	// matching the user's username to proceed. Audit-logged at HIGH severity.
-	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
+	DeleteUser(context.Context, *v1.DeleteUserRequest) (*v1.DeleteUserResponse, error)
 	// Force-reset a user's password to a temporary value, returned once.
 	// The user is required to change it on next login.
-	ResetUserPassword(context.Context, *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error)
+	ResetUserPassword(context.Context, *v1.ResetUserPasswordRequest) (*v1.ResetUserPasswordResponse, error)
 	// Revoke all sessions and PATs for a user.
-	RevokeUserCredentials(context.Context, *connect.Request[v1.RevokeUserCredentialsRequest]) (*connect.Response[v1.RevokeUserCredentialsResponse], error)
+	RevokeUserCredentials(context.Context, *v1.RevokeUserCredentialsRequest) (*v1.RevokeUserCredentialsResponse, error)
 	// ---- Invites ----
-	ListInvites(context.Context, *connect.Request[v1.ListInvitesRequest]) (*connect.Response[v1.ListInvitesResponse], error)
-	CreateInvite(context.Context, *connect.Request[v1.CreateInviteRequest]) (*connect.Response[v1.CreateInviteResponse], error)
-	RevokeInvite(context.Context, *connect.Request[v1.RevokeInviteRequest]) (*connect.Response[v1.RevokeInviteResponse], error)
-	ResendInvite(context.Context, *connect.Request[v1.ResendInviteRequest]) (*connect.Response[v1.ResendInviteResponse], error)
+	ListInvites(context.Context, *v1.ListInvitesRequest) (*v1.ListInvitesResponse, error)
+	CreateInvite(context.Context, *v1.CreateInviteRequest) (*v1.CreateInviteResponse, error)
+	RevokeInvite(context.Context, *v1.RevokeInviteRequest) (*v1.RevokeInviteResponse, error)
+	ResendInvite(context.Context, *v1.ResendInviteRequest) (*v1.ResendInviteResponse, error)
 	// ---- Audit log ----
-	ListAuditEntries(context.Context, *connect.Request[v1.ListAuditEntriesRequest]) (*connect.Response[v1.ListAuditEntriesResponse], error)
+	ListAuditEntries(context.Context, *v1.ListAuditEntriesRequest) (*v1.ListAuditEntriesResponse, error)
 	// ---- Job queue introspection ----
-	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
-	GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error)
-	RetryJob(context.Context, *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error)
-	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
+	ListJobs(context.Context, *v1.ListJobsRequest) (*v1.ListJobsResponse, error)
+	GetJob(context.Context, *v1.GetJobRequest) (*v1.GetJobResponse, error)
+	RetryJob(context.Context, *v1.RetryJobRequest) (*v1.RetryJobResponse, error)
+	CancelJob(context.Context, *v1.CancelJobRequest) (*v1.CancelJobResponse, error)
 	// List jobs that exhausted retries and went to the dead-letter queue.
-	ListDeadLetterJobs(context.Context, *connect.Request[v1.ListDeadLetterJobsRequest]) (*connect.Response[v1.ListDeadLetterJobsResponse], error)
+	ListDeadLetterJobs(context.Context, *v1.ListDeadLetterJobsRequest) (*v1.ListDeadLetterJobsResponse, error)
 	// Re-enqueue a DLQ job at the head of its provider queue.
-	RequeueDeadLetterJob(context.Context, *connect.Request[v1.RequeueDeadLetterJobRequest]) (*connect.Response[v1.RequeueDeadLetterJobResponse], error)
+	RequeueDeadLetterJob(context.Context, *v1.RequeueDeadLetterJobRequest) (*v1.RequeueDeadLetterJobResponse, error)
 	// ---- Sources / orphans ----
 	// List activity sources whose worker is currently offline or deregistered.
-	ListOrphanedSources(context.Context, *connect.Request[v1.ListOrphanedSourcesRequest]) (*connect.Response[v1.ListOrphanedSourcesResponse], error)
+	ListOrphanedSources(context.Context, *v1.ListOrphanedSourcesRequest) (*v1.ListOrphanedSourcesResponse, error)
 	// ---- Webhook signing tokens (per external account) ----
 	// Webhook tokens are stored on each ExternalAccount; this endpoint lists
 	// and bulk-rotates them across the instance (useful when a token leaks).
-	ListWebhookSigningTokens(context.Context, *connect.Request[v1.ListWebhookSigningTokensRequest]) (*connect.Response[v1.ListWebhookSigningTokensResponse], error)
-	BulkRotateWebhookSigningTokens(context.Context, *connect.Request[v1.BulkRotateWebhookSigningTokensRequest]) (*connect.Response[v1.BulkRotateWebhookSigningTokensResponse], error)
+	ListWebhookSigningTokens(context.Context, *v1.ListWebhookSigningTokensRequest) (*v1.ListWebhookSigningTokensResponse, error)
+	BulkRotateWebhookSigningTokens(context.Context, *v1.BulkRotateWebhookSigningTokensRequest) (*v1.BulkRotateWebhookSigningTokensResponse, error)
 	// ---- System health ----
-	GetSystemHealth(context.Context, *connect.Request[v1.GetSystemHealthRequest]) (*connect.Response[v1.GetSystemHealthResponse], error)
+	GetSystemHealth(context.Context, *v1.GetSystemHealthRequest) (*v1.GetSystemHealthResponse, error)
 	// Stream of admin-relevant events (worker register/deregister, conflicts,
 	// health degradations). Used by the admin dashboard's live activity view.
-	StreamAdminEvents(context.Context, *connect.Request[v1.StreamAdminEventsRequest]) (*connect.ServerStreamForClient[v1.AdminEvent], error)
+	StreamAdminEvents(context.Context, *v1.StreamAdminEventsRequest) (AdminServiceStreamAdminEventsClientStream, error)
 	// ---- Maintenance ----
 	// Trigger expensive recomputations. Queued as background jobs; returns
 	// the job_id for progress observation.
-	TriggerMaintenance(context.Context, *connect.Request[v1.TriggerMaintenanceRequest]) (*connect.Response[v1.TriggerMaintenanceResponse], error)
+	TriggerMaintenance(context.Context, *v1.TriggerMaintenanceRequest) (*v1.TriggerMaintenanceResponse, error)
 }
 
-// NewAdminServiceClient constructs a client for the cairn.v1.AdminService service. By default, it
-// uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
-// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
-// connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AdminServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	adminServiceMethods := v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods()
-	return &adminServiceClient{
-		listOIDCClients: connect.NewClient[v1.ListOIDCClientsRequest, v1.ListOIDCClientsResponse](
-			httpClient,
-			baseURL+AdminServiceListOIDCClientsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListOIDCClients")),
-			connect.WithClientOptions(opts...),
-		),
-		getInstanceSettings: connect.NewClient[v1.GetInstanceSettingsRequest, v1.GetInstanceSettingsResponse](
-			httpClient,
-			baseURL+AdminServiceGetInstanceSettingsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("GetInstanceSettings")),
-			connect.WithClientOptions(opts...),
-		),
-		updateInstanceSettings: connect.NewClient[v1.UpdateInstanceSettingsRequest, v1.UpdateInstanceSettingsResponse](
-			httpClient,
-			baseURL+AdminServiceUpdateInstanceSettingsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("UpdateInstanceSettings")),
-			connect.WithClientOptions(opts...),
-		),
-		sendTestEmail: connect.NewClient[v1.SendTestEmailRequest, v1.SendTestEmailResponse](
-			httpClient,
-			baseURL+AdminServiceSendTestEmailProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("SendTestEmail")),
-			connect.WithClientOptions(opts...),
-		),
-		listUsers: connect.NewClient[v1.ListUsersRequest, v1.ListUsersResponse](
-			httpClient,
-			baseURL+AdminServiceListUsersProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListUsers")),
-			connect.WithClientOptions(opts...),
-		),
-		getUser: connect.NewClient[v1.GetUserRequest, v1.GetUserResponse](
-			httpClient,
-			baseURL+AdminServiceGetUserProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("GetUser")),
-			connect.WithClientOptions(opts...),
-		),
-		createUser: connect.NewClient[v1.CreateUserRequest, v1.CreateUserResponse](
-			httpClient,
-			baseURL+AdminServiceCreateUserProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("CreateUser")),
-			connect.WithClientOptions(opts...),
-		),
-		updateUser: connect.NewClient[v1.UpdateUserRequest, v1.UpdateUserResponse](
-			httpClient,
-			baseURL+AdminServiceUpdateUserProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("UpdateUser")),
-			connect.WithClientOptions(opts...),
-		),
-		changeUserRole: connect.NewClient[v1.ChangeUserRoleRequest, v1.ChangeUserRoleResponse](
-			httpClient,
-			baseURL+AdminServiceChangeUserRoleProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ChangeUserRole")),
-			connect.WithClientOptions(opts...),
-		),
-		setUserStatus: connect.NewClient[v1.SetUserStatusRequest, v1.SetUserStatusResponse](
-			httpClient,
-			baseURL+AdminServiceSetUserStatusProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("SetUserStatus")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteUser: connect.NewClient[v1.DeleteUserRequest, v1.DeleteUserResponse](
-			httpClient,
-			baseURL+AdminServiceDeleteUserProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("DeleteUser")),
-			connect.WithClientOptions(opts...),
-		),
-		resetUserPassword: connect.NewClient[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse](
-			httpClient,
-			baseURL+AdminServiceResetUserPasswordProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ResetUserPassword")),
-			connect.WithClientOptions(opts...),
-		),
-		revokeUserCredentials: connect.NewClient[v1.RevokeUserCredentialsRequest, v1.RevokeUserCredentialsResponse](
-			httpClient,
-			baseURL+AdminServiceRevokeUserCredentialsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("RevokeUserCredentials")),
-			connect.WithClientOptions(opts...),
-		),
-		listInvites: connect.NewClient[v1.ListInvitesRequest, v1.ListInvitesResponse](
-			httpClient,
-			baseURL+AdminServiceListInvitesProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListInvites")),
-			connect.WithClientOptions(opts...),
-		),
-		createInvite: connect.NewClient[v1.CreateInviteRequest, v1.CreateInviteResponse](
-			httpClient,
-			baseURL+AdminServiceCreateInviteProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("CreateInvite")),
-			connect.WithClientOptions(opts...),
-		),
-		revokeInvite: connect.NewClient[v1.RevokeInviteRequest, v1.RevokeInviteResponse](
-			httpClient,
-			baseURL+AdminServiceRevokeInviteProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("RevokeInvite")),
-			connect.WithClientOptions(opts...),
-		),
-		resendInvite: connect.NewClient[v1.ResendInviteRequest, v1.ResendInviteResponse](
-			httpClient,
-			baseURL+AdminServiceResendInviteProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ResendInvite")),
-			connect.WithClientOptions(opts...),
-		),
-		listAuditEntries: connect.NewClient[v1.ListAuditEntriesRequest, v1.ListAuditEntriesResponse](
-			httpClient,
-			baseURL+AdminServiceListAuditEntriesProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListAuditEntries")),
-			connect.WithClientOptions(opts...),
-		),
-		listJobs: connect.NewClient[v1.ListJobsRequest, v1.ListJobsResponse](
-			httpClient,
-			baseURL+AdminServiceListJobsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListJobs")),
-			connect.WithClientOptions(opts...),
-		),
-		getJob: connect.NewClient[v1.GetJobRequest, v1.GetJobResponse](
-			httpClient,
-			baseURL+AdminServiceGetJobProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("GetJob")),
-			connect.WithClientOptions(opts...),
-		),
-		retryJob: connect.NewClient[v1.RetryJobRequest, v1.RetryJobResponse](
-			httpClient,
-			baseURL+AdminServiceRetryJobProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("RetryJob")),
-			connect.WithClientOptions(opts...),
-		),
-		cancelJob: connect.NewClient[v1.CancelJobRequest, v1.CancelJobResponse](
-			httpClient,
-			baseURL+AdminServiceCancelJobProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("CancelJob")),
-			connect.WithClientOptions(opts...),
-		),
-		listDeadLetterJobs: connect.NewClient[v1.ListDeadLetterJobsRequest, v1.ListDeadLetterJobsResponse](
-			httpClient,
-			baseURL+AdminServiceListDeadLetterJobsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListDeadLetterJobs")),
-			connect.WithClientOptions(opts...),
-		),
-		requeueDeadLetterJob: connect.NewClient[v1.RequeueDeadLetterJobRequest, v1.RequeueDeadLetterJobResponse](
-			httpClient,
-			baseURL+AdminServiceRequeueDeadLetterJobProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("RequeueDeadLetterJob")),
-			connect.WithClientOptions(opts...),
-		),
-		listOrphanedSources: connect.NewClient[v1.ListOrphanedSourcesRequest, v1.ListOrphanedSourcesResponse](
-			httpClient,
-			baseURL+AdminServiceListOrphanedSourcesProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListOrphanedSources")),
-			connect.WithClientOptions(opts...),
-		),
-		listWebhookSigningTokens: connect.NewClient[v1.ListWebhookSigningTokensRequest, v1.ListWebhookSigningTokensResponse](
-			httpClient,
-			baseURL+AdminServiceListWebhookSigningTokensProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("ListWebhookSigningTokens")),
-			connect.WithClientOptions(opts...),
-		),
-		bulkRotateWebhookSigningTokens: connect.NewClient[v1.BulkRotateWebhookSigningTokensRequest, v1.BulkRotateWebhookSigningTokensResponse](
-			httpClient,
-			baseURL+AdminServiceBulkRotateWebhookSigningTokensProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("BulkRotateWebhookSigningTokens")),
-			connect.WithClientOptions(opts...),
-		),
-		getSystemHealth: connect.NewClient[v1.GetSystemHealthRequest, v1.GetSystemHealthResponse](
-			httpClient,
-			baseURL+AdminServiceGetSystemHealthProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("GetSystemHealth")),
-			connect.WithClientOptions(opts...),
-		),
-		streamAdminEvents: connect.NewClient[v1.StreamAdminEventsRequest, v1.AdminEvent](
-			httpClient,
-			baseURL+AdminServiceStreamAdminEventsProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("StreamAdminEvents")),
-			connect.WithClientOptions(opts...),
-		),
-		triggerMaintenance: connect.NewClient[v1.TriggerMaintenanceRequest, v1.TriggerMaintenanceResponse](
-			httpClient,
-			baseURL+AdminServiceTriggerMaintenanceProcedure,
-			connect.WithSchema(adminServiceMethods.ByName("TriggerMaintenance")),
-			connect.WithClientOptions(opts...),
-		),
+// NewAdminServiceClient constructs a client for the cairn.v1.AdminService service. Multiple service
+// clients may share a single connect.Client.
+func NewAdminServiceClient(client *connect.Client) AdminServiceClient {
+	return &adminServiceClient{client: client}
+}
+
+// AdminServiceStreamAdminEventsClientStream is the client stream for the AdminService's
+// StreamAdminEvents RPC.
+type AdminServiceStreamAdminEventsClientStream struct {
+	stream connect.ClientStream
+}
+
+// Receive returns the next response message from the server.
+func (s AdminServiceStreamAdminEventsClientStream) Receive() (*v1.AdminEvent, error) {
+	var res v1.AdminEvent
+	if err := s.stream.Receive(&res); err != nil {
+		return nil, err
 	}
+	return &res, nil
 }
 
-// adminServiceClient implements AdminServiceClient.
-type adminServiceClient struct {
-	listOIDCClients                *connect.Client[v1.ListOIDCClientsRequest, v1.ListOIDCClientsResponse]
-	getInstanceSettings            *connect.Client[v1.GetInstanceSettingsRequest, v1.GetInstanceSettingsResponse]
-	updateInstanceSettings         *connect.Client[v1.UpdateInstanceSettingsRequest, v1.UpdateInstanceSettingsResponse]
-	sendTestEmail                  *connect.Client[v1.SendTestEmailRequest, v1.SendTestEmailResponse]
-	listUsers                      *connect.Client[v1.ListUsersRequest, v1.ListUsersResponse]
-	getUser                        *connect.Client[v1.GetUserRequest, v1.GetUserResponse]
-	createUser                     *connect.Client[v1.CreateUserRequest, v1.CreateUserResponse]
-	updateUser                     *connect.Client[v1.UpdateUserRequest, v1.UpdateUserResponse]
-	changeUserRole                 *connect.Client[v1.ChangeUserRoleRequest, v1.ChangeUserRoleResponse]
-	setUserStatus                  *connect.Client[v1.SetUserStatusRequest, v1.SetUserStatusResponse]
-	deleteUser                     *connect.Client[v1.DeleteUserRequest, v1.DeleteUserResponse]
-	resetUserPassword              *connect.Client[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse]
-	revokeUserCredentials          *connect.Client[v1.RevokeUserCredentialsRequest, v1.RevokeUserCredentialsResponse]
-	listInvites                    *connect.Client[v1.ListInvitesRequest, v1.ListInvitesResponse]
-	createInvite                   *connect.Client[v1.CreateInviteRequest, v1.CreateInviteResponse]
-	revokeInvite                   *connect.Client[v1.RevokeInviteRequest, v1.RevokeInviteResponse]
-	resendInvite                   *connect.Client[v1.ResendInviteRequest, v1.ResendInviteResponse]
-	listAuditEntries               *connect.Client[v1.ListAuditEntriesRequest, v1.ListAuditEntriesResponse]
-	listJobs                       *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
-	getJob                         *connect.Client[v1.GetJobRequest, v1.GetJobResponse]
-	retryJob                       *connect.Client[v1.RetryJobRequest, v1.RetryJobResponse]
-	cancelJob                      *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
-	listDeadLetterJobs             *connect.Client[v1.ListDeadLetterJobsRequest, v1.ListDeadLetterJobsResponse]
-	requeueDeadLetterJob           *connect.Client[v1.RequeueDeadLetterJobRequest, v1.RequeueDeadLetterJobResponse]
-	listOrphanedSources            *connect.Client[v1.ListOrphanedSourcesRequest, v1.ListOrphanedSourcesResponse]
-	listWebhookSigningTokens       *connect.Client[v1.ListWebhookSigningTokensRequest, v1.ListWebhookSigningTokensResponse]
-	bulkRotateWebhookSigningTokens *connect.Client[v1.BulkRotateWebhookSigningTokensRequest, v1.BulkRotateWebhookSigningTokensResponse]
-	getSystemHealth                *connect.Client[v1.GetSystemHealthRequest, v1.GetSystemHealthResponse]
-	streamAdminEvents              *connect.Client[v1.StreamAdminEventsRequest, v1.AdminEvent]
-	triggerMaintenance             *connect.Client[v1.TriggerMaintenanceRequest, v1.TriggerMaintenanceResponse]
-}
-
-// ListOIDCClients calls cairn.v1.AdminService.ListOIDCClients.
-func (c *adminServiceClient) ListOIDCClients(ctx context.Context, req *connect.Request[v1.ListOIDCClientsRequest]) (*connect.Response[v1.ListOIDCClientsResponse], error) {
-	return c.listOIDCClients.CallUnary(ctx, req)
-}
-
-// GetInstanceSettings calls cairn.v1.AdminService.GetInstanceSettings.
-func (c *adminServiceClient) GetInstanceSettings(ctx context.Context, req *connect.Request[v1.GetInstanceSettingsRequest]) (*connect.Response[v1.GetInstanceSettingsResponse], error) {
-	return c.getInstanceSettings.CallUnary(ctx, req)
-}
-
-// UpdateInstanceSettings calls cairn.v1.AdminService.UpdateInstanceSettings.
-func (c *adminServiceClient) UpdateInstanceSettings(ctx context.Context, req *connect.Request[v1.UpdateInstanceSettingsRequest]) (*connect.Response[v1.UpdateInstanceSettingsResponse], error) {
-	return c.updateInstanceSettings.CallUnary(ctx, req)
-}
-
-// SendTestEmail calls cairn.v1.AdminService.SendTestEmail.
-func (c *adminServiceClient) SendTestEmail(ctx context.Context, req *connect.Request[v1.SendTestEmailRequest]) (*connect.Response[v1.SendTestEmailResponse], error) {
-	return c.sendTestEmail.CallUnary(ctx, req)
-}
-
-// ListUsers calls cairn.v1.AdminService.ListUsers.
-func (c *adminServiceClient) ListUsers(ctx context.Context, req *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error) {
-	return c.listUsers.CallUnary(ctx, req)
-}
-
-// GetUser calls cairn.v1.AdminService.GetUser.
-func (c *adminServiceClient) GetUser(ctx context.Context, req *connect.Request[v1.GetUserRequest]) (*connect.Response[v1.GetUserResponse], error) {
-	return c.getUser.CallUnary(ctx, req)
-}
-
-// CreateUser calls cairn.v1.AdminService.CreateUser.
-func (c *adminServiceClient) CreateUser(ctx context.Context, req *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error) {
-	return c.createUser.CallUnary(ctx, req)
-}
-
-// UpdateUser calls cairn.v1.AdminService.UpdateUser.
-func (c *adminServiceClient) UpdateUser(ctx context.Context, req *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error) {
-	return c.updateUser.CallUnary(ctx, req)
-}
-
-// ChangeUserRole calls cairn.v1.AdminService.ChangeUserRole.
-func (c *adminServiceClient) ChangeUserRole(ctx context.Context, req *connect.Request[v1.ChangeUserRoleRequest]) (*connect.Response[v1.ChangeUserRoleResponse], error) {
-	return c.changeUserRole.CallUnary(ctx, req)
-}
-
-// SetUserStatus calls cairn.v1.AdminService.SetUserStatus.
-func (c *adminServiceClient) SetUserStatus(ctx context.Context, req *connect.Request[v1.SetUserStatusRequest]) (*connect.Response[v1.SetUserStatusResponse], error) {
-	return c.setUserStatus.CallUnary(ctx, req)
-}
-
-// DeleteUser calls cairn.v1.AdminService.DeleteUser.
-func (c *adminServiceClient) DeleteUser(ctx context.Context, req *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error) {
-	return c.deleteUser.CallUnary(ctx, req)
-}
-
-// ResetUserPassword calls cairn.v1.AdminService.ResetUserPassword.
-func (c *adminServiceClient) ResetUserPassword(ctx context.Context, req *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error) {
-	return c.resetUserPassword.CallUnary(ctx, req)
-}
-
-// RevokeUserCredentials calls cairn.v1.AdminService.RevokeUserCredentials.
-func (c *adminServiceClient) RevokeUserCredentials(ctx context.Context, req *connect.Request[v1.RevokeUserCredentialsRequest]) (*connect.Response[v1.RevokeUserCredentialsResponse], error) {
-	return c.revokeUserCredentials.CallUnary(ctx, req)
-}
-
-// ListInvites calls cairn.v1.AdminService.ListInvites.
-func (c *adminServiceClient) ListInvites(ctx context.Context, req *connect.Request[v1.ListInvitesRequest]) (*connect.Response[v1.ListInvitesResponse], error) {
-	return c.listInvites.CallUnary(ctx, req)
-}
-
-// CreateInvite calls cairn.v1.AdminService.CreateInvite.
-func (c *adminServiceClient) CreateInvite(ctx context.Context, req *connect.Request[v1.CreateInviteRequest]) (*connect.Response[v1.CreateInviteResponse], error) {
-	return c.createInvite.CallUnary(ctx, req)
-}
-
-// RevokeInvite calls cairn.v1.AdminService.RevokeInvite.
-func (c *adminServiceClient) RevokeInvite(ctx context.Context, req *connect.Request[v1.RevokeInviteRequest]) (*connect.Response[v1.RevokeInviteResponse], error) {
-	return c.revokeInvite.CallUnary(ctx, req)
-}
-
-// ResendInvite calls cairn.v1.AdminService.ResendInvite.
-func (c *adminServiceClient) ResendInvite(ctx context.Context, req *connect.Request[v1.ResendInviteRequest]) (*connect.Response[v1.ResendInviteResponse], error) {
-	return c.resendInvite.CallUnary(ctx, req)
-}
-
-// ListAuditEntries calls cairn.v1.AdminService.ListAuditEntries.
-func (c *adminServiceClient) ListAuditEntries(ctx context.Context, req *connect.Request[v1.ListAuditEntriesRequest]) (*connect.Response[v1.ListAuditEntriesResponse], error) {
-	return c.listAuditEntries.CallUnary(ctx, req)
-}
-
-// ListJobs calls cairn.v1.AdminService.ListJobs.
-func (c *adminServiceClient) ListJobs(ctx context.Context, req *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {
-	return c.listJobs.CallUnary(ctx, req)
-}
-
-// GetJob calls cairn.v1.AdminService.GetJob.
-func (c *adminServiceClient) GetJob(ctx context.Context, req *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error) {
-	return c.getJob.CallUnary(ctx, req)
-}
-
-// RetryJob calls cairn.v1.AdminService.RetryJob.
-func (c *adminServiceClient) RetryJob(ctx context.Context, req *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error) {
-	return c.retryJob.CallUnary(ctx, req)
-}
-
-// CancelJob calls cairn.v1.AdminService.CancelJob.
-func (c *adminServiceClient) CancelJob(ctx context.Context, req *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error) {
-	return c.cancelJob.CallUnary(ctx, req)
-}
-
-// ListDeadLetterJobs calls cairn.v1.AdminService.ListDeadLetterJobs.
-func (c *adminServiceClient) ListDeadLetterJobs(ctx context.Context, req *connect.Request[v1.ListDeadLetterJobsRequest]) (*connect.Response[v1.ListDeadLetterJobsResponse], error) {
-	return c.listDeadLetterJobs.CallUnary(ctx, req)
-}
-
-// RequeueDeadLetterJob calls cairn.v1.AdminService.RequeueDeadLetterJob.
-func (c *adminServiceClient) RequeueDeadLetterJob(ctx context.Context, req *connect.Request[v1.RequeueDeadLetterJobRequest]) (*connect.Response[v1.RequeueDeadLetterJobResponse], error) {
-	return c.requeueDeadLetterJob.CallUnary(ctx, req)
-}
-
-// ListOrphanedSources calls cairn.v1.AdminService.ListOrphanedSources.
-func (c *adminServiceClient) ListOrphanedSources(ctx context.Context, req *connect.Request[v1.ListOrphanedSourcesRequest]) (*connect.Response[v1.ListOrphanedSourcesResponse], error) {
-	return c.listOrphanedSources.CallUnary(ctx, req)
-}
-
-// ListWebhookSigningTokens calls cairn.v1.AdminService.ListWebhookSigningTokens.
-func (c *adminServiceClient) ListWebhookSigningTokens(ctx context.Context, req *connect.Request[v1.ListWebhookSigningTokensRequest]) (*connect.Response[v1.ListWebhookSigningTokensResponse], error) {
-	return c.listWebhookSigningTokens.CallUnary(ctx, req)
-}
-
-// BulkRotateWebhookSigningTokens calls cairn.v1.AdminService.BulkRotateWebhookSigningTokens.
-func (c *adminServiceClient) BulkRotateWebhookSigningTokens(ctx context.Context, req *connect.Request[v1.BulkRotateWebhookSigningTokensRequest]) (*connect.Response[v1.BulkRotateWebhookSigningTokensResponse], error) {
-	return c.bulkRotateWebhookSigningTokens.CallUnary(ctx, req)
-}
-
-// GetSystemHealth calls cairn.v1.AdminService.GetSystemHealth.
-func (c *adminServiceClient) GetSystemHealth(ctx context.Context, req *connect.Request[v1.GetSystemHealthRequest]) (*connect.Response[v1.GetSystemHealthResponse], error) {
-	return c.getSystemHealth.CallUnary(ctx, req)
-}
-
-// StreamAdminEvents calls cairn.v1.AdminService.StreamAdminEvents.
-func (c *adminServiceClient) StreamAdminEvents(ctx context.Context, req *connect.Request[v1.StreamAdminEventsRequest]) (*connect.ServerStreamForClient[v1.AdminEvent], error) {
-	return c.streamAdminEvents.CallServerStream(ctx, req)
-}
-
-// TriggerMaintenance calls cairn.v1.AdminService.TriggerMaintenance.
-func (c *adminServiceClient) TriggerMaintenance(ctx context.Context, req *connect.Request[v1.TriggerMaintenanceRequest]) (*connect.Response[v1.TriggerMaintenanceResponse], error) {
-	return c.triggerMaintenance.CallUnary(ctx, req)
+// Close releases the stream's resources. It is idempotent and is typically deferred to clean up a
+// stream abandoned before io.EOF.
+func (s AdminServiceStreamAdminEventsClientStream) Close() error {
+	return s.stream.Close()
 }
 
 // AdminServiceHandler is an implementation of the cairn.v1.AdminService service.
@@ -591,437 +438,837 @@ type AdminServiceHandler interface {
 	// OIDC providers are configured entirely via CAIRN_OIDC_* env vars; there
 	// is no client database and no create/update/delete. This RPC lets the
 	// admin UI display the active configuration.
-	ListOIDCClients(context.Context, *connect.Request[v1.ListOIDCClientsRequest]) (*connect.Response[v1.ListOIDCClientsResponse], error)
+	ListOIDCClients(context.Context, *v1.ListOIDCClientsRequest) (*v1.ListOIDCClientsResponse, error)
 	// ---- Instance settings ----
-	GetInstanceSettings(context.Context, *connect.Request[v1.GetInstanceSettingsRequest]) (*connect.Response[v1.GetInstanceSettingsResponse], error)
-	UpdateInstanceSettings(context.Context, *connect.Request[v1.UpdateInstanceSettingsRequest]) (*connect.Response[v1.UpdateInstanceSettingsResponse], error)
+	GetInstanceSettings(context.Context, *v1.GetInstanceSettingsRequest) (*v1.GetInstanceSettingsResponse, error)
+	UpdateInstanceSettings(context.Context, *v1.UpdateInstanceSettingsRequest) (*v1.UpdateInstanceSettingsResponse, error)
 	// Send a synthetic email through the configured SMTP/SES/Resend/Mailgun
 	// adapter to verify outbound delivery.
-	SendTestEmail(context.Context, *connect.Request[v1.SendTestEmailRequest]) (*connect.Response[v1.SendTestEmailResponse], error)
+	SendTestEmail(context.Context, *v1.SendTestEmailRequest) (*v1.SendTestEmailResponse, error)
 	// ---- Users ----
-	ListUsers(context.Context, *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error)
-	GetUser(context.Context, *connect.Request[v1.GetUserRequest]) (*connect.Response[v1.GetUserResponse], error)
-	CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error)
-	UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error)
-	ChangeUserRole(context.Context, *connect.Request[v1.ChangeUserRoleRequest]) (*connect.Response[v1.ChangeUserRoleResponse], error)
-	SetUserStatus(context.Context, *connect.Request[v1.SetUserStatusRequest]) (*connect.Response[v1.SetUserStatusResponse], error)
+	ListUsers(context.Context, *v1.ListUsersRequest) (*v1.ListUsersResponse, error)
+	GetUser(context.Context, *v1.GetUserRequest) (*v1.GetUserResponse, error)
+	CreateUser(context.Context, *v1.CreateUserRequest) (*v1.CreateUserResponse, error)
+	UpdateUser(context.Context, *v1.UpdateUserRequest) (*v1.UpdateUserResponse, error)
+	ChangeUserRole(context.Context, *v1.ChangeUserRoleRequest) (*v1.ChangeUserRoleResponse, error)
+	SetUserStatus(context.Context, *v1.SetUserStatusRequest) (*v1.SetUserStatusResponse, error)
 	// Hard-delete with cascade. Two-step: caller must pass confirm_username
 	// matching the user's username to proceed. Audit-logged at HIGH severity.
-	DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error)
+	DeleteUser(context.Context, *v1.DeleteUserRequest) (*v1.DeleteUserResponse, error)
 	// Force-reset a user's password to a temporary value, returned once.
 	// The user is required to change it on next login.
-	ResetUserPassword(context.Context, *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error)
+	ResetUserPassword(context.Context, *v1.ResetUserPasswordRequest) (*v1.ResetUserPasswordResponse, error)
 	// Revoke all sessions and PATs for a user.
-	RevokeUserCredentials(context.Context, *connect.Request[v1.RevokeUserCredentialsRequest]) (*connect.Response[v1.RevokeUserCredentialsResponse], error)
+	RevokeUserCredentials(context.Context, *v1.RevokeUserCredentialsRequest) (*v1.RevokeUserCredentialsResponse, error)
 	// ---- Invites ----
-	ListInvites(context.Context, *connect.Request[v1.ListInvitesRequest]) (*connect.Response[v1.ListInvitesResponse], error)
-	CreateInvite(context.Context, *connect.Request[v1.CreateInviteRequest]) (*connect.Response[v1.CreateInviteResponse], error)
-	RevokeInvite(context.Context, *connect.Request[v1.RevokeInviteRequest]) (*connect.Response[v1.RevokeInviteResponse], error)
-	ResendInvite(context.Context, *connect.Request[v1.ResendInviteRequest]) (*connect.Response[v1.ResendInviteResponse], error)
+	ListInvites(context.Context, *v1.ListInvitesRequest) (*v1.ListInvitesResponse, error)
+	CreateInvite(context.Context, *v1.CreateInviteRequest) (*v1.CreateInviteResponse, error)
+	RevokeInvite(context.Context, *v1.RevokeInviteRequest) (*v1.RevokeInviteResponse, error)
+	ResendInvite(context.Context, *v1.ResendInviteRequest) (*v1.ResendInviteResponse, error)
 	// ---- Audit log ----
-	ListAuditEntries(context.Context, *connect.Request[v1.ListAuditEntriesRequest]) (*connect.Response[v1.ListAuditEntriesResponse], error)
+	ListAuditEntries(context.Context, *v1.ListAuditEntriesRequest) (*v1.ListAuditEntriesResponse, error)
 	// ---- Job queue introspection ----
-	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
-	GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error)
-	RetryJob(context.Context, *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error)
-	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
+	ListJobs(context.Context, *v1.ListJobsRequest) (*v1.ListJobsResponse, error)
+	GetJob(context.Context, *v1.GetJobRequest) (*v1.GetJobResponse, error)
+	RetryJob(context.Context, *v1.RetryJobRequest) (*v1.RetryJobResponse, error)
+	CancelJob(context.Context, *v1.CancelJobRequest) (*v1.CancelJobResponse, error)
 	// List jobs that exhausted retries and went to the dead-letter queue.
-	ListDeadLetterJobs(context.Context, *connect.Request[v1.ListDeadLetterJobsRequest]) (*connect.Response[v1.ListDeadLetterJobsResponse], error)
+	ListDeadLetterJobs(context.Context, *v1.ListDeadLetterJobsRequest) (*v1.ListDeadLetterJobsResponse, error)
 	// Re-enqueue a DLQ job at the head of its provider queue.
-	RequeueDeadLetterJob(context.Context, *connect.Request[v1.RequeueDeadLetterJobRequest]) (*connect.Response[v1.RequeueDeadLetterJobResponse], error)
+	RequeueDeadLetterJob(context.Context, *v1.RequeueDeadLetterJobRequest) (*v1.RequeueDeadLetterJobResponse, error)
 	// ---- Sources / orphans ----
 	// List activity sources whose worker is currently offline or deregistered.
-	ListOrphanedSources(context.Context, *connect.Request[v1.ListOrphanedSourcesRequest]) (*connect.Response[v1.ListOrphanedSourcesResponse], error)
+	ListOrphanedSources(context.Context, *v1.ListOrphanedSourcesRequest) (*v1.ListOrphanedSourcesResponse, error)
 	// ---- Webhook signing tokens (per external account) ----
 	// Webhook tokens are stored on each ExternalAccount; this endpoint lists
 	// and bulk-rotates them across the instance (useful when a token leaks).
-	ListWebhookSigningTokens(context.Context, *connect.Request[v1.ListWebhookSigningTokensRequest]) (*connect.Response[v1.ListWebhookSigningTokensResponse], error)
-	BulkRotateWebhookSigningTokens(context.Context, *connect.Request[v1.BulkRotateWebhookSigningTokensRequest]) (*connect.Response[v1.BulkRotateWebhookSigningTokensResponse], error)
+	ListWebhookSigningTokens(context.Context, *v1.ListWebhookSigningTokensRequest) (*v1.ListWebhookSigningTokensResponse, error)
+	BulkRotateWebhookSigningTokens(context.Context, *v1.BulkRotateWebhookSigningTokensRequest) (*v1.BulkRotateWebhookSigningTokensResponse, error)
 	// ---- System health ----
-	GetSystemHealth(context.Context, *connect.Request[v1.GetSystemHealthRequest]) (*connect.Response[v1.GetSystemHealthResponse], error)
+	GetSystemHealth(context.Context, *v1.GetSystemHealthRequest) (*v1.GetSystemHealthResponse, error)
 	// Stream of admin-relevant events (worker register/deregister, conflicts,
 	// health degradations). Used by the admin dashboard's live activity view.
-	StreamAdminEvents(context.Context, *connect.Request[v1.StreamAdminEventsRequest], *connect.ServerStream[v1.AdminEvent]) error
+	StreamAdminEvents(context.Context, *v1.StreamAdminEventsRequest, AdminServiceStreamAdminEventsServerStream) error
 	// ---- Maintenance ----
 	// Trigger expensive recomputations. Queued as background jobs; returns
 	// the job_id for progress observation.
-	TriggerMaintenance(context.Context, *connect.Request[v1.TriggerMaintenanceRequest]) (*connect.Response[v1.TriggerMaintenanceResponse], error)
+	TriggerMaintenance(context.Context, *v1.TriggerMaintenanceRequest) (*v1.TriggerMaintenanceResponse, error)
 }
 
-// NewAdminServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewAdminServiceHandler(svc AdminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	adminServiceMethods := v1.File_cairn_v1_admin_proto.Services().ByName("AdminService").Methods()
-	adminServiceListOIDCClientsHandler := connect.NewUnaryHandler(
-		AdminServiceListOIDCClientsProcedure,
-		svc.ListOIDCClients,
-		connect.WithSchema(adminServiceMethods.ByName("ListOIDCClients")),
-		connect.WithHandlerOptions(opts...),
+// RegisterAdminServiceHandler registers svc as the cairn.v1.AdminService implementation on server.
+func RegisterAdminServiceHandler(server *connect.Server, svc AdminServiceHandler) {
+	adapter := adminServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: adminServiceListOIDCClientsSpec(), Handler: adapter.listOIDCClients},
+		connect.Method{Spec: adminServiceGetInstanceSettingsSpec(), Handler: adapter.getInstanceSettings},
+		connect.Method{Spec: adminServiceUpdateInstanceSettingsSpec(), Handler: adapter.updateInstanceSettings},
+		connect.Method{Spec: adminServiceSendTestEmailSpec(), Handler: adapter.sendTestEmail},
+		connect.Method{Spec: adminServiceListUsersSpec(), Handler: adapter.listUsers},
+		connect.Method{Spec: adminServiceGetUserSpec(), Handler: adapter.getUser},
+		connect.Method{Spec: adminServiceCreateUserSpec(), Handler: adapter.createUser},
+		connect.Method{Spec: adminServiceUpdateUserSpec(), Handler: adapter.updateUser},
+		connect.Method{Spec: adminServiceChangeUserRoleSpec(), Handler: adapter.changeUserRole},
+		connect.Method{Spec: adminServiceSetUserStatusSpec(), Handler: adapter.setUserStatus},
+		connect.Method{Spec: adminServiceDeleteUserSpec(), Handler: adapter.deleteUser},
+		connect.Method{Spec: adminServiceResetUserPasswordSpec(), Handler: adapter.resetUserPassword},
+		connect.Method{Spec: adminServiceRevokeUserCredentialsSpec(), Handler: adapter.revokeUserCredentials},
+		connect.Method{Spec: adminServiceListInvitesSpec(), Handler: adapter.listInvites},
+		connect.Method{Spec: adminServiceCreateInviteSpec(), Handler: adapter.createInvite},
+		connect.Method{Spec: adminServiceRevokeInviteSpec(), Handler: adapter.revokeInvite},
+		connect.Method{Spec: adminServiceResendInviteSpec(), Handler: adapter.resendInvite},
+		connect.Method{Spec: adminServiceListAuditEntriesSpec(), Handler: adapter.listAuditEntries},
+		connect.Method{Spec: adminServiceListJobsSpec(), Handler: adapter.listJobs},
+		connect.Method{Spec: adminServiceGetJobSpec(), Handler: adapter.getJob},
+		connect.Method{Spec: adminServiceRetryJobSpec(), Handler: adapter.retryJob},
+		connect.Method{Spec: adminServiceCancelJobSpec(), Handler: adapter.cancelJob},
+		connect.Method{Spec: adminServiceListDeadLetterJobsSpec(), Handler: adapter.listDeadLetterJobs},
+		connect.Method{Spec: adminServiceRequeueDeadLetterJobSpec(), Handler: adapter.requeueDeadLetterJob},
+		connect.Method{Spec: adminServiceListOrphanedSourcesSpec(), Handler: adapter.listOrphanedSources},
+		connect.Method{Spec: adminServiceListWebhookSigningTokensSpec(), Handler: adapter.listWebhookSigningTokens},
+		connect.Method{Spec: adminServiceBulkRotateWebhookSigningTokensSpec(), Handler: adapter.bulkRotateWebhookSigningTokens},
+		connect.Method{Spec: adminServiceGetSystemHealthSpec(), Handler: adapter.getSystemHealth},
+		connect.Method{Spec: adminServiceStreamAdminEventsSpec(), Handler: adapter.streamAdminEvents},
+		connect.Method{Spec: adminServiceTriggerMaintenanceSpec(), Handler: adapter.triggerMaintenance},
 	)
-	adminServiceGetInstanceSettingsHandler := connect.NewUnaryHandler(
-		AdminServiceGetInstanceSettingsProcedure,
-		svc.GetInstanceSettings,
-		connect.WithSchema(adminServiceMethods.ByName("GetInstanceSettings")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceUpdateInstanceSettingsHandler := connect.NewUnaryHandler(
-		AdminServiceUpdateInstanceSettingsProcedure,
-		svc.UpdateInstanceSettings,
-		connect.WithSchema(adminServiceMethods.ByName("UpdateInstanceSettings")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceSendTestEmailHandler := connect.NewUnaryHandler(
-		AdminServiceSendTestEmailProcedure,
-		svc.SendTestEmail,
-		connect.WithSchema(adminServiceMethods.ByName("SendTestEmail")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListUsersHandler := connect.NewUnaryHandler(
-		AdminServiceListUsersProcedure,
-		svc.ListUsers,
-		connect.WithSchema(adminServiceMethods.ByName("ListUsers")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceGetUserHandler := connect.NewUnaryHandler(
-		AdminServiceGetUserProcedure,
-		svc.GetUser,
-		connect.WithSchema(adminServiceMethods.ByName("GetUser")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceCreateUserHandler := connect.NewUnaryHandler(
-		AdminServiceCreateUserProcedure,
-		svc.CreateUser,
-		connect.WithSchema(adminServiceMethods.ByName("CreateUser")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceUpdateUserHandler := connect.NewUnaryHandler(
-		AdminServiceUpdateUserProcedure,
-		svc.UpdateUser,
-		connect.WithSchema(adminServiceMethods.ByName("UpdateUser")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceChangeUserRoleHandler := connect.NewUnaryHandler(
-		AdminServiceChangeUserRoleProcedure,
-		svc.ChangeUserRole,
-		connect.WithSchema(adminServiceMethods.ByName("ChangeUserRole")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceSetUserStatusHandler := connect.NewUnaryHandler(
-		AdminServiceSetUserStatusProcedure,
-		svc.SetUserStatus,
-		connect.WithSchema(adminServiceMethods.ByName("SetUserStatus")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceDeleteUserHandler := connect.NewUnaryHandler(
-		AdminServiceDeleteUserProcedure,
-		svc.DeleteUser,
-		connect.WithSchema(adminServiceMethods.ByName("DeleteUser")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceResetUserPasswordHandler := connect.NewUnaryHandler(
-		AdminServiceResetUserPasswordProcedure,
-		svc.ResetUserPassword,
-		connect.WithSchema(adminServiceMethods.ByName("ResetUserPassword")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceRevokeUserCredentialsHandler := connect.NewUnaryHandler(
-		AdminServiceRevokeUserCredentialsProcedure,
-		svc.RevokeUserCredentials,
-		connect.WithSchema(adminServiceMethods.ByName("RevokeUserCredentials")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListInvitesHandler := connect.NewUnaryHandler(
-		AdminServiceListInvitesProcedure,
-		svc.ListInvites,
-		connect.WithSchema(adminServiceMethods.ByName("ListInvites")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceCreateInviteHandler := connect.NewUnaryHandler(
-		AdminServiceCreateInviteProcedure,
-		svc.CreateInvite,
-		connect.WithSchema(adminServiceMethods.ByName("CreateInvite")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceRevokeInviteHandler := connect.NewUnaryHandler(
-		AdminServiceRevokeInviteProcedure,
-		svc.RevokeInvite,
-		connect.WithSchema(adminServiceMethods.ByName("RevokeInvite")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceResendInviteHandler := connect.NewUnaryHandler(
-		AdminServiceResendInviteProcedure,
-		svc.ResendInvite,
-		connect.WithSchema(adminServiceMethods.ByName("ResendInvite")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListAuditEntriesHandler := connect.NewUnaryHandler(
-		AdminServiceListAuditEntriesProcedure,
-		svc.ListAuditEntries,
-		connect.WithSchema(adminServiceMethods.ByName("ListAuditEntries")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListJobsHandler := connect.NewUnaryHandler(
-		AdminServiceListJobsProcedure,
-		svc.ListJobs,
-		connect.WithSchema(adminServiceMethods.ByName("ListJobs")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceGetJobHandler := connect.NewUnaryHandler(
-		AdminServiceGetJobProcedure,
-		svc.GetJob,
-		connect.WithSchema(adminServiceMethods.ByName("GetJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceRetryJobHandler := connect.NewUnaryHandler(
-		AdminServiceRetryJobProcedure,
-		svc.RetryJob,
-		connect.WithSchema(adminServiceMethods.ByName("RetryJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceCancelJobHandler := connect.NewUnaryHandler(
-		AdminServiceCancelJobProcedure,
-		svc.CancelJob,
-		connect.WithSchema(adminServiceMethods.ByName("CancelJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListDeadLetterJobsHandler := connect.NewUnaryHandler(
-		AdminServiceListDeadLetterJobsProcedure,
-		svc.ListDeadLetterJobs,
-		connect.WithSchema(adminServiceMethods.ByName("ListDeadLetterJobs")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceRequeueDeadLetterJobHandler := connect.NewUnaryHandler(
-		AdminServiceRequeueDeadLetterJobProcedure,
-		svc.RequeueDeadLetterJob,
-		connect.WithSchema(adminServiceMethods.ByName("RequeueDeadLetterJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListOrphanedSourcesHandler := connect.NewUnaryHandler(
-		AdminServiceListOrphanedSourcesProcedure,
-		svc.ListOrphanedSources,
-		connect.WithSchema(adminServiceMethods.ByName("ListOrphanedSources")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceListWebhookSigningTokensHandler := connect.NewUnaryHandler(
-		AdminServiceListWebhookSigningTokensProcedure,
-		svc.ListWebhookSigningTokens,
-		connect.WithSchema(adminServiceMethods.ByName("ListWebhookSigningTokens")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceBulkRotateWebhookSigningTokensHandler := connect.NewUnaryHandler(
-		AdminServiceBulkRotateWebhookSigningTokensProcedure,
-		svc.BulkRotateWebhookSigningTokens,
-		connect.WithSchema(adminServiceMethods.ByName("BulkRotateWebhookSigningTokens")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceGetSystemHealthHandler := connect.NewUnaryHandler(
-		AdminServiceGetSystemHealthProcedure,
-		svc.GetSystemHealth,
-		connect.WithSchema(adminServiceMethods.ByName("GetSystemHealth")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceStreamAdminEventsHandler := connect.NewServerStreamHandler(
-		AdminServiceStreamAdminEventsProcedure,
-		svc.StreamAdminEvents,
-		connect.WithSchema(adminServiceMethods.ByName("StreamAdminEvents")),
-		connect.WithHandlerOptions(opts...),
-	)
-	adminServiceTriggerMaintenanceHandler := connect.NewUnaryHandler(
-		AdminServiceTriggerMaintenanceProcedure,
-		svc.TriggerMaintenance,
-		connect.WithSchema(adminServiceMethods.ByName("TriggerMaintenance")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/cairn.v1.AdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case AdminServiceListOIDCClientsProcedure:
-			adminServiceListOIDCClientsHandler.ServeHTTP(w, r)
-		case AdminServiceGetInstanceSettingsProcedure:
-			adminServiceGetInstanceSettingsHandler.ServeHTTP(w, r)
-		case AdminServiceUpdateInstanceSettingsProcedure:
-			adminServiceUpdateInstanceSettingsHandler.ServeHTTP(w, r)
-		case AdminServiceSendTestEmailProcedure:
-			adminServiceSendTestEmailHandler.ServeHTTP(w, r)
-		case AdminServiceListUsersProcedure:
-			adminServiceListUsersHandler.ServeHTTP(w, r)
-		case AdminServiceGetUserProcedure:
-			adminServiceGetUserHandler.ServeHTTP(w, r)
-		case AdminServiceCreateUserProcedure:
-			adminServiceCreateUserHandler.ServeHTTP(w, r)
-		case AdminServiceUpdateUserProcedure:
-			adminServiceUpdateUserHandler.ServeHTTP(w, r)
-		case AdminServiceChangeUserRoleProcedure:
-			adminServiceChangeUserRoleHandler.ServeHTTP(w, r)
-		case AdminServiceSetUserStatusProcedure:
-			adminServiceSetUserStatusHandler.ServeHTTP(w, r)
-		case AdminServiceDeleteUserProcedure:
-			adminServiceDeleteUserHandler.ServeHTTP(w, r)
-		case AdminServiceResetUserPasswordProcedure:
-			adminServiceResetUserPasswordHandler.ServeHTTP(w, r)
-		case AdminServiceRevokeUserCredentialsProcedure:
-			adminServiceRevokeUserCredentialsHandler.ServeHTTP(w, r)
-		case AdminServiceListInvitesProcedure:
-			adminServiceListInvitesHandler.ServeHTTP(w, r)
-		case AdminServiceCreateInviteProcedure:
-			adminServiceCreateInviteHandler.ServeHTTP(w, r)
-		case AdminServiceRevokeInviteProcedure:
-			adminServiceRevokeInviteHandler.ServeHTTP(w, r)
-		case AdminServiceResendInviteProcedure:
-			adminServiceResendInviteHandler.ServeHTTP(w, r)
-		case AdminServiceListAuditEntriesProcedure:
-			adminServiceListAuditEntriesHandler.ServeHTTP(w, r)
-		case AdminServiceListJobsProcedure:
-			adminServiceListJobsHandler.ServeHTTP(w, r)
-		case AdminServiceGetJobProcedure:
-			adminServiceGetJobHandler.ServeHTTP(w, r)
-		case AdminServiceRetryJobProcedure:
-			adminServiceRetryJobHandler.ServeHTTP(w, r)
-		case AdminServiceCancelJobProcedure:
-			adminServiceCancelJobHandler.ServeHTTP(w, r)
-		case AdminServiceListDeadLetterJobsProcedure:
-			adminServiceListDeadLetterJobsHandler.ServeHTTP(w, r)
-		case AdminServiceRequeueDeadLetterJobProcedure:
-			adminServiceRequeueDeadLetterJobHandler.ServeHTTP(w, r)
-		case AdminServiceListOrphanedSourcesProcedure:
-			adminServiceListOrphanedSourcesHandler.ServeHTTP(w, r)
-		case AdminServiceListWebhookSigningTokensProcedure:
-			adminServiceListWebhookSigningTokensHandler.ServeHTTP(w, r)
-		case AdminServiceBulkRotateWebhookSigningTokensProcedure:
-			adminServiceBulkRotateWebhookSigningTokensHandler.ServeHTTP(w, r)
-		case AdminServiceGetSystemHealthProcedure:
-			adminServiceGetSystemHealthHandler.ServeHTTP(w, r)
-		case AdminServiceStreamAdminEventsProcedure:
-			adminServiceStreamAdminEventsHandler.ServeHTTP(w, r)
-		case AdminServiceTriggerMaintenanceProcedure:
-			adminServiceTriggerMaintenanceHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
+}
+
+// AdminServiceStreamAdminEventsServerStream is the server stream for the AdminService's
+// StreamAdminEvents RPC.
+type AdminServiceStreamAdminEventsServerStream struct {
+	stream connect.ServerStream
+}
+
+// SendHeaders flushes the response headers without a message. The first Send does this implicitly.
+func (s AdminServiceStreamAdminEventsServerStream) SendHeaders() error {
+	return s.stream.SendHeaders()
+}
+
+// Send sends a response message to the client.
+func (s AdminServiceStreamAdminEventsServerStream) Send(res *v1.AdminEvent) error {
+	return s.stream.Send(res)
 }
 
 // UnimplementedAdminServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAdminServiceHandler struct{}
 
-func (UnimplementedAdminServiceHandler) ListOIDCClients(context.Context, *connect.Request[v1.ListOIDCClientsRequest]) (*connect.Response[v1.ListOIDCClientsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListOIDCClients is not implemented"))
+func (UnimplementedAdminServiceHandler) ListOIDCClients(context.Context, *v1.ListOIDCClientsRequest) (*v1.ListOIDCClientsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListOIDCClients is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) GetInstanceSettings(context.Context, *connect.Request[v1.GetInstanceSettingsRequest]) (*connect.Response[v1.GetInstanceSettingsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.GetInstanceSettings is not implemented"))
+func (UnimplementedAdminServiceHandler) GetInstanceSettings(context.Context, *v1.GetInstanceSettingsRequest) (*v1.GetInstanceSettingsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.GetInstanceSettings is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) UpdateInstanceSettings(context.Context, *connect.Request[v1.UpdateInstanceSettingsRequest]) (*connect.Response[v1.UpdateInstanceSettingsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.UpdateInstanceSettings is not implemented"))
+func (UnimplementedAdminServiceHandler) UpdateInstanceSettings(context.Context, *v1.UpdateInstanceSettingsRequest) (*v1.UpdateInstanceSettingsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.UpdateInstanceSettings is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) SendTestEmail(context.Context, *connect.Request[v1.SendTestEmailRequest]) (*connect.Response[v1.SendTestEmailResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.SendTestEmail is not implemented"))
+func (UnimplementedAdminServiceHandler) SendTestEmail(context.Context, *v1.SendTestEmailRequest) (*v1.SendTestEmailResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.SendTestEmail is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListUsers(context.Context, *connect.Request[v1.ListUsersRequest]) (*connect.Response[v1.ListUsersResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListUsers is not implemented"))
+func (UnimplementedAdminServiceHandler) ListUsers(context.Context, *v1.ListUsersRequest) (*v1.ListUsersResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListUsers is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) GetUser(context.Context, *connect.Request[v1.GetUserRequest]) (*connect.Response[v1.GetUserResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.GetUser is not implemented"))
+func (UnimplementedAdminServiceHandler) GetUser(context.Context, *v1.GetUserRequest) (*v1.GetUserResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.GetUser is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) CreateUser(context.Context, *connect.Request[v1.CreateUserRequest]) (*connect.Response[v1.CreateUserResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.CreateUser is not implemented"))
+func (UnimplementedAdminServiceHandler) CreateUser(context.Context, *v1.CreateUserRequest) (*v1.CreateUserResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.CreateUser is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) UpdateUser(context.Context, *connect.Request[v1.UpdateUserRequest]) (*connect.Response[v1.UpdateUserResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.UpdateUser is not implemented"))
+func (UnimplementedAdminServiceHandler) UpdateUser(context.Context, *v1.UpdateUserRequest) (*v1.UpdateUserResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.UpdateUser is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ChangeUserRole(context.Context, *connect.Request[v1.ChangeUserRoleRequest]) (*connect.Response[v1.ChangeUserRoleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ChangeUserRole is not implemented"))
+func (UnimplementedAdminServiceHandler) ChangeUserRole(context.Context, *v1.ChangeUserRoleRequest) (*v1.ChangeUserRoleResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ChangeUserRole is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) SetUserStatus(context.Context, *connect.Request[v1.SetUserStatusRequest]) (*connect.Response[v1.SetUserStatusResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.SetUserStatus is not implemented"))
+func (UnimplementedAdminServiceHandler) SetUserStatus(context.Context, *v1.SetUserStatusRequest) (*v1.SetUserStatusResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.SetUserStatus is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) DeleteUser(context.Context, *connect.Request[v1.DeleteUserRequest]) (*connect.Response[v1.DeleteUserResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.DeleteUser is not implemented"))
+func (UnimplementedAdminServiceHandler) DeleteUser(context.Context, *v1.DeleteUserRequest) (*v1.DeleteUserResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.DeleteUser is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ResetUserPassword(context.Context, *connect.Request[v1.ResetUserPasswordRequest]) (*connect.Response[v1.ResetUserPasswordResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ResetUserPassword is not implemented"))
+func (UnimplementedAdminServiceHandler) ResetUserPassword(context.Context, *v1.ResetUserPasswordRequest) (*v1.ResetUserPasswordResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ResetUserPassword is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) RevokeUserCredentials(context.Context, *connect.Request[v1.RevokeUserCredentialsRequest]) (*connect.Response[v1.RevokeUserCredentialsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.RevokeUserCredentials is not implemented"))
+func (UnimplementedAdminServiceHandler) RevokeUserCredentials(context.Context, *v1.RevokeUserCredentialsRequest) (*v1.RevokeUserCredentialsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.RevokeUserCredentials is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListInvites(context.Context, *connect.Request[v1.ListInvitesRequest]) (*connect.Response[v1.ListInvitesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListInvites is not implemented"))
+func (UnimplementedAdminServiceHandler) ListInvites(context.Context, *v1.ListInvitesRequest) (*v1.ListInvitesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListInvites is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) CreateInvite(context.Context, *connect.Request[v1.CreateInviteRequest]) (*connect.Response[v1.CreateInviteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.CreateInvite is not implemented"))
+func (UnimplementedAdminServiceHandler) CreateInvite(context.Context, *v1.CreateInviteRequest) (*v1.CreateInviteResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.CreateInvite is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) RevokeInvite(context.Context, *connect.Request[v1.RevokeInviteRequest]) (*connect.Response[v1.RevokeInviteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.RevokeInvite is not implemented"))
+func (UnimplementedAdminServiceHandler) RevokeInvite(context.Context, *v1.RevokeInviteRequest) (*v1.RevokeInviteResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.RevokeInvite is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ResendInvite(context.Context, *connect.Request[v1.ResendInviteRequest]) (*connect.Response[v1.ResendInviteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ResendInvite is not implemented"))
+func (UnimplementedAdminServiceHandler) ResendInvite(context.Context, *v1.ResendInviteRequest) (*v1.ResendInviteResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ResendInvite is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListAuditEntries(context.Context, *connect.Request[v1.ListAuditEntriesRequest]) (*connect.Response[v1.ListAuditEntriesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListAuditEntries is not implemented"))
+func (UnimplementedAdminServiceHandler) ListAuditEntries(context.Context, *v1.ListAuditEntriesRequest) (*v1.ListAuditEntriesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListAuditEntries is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListJobs is not implemented"))
+func (UnimplementedAdminServiceHandler) ListJobs(context.Context, *v1.ListJobsRequest) (*v1.ListJobsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListJobs is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.GetJob is not implemented"))
+func (UnimplementedAdminServiceHandler) GetJob(context.Context, *v1.GetJobRequest) (*v1.GetJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.GetJob is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) RetryJob(context.Context, *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.RetryJob is not implemented"))
+func (UnimplementedAdminServiceHandler) RetryJob(context.Context, *v1.RetryJobRequest) (*v1.RetryJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.RetryJob is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.CancelJob is not implemented"))
+func (UnimplementedAdminServiceHandler) CancelJob(context.Context, *v1.CancelJobRequest) (*v1.CancelJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.CancelJob is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListDeadLetterJobs(context.Context, *connect.Request[v1.ListDeadLetterJobsRequest]) (*connect.Response[v1.ListDeadLetterJobsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListDeadLetterJobs is not implemented"))
+func (UnimplementedAdminServiceHandler) ListDeadLetterJobs(context.Context, *v1.ListDeadLetterJobsRequest) (*v1.ListDeadLetterJobsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListDeadLetterJobs is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) RequeueDeadLetterJob(context.Context, *connect.Request[v1.RequeueDeadLetterJobRequest]) (*connect.Response[v1.RequeueDeadLetterJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.RequeueDeadLetterJob is not implemented"))
+func (UnimplementedAdminServiceHandler) RequeueDeadLetterJob(context.Context, *v1.RequeueDeadLetterJobRequest) (*v1.RequeueDeadLetterJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.RequeueDeadLetterJob is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListOrphanedSources(context.Context, *connect.Request[v1.ListOrphanedSourcesRequest]) (*connect.Response[v1.ListOrphanedSourcesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListOrphanedSources is not implemented"))
+func (UnimplementedAdminServiceHandler) ListOrphanedSources(context.Context, *v1.ListOrphanedSourcesRequest) (*v1.ListOrphanedSourcesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListOrphanedSources is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) ListWebhookSigningTokens(context.Context, *connect.Request[v1.ListWebhookSigningTokensRequest]) (*connect.Response[v1.ListWebhookSigningTokensResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.ListWebhookSigningTokens is not implemented"))
+func (UnimplementedAdminServiceHandler) ListWebhookSigningTokens(context.Context, *v1.ListWebhookSigningTokensRequest) (*v1.ListWebhookSigningTokensResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.ListWebhookSigningTokens is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) BulkRotateWebhookSigningTokens(context.Context, *connect.Request[v1.BulkRotateWebhookSigningTokensRequest]) (*connect.Response[v1.BulkRotateWebhookSigningTokensResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.BulkRotateWebhookSigningTokens is not implemented"))
+func (UnimplementedAdminServiceHandler) BulkRotateWebhookSigningTokens(context.Context, *v1.BulkRotateWebhookSigningTokensRequest) (*v1.BulkRotateWebhookSigningTokensResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.BulkRotateWebhookSigningTokens is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) GetSystemHealth(context.Context, *connect.Request[v1.GetSystemHealthRequest]) (*connect.Response[v1.GetSystemHealthResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.GetSystemHealth is not implemented"))
+func (UnimplementedAdminServiceHandler) GetSystemHealth(context.Context, *v1.GetSystemHealthRequest) (*v1.GetSystemHealthResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.GetSystemHealth is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) StreamAdminEvents(context.Context, *connect.Request[v1.StreamAdminEventsRequest], *connect.ServerStream[v1.AdminEvent]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.StreamAdminEvents is not implemented"))
+func (UnimplementedAdminServiceHandler) StreamAdminEvents(context.Context, *v1.StreamAdminEventsRequest, AdminServiceStreamAdminEventsServerStream) error {
+	return connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.StreamAdminEvents is not implemented")
 }
 
-func (UnimplementedAdminServiceHandler) TriggerMaintenance(context.Context, *connect.Request[v1.TriggerMaintenanceRequest]) (*connect.Response[v1.TriggerMaintenanceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.AdminService.TriggerMaintenance is not implemented"))
+func (UnimplementedAdminServiceHandler) TriggerMaintenance(context.Context, *v1.TriggerMaintenanceRequest) (*v1.TriggerMaintenanceResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.AdminService.TriggerMaintenance is not implemented")
+}
+
+type adminServiceClient struct {
+	client *connect.Client
+}
+
+func (c *adminServiceClient) ListOIDCClients(ctx context.Context, req *v1.ListOIDCClientsRequest) (*v1.ListOIDCClientsResponse, error) {
+	var res v1.ListOIDCClientsResponse
+	if err := c.client.CallUnary(ctx, adminServiceListOIDCClientsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) GetInstanceSettings(ctx context.Context, req *v1.GetInstanceSettingsRequest) (*v1.GetInstanceSettingsResponse, error) {
+	var res v1.GetInstanceSettingsResponse
+	if err := c.client.CallUnary(ctx, adminServiceGetInstanceSettingsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) UpdateInstanceSettings(ctx context.Context, req *v1.UpdateInstanceSettingsRequest) (*v1.UpdateInstanceSettingsResponse, error) {
+	var res v1.UpdateInstanceSettingsResponse
+	if err := c.client.CallUnary(ctx, adminServiceUpdateInstanceSettingsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) SendTestEmail(ctx context.Context, req *v1.SendTestEmailRequest) (*v1.SendTestEmailResponse, error) {
+	var res v1.SendTestEmailResponse
+	if err := c.client.CallUnary(ctx, adminServiceSendTestEmailSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListUsers(ctx context.Context, req *v1.ListUsersRequest) (*v1.ListUsersResponse, error) {
+	var res v1.ListUsersResponse
+	if err := c.client.CallUnary(ctx, adminServiceListUsersSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) GetUser(ctx context.Context, req *v1.GetUserRequest) (*v1.GetUserResponse, error) {
+	var res v1.GetUserResponse
+	if err := c.client.CallUnary(ctx, adminServiceGetUserSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) CreateUser(ctx context.Context, req *v1.CreateUserRequest) (*v1.CreateUserResponse, error) {
+	var res v1.CreateUserResponse
+	if err := c.client.CallUnary(ctx, adminServiceCreateUserSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) UpdateUser(ctx context.Context, req *v1.UpdateUserRequest) (*v1.UpdateUserResponse, error) {
+	var res v1.UpdateUserResponse
+	if err := c.client.CallUnary(ctx, adminServiceUpdateUserSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ChangeUserRole(ctx context.Context, req *v1.ChangeUserRoleRequest) (*v1.ChangeUserRoleResponse, error) {
+	var res v1.ChangeUserRoleResponse
+	if err := c.client.CallUnary(ctx, adminServiceChangeUserRoleSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) SetUserStatus(ctx context.Context, req *v1.SetUserStatusRequest) (*v1.SetUserStatusResponse, error) {
+	var res v1.SetUserStatusResponse
+	if err := c.client.CallUnary(ctx, adminServiceSetUserStatusSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) DeleteUser(ctx context.Context, req *v1.DeleteUserRequest) (*v1.DeleteUserResponse, error) {
+	var res v1.DeleteUserResponse
+	if err := c.client.CallUnary(ctx, adminServiceDeleteUserSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ResetUserPassword(ctx context.Context, req *v1.ResetUserPasswordRequest) (*v1.ResetUserPasswordResponse, error) {
+	var res v1.ResetUserPasswordResponse
+	if err := c.client.CallUnary(ctx, adminServiceResetUserPasswordSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) RevokeUserCredentials(ctx context.Context, req *v1.RevokeUserCredentialsRequest) (*v1.RevokeUserCredentialsResponse, error) {
+	var res v1.RevokeUserCredentialsResponse
+	if err := c.client.CallUnary(ctx, adminServiceRevokeUserCredentialsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListInvites(ctx context.Context, req *v1.ListInvitesRequest) (*v1.ListInvitesResponse, error) {
+	var res v1.ListInvitesResponse
+	if err := c.client.CallUnary(ctx, adminServiceListInvitesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) CreateInvite(ctx context.Context, req *v1.CreateInviteRequest) (*v1.CreateInviteResponse, error) {
+	var res v1.CreateInviteResponse
+	if err := c.client.CallUnary(ctx, adminServiceCreateInviteSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) RevokeInvite(ctx context.Context, req *v1.RevokeInviteRequest) (*v1.RevokeInviteResponse, error) {
+	var res v1.RevokeInviteResponse
+	if err := c.client.CallUnary(ctx, adminServiceRevokeInviteSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ResendInvite(ctx context.Context, req *v1.ResendInviteRequest) (*v1.ResendInviteResponse, error) {
+	var res v1.ResendInviteResponse
+	if err := c.client.CallUnary(ctx, adminServiceResendInviteSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListAuditEntries(ctx context.Context, req *v1.ListAuditEntriesRequest) (*v1.ListAuditEntriesResponse, error) {
+	var res v1.ListAuditEntriesResponse
+	if err := c.client.CallUnary(ctx, adminServiceListAuditEntriesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListJobs(ctx context.Context, req *v1.ListJobsRequest) (*v1.ListJobsResponse, error) {
+	var res v1.ListJobsResponse
+	if err := c.client.CallUnary(ctx, adminServiceListJobsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) GetJob(ctx context.Context, req *v1.GetJobRequest) (*v1.GetJobResponse, error) {
+	var res v1.GetJobResponse
+	if err := c.client.CallUnary(ctx, adminServiceGetJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) RetryJob(ctx context.Context, req *v1.RetryJobRequest) (*v1.RetryJobResponse, error) {
+	var res v1.RetryJobResponse
+	if err := c.client.CallUnary(ctx, adminServiceRetryJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) CancelJob(ctx context.Context, req *v1.CancelJobRequest) (*v1.CancelJobResponse, error) {
+	var res v1.CancelJobResponse
+	if err := c.client.CallUnary(ctx, adminServiceCancelJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListDeadLetterJobs(ctx context.Context, req *v1.ListDeadLetterJobsRequest) (*v1.ListDeadLetterJobsResponse, error) {
+	var res v1.ListDeadLetterJobsResponse
+	if err := c.client.CallUnary(ctx, adminServiceListDeadLetterJobsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) RequeueDeadLetterJob(ctx context.Context, req *v1.RequeueDeadLetterJobRequest) (*v1.RequeueDeadLetterJobResponse, error) {
+	var res v1.RequeueDeadLetterJobResponse
+	if err := c.client.CallUnary(ctx, adminServiceRequeueDeadLetterJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListOrphanedSources(ctx context.Context, req *v1.ListOrphanedSourcesRequest) (*v1.ListOrphanedSourcesResponse, error) {
+	var res v1.ListOrphanedSourcesResponse
+	if err := c.client.CallUnary(ctx, adminServiceListOrphanedSourcesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) ListWebhookSigningTokens(ctx context.Context, req *v1.ListWebhookSigningTokensRequest) (*v1.ListWebhookSigningTokensResponse, error) {
+	var res v1.ListWebhookSigningTokensResponse
+	if err := c.client.CallUnary(ctx, adminServiceListWebhookSigningTokensSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) BulkRotateWebhookSigningTokens(ctx context.Context, req *v1.BulkRotateWebhookSigningTokensRequest) (*v1.BulkRotateWebhookSigningTokensResponse, error) {
+	var res v1.BulkRotateWebhookSigningTokensResponse
+	if err := c.client.CallUnary(ctx, adminServiceBulkRotateWebhookSigningTokensSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) GetSystemHealth(ctx context.Context, req *v1.GetSystemHealthRequest) (*v1.GetSystemHealthResponse, error) {
+	var res v1.GetSystemHealthResponse
+	if err := c.client.CallUnary(ctx, adminServiceGetSystemHealthSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *adminServiceClient) StreamAdminEvents(ctx context.Context, req *v1.StreamAdminEventsRequest) (AdminServiceStreamAdminEventsClientStream, error) {
+	stream, err := c.client.CallServerStream(ctx, adminServiceStreamAdminEventsSpec(), req)
+	if err != nil {
+		return AdminServiceStreamAdminEventsClientStream{}, err
+	}
+	return AdminServiceStreamAdminEventsClientStream{stream: stream}, nil
+}
+
+func (c *adminServiceClient) TriggerMaintenance(ctx context.Context, req *v1.TriggerMaintenanceRequest) (*v1.TriggerMaintenanceResponse, error) {
+	var res v1.TriggerMaintenanceResponse
+	if err := c.client.CallUnary(ctx, adminServiceTriggerMaintenanceSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type adminServiceHandler struct{ svc AdminServiceHandler }
+
+func (h adminServiceHandler) listOIDCClients(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListOIDCClientsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListOIDCClients(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) getInstanceSettings(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetInstanceSettingsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetInstanceSettings(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) updateInstanceSettings(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateInstanceSettingsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateInstanceSettings(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) sendTestEmail(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SendTestEmailRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SendTestEmail(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listUsers(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListUsersRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListUsers(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) getUser(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetUserRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetUser(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) createUser(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateUserRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateUser(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) updateUser(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateUserRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateUser(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) changeUserRole(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ChangeUserRoleRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ChangeUserRole(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) setUserStatus(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SetUserStatusRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SetUserStatus(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) deleteUser(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteUserRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteUser(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) resetUserPassword(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ResetUserPasswordRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ResetUserPassword(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) revokeUserCredentials(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RevokeUserCredentialsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RevokeUserCredentials(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listInvites(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListInvitesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListInvites(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) createInvite(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateInviteRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateInvite(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) revokeInvite(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RevokeInviteRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RevokeInvite(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) resendInvite(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ResendInviteRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ResendInvite(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listAuditEntries(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListAuditEntriesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListAuditEntries(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listJobs(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListJobsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListJobs(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) getJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) retryJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RetryJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RetryJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) cancelJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CancelJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CancelJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listDeadLetterJobs(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListDeadLetterJobsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListDeadLetterJobs(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) requeueDeadLetterJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RequeueDeadLetterJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RequeueDeadLetterJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listOrphanedSources(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListOrphanedSourcesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListOrphanedSources(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) listWebhookSigningTokens(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListWebhookSigningTokensRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListWebhookSigningTokens(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) bulkRotateWebhookSigningTokens(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.BulkRotateWebhookSigningTokensRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.BulkRotateWebhookSigningTokens(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) getSystemHealth(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetSystemHealthRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetSystemHealth(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h adminServiceHandler) streamAdminEvents(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StreamAdminEventsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	return h.svc.StreamAdminEvents(ctx, &req, AdminServiceStreamAdminEventsServerStream{stream: stream})
+}
+
+func (h adminServiceHandler) triggerMaintenance(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.TriggerMaintenanceRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.TriggerMaintenance(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

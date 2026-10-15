@@ -19,677 +19,843 @@
 package cairnv1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ActivityServiceName is the fully-qualified name of the ActivityService service.
 	ActivityServiceName = "cairn.v1.ActivityService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// ActivityServiceListActivitiesProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceListActivitiesProcedure is the procedure name of the ActivityService's
 	// ListActivities RPC.
 	ActivityServiceListActivitiesProcedure = "/cairn.v1.ActivityService/ListActivities"
-	// ActivityServiceGetActivityProcedure is the fully-qualified name of the ActivityService's
-	// GetActivity RPC.
+	// ActivityServiceGetActivityProcedure is the procedure name of the ActivityService's GetActivity
+	// RPC.
 	ActivityServiceGetActivityProcedure = "/cairn.v1.ActivityService/GetActivity"
-	// ActivityServiceUpdateActivityProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceUpdateActivityProcedure is the procedure name of the ActivityService's
 	// UpdateActivity RPC.
 	ActivityServiceUpdateActivityProcedure = "/cairn.v1.ActivityService/UpdateActivity"
-	// ActivityServiceDeleteActivityProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceDeleteActivityProcedure is the procedure name of the ActivityService's
 	// DeleteActivity RPC.
 	ActivityServiceDeleteActivityProcedure = "/cairn.v1.ActivityService/DeleteActivity"
-	// ActivityServiceStreamActivityEventsProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceStreamActivityEventsProcedure is the procedure name of the ActivityService's
 	// StreamActivityEvents RPC.
 	ActivityServiceStreamActivityEventsProcedure = "/cairn.v1.ActivityService/StreamActivityEvents"
-	// ActivityServiceListActivitySourcesProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceListActivitySourcesProcedure is the procedure name of the ActivityService's
 	// ListActivitySources RPC.
 	ActivityServiceListActivitySourcesProcedure = "/cairn.v1.ActivityService/ListActivitySources"
-	// ActivityServiceReimportSourceProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceReimportSourceProcedure is the procedure name of the ActivityService's
 	// ReimportSource RPC.
 	ActivityServiceReimportSourceProcedure = "/cairn.v1.ActivityService/ReimportSource"
-	// ActivityServicePreviewSourceReimportProcedure is the fully-qualified name of the
-	// ActivityService's PreviewSourceReimport RPC.
+	// ActivityServicePreviewSourceReimportProcedure is the procedure name of the ActivityService's
+	// PreviewSourceReimport RPC.
 	ActivityServicePreviewSourceReimportProcedure = "/cairn.v1.ActivityService/PreviewSourceReimport"
-	// ActivityServiceCommitSourcePreviewProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceCommitSourcePreviewProcedure is the procedure name of the ActivityService's
 	// CommitSourcePreview RPC.
 	ActivityServiceCommitSourcePreviewProcedure = "/cairn.v1.ActivityService/CommitSourcePreview"
-	// ActivityServiceDiscardSourcePreviewProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceDiscardSourcePreviewProcedure is the procedure name of the ActivityService's
 	// DiscardSourcePreview RPC.
 	ActivityServiceDiscardSourcePreviewProcedure = "/cairn.v1.ActivityService/DiscardSourcePreview"
-	// ActivityServiceLinkSourceToActivityProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceLinkSourceToActivityProcedure is the procedure name of the ActivityService's
 	// LinkSourceToActivity RPC.
 	ActivityServiceLinkSourceToActivityProcedure = "/cairn.v1.ActivityService/LinkSourceToActivity"
-	// ActivityServiceDetachSourceProcedure is the fully-qualified name of the ActivityService's
-	// DetachSource RPC.
+	// ActivityServiceDetachSourceProcedure is the procedure name of the ActivityService's DetachSource
+	// RPC.
 	ActivityServiceDetachSourceProcedure = "/cairn.v1.ActivityService/DetachSource"
-	// ActivityServiceGetActivityStreamProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceGetActivityStreamProcedure is the procedure name of the ActivityService's
 	// GetActivityStream RPC.
 	ActivityServiceGetActivityStreamProcedure = "/cairn.v1.ActivityService/GetActivityStream"
-	// ActivityServicePresignActivityUploadProcedure is the fully-qualified name of the
-	// ActivityService's PresignActivityUpload RPC.
+	// ActivityServicePresignActivityUploadProcedure is the procedure name of the ActivityService's
+	// PresignActivityUpload RPC.
 	ActivityServicePresignActivityUploadProcedure = "/cairn.v1.ActivityService/PresignActivityUpload"
-	// ActivityServiceUploadActivityProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceUploadActivityProcedure is the procedure name of the ActivityService's
 	// UploadActivity RPC.
 	ActivityServiceUploadActivityProcedure = "/cairn.v1.ActivityService/UploadActivity"
-	// ActivityServiceListBestEffortsProcedure is the fully-qualified name of the ActivityService's
+	// ActivityServiceListBestEffortsProcedure is the procedure name of the ActivityService's
 	// ListBestEfforts RPC.
 	ActivityServiceListBestEffortsProcedure = "/cairn.v1.ActivityService/ListBestEfforts"
-	// ActivityServiceListRecordsProcedure is the fully-qualified name of the ActivityService's
-	// ListRecords RPC.
+	// ActivityServiceListRecordsProcedure is the procedure name of the ActivityService's ListRecords
+	// RPC.
 	ActivityServiceListRecordsProcedure = "/cairn.v1.ActivityService/ListRecords"
-	// ActivityServiceCreateCustomBestEffortProcedure is the fully-qualified name of the
-	// ActivityService's CreateCustomBestEffort RPC.
+	// ActivityServiceCreateCustomBestEffortProcedure is the procedure name of the ActivityService's
+	// CreateCustomBestEffort RPC.
 	ActivityServiceCreateCustomBestEffortProcedure = "/cairn.v1.ActivityService/CreateCustomBestEffort"
-	// ActivityServiceDeleteCustomBestEffortProcedure is the fully-qualified name of the
-	// ActivityService's DeleteCustomBestEffort RPC.
+	// ActivityServiceDeleteCustomBestEffortProcedure is the procedure name of the ActivityService's
+	// DeleteCustomBestEffort RPC.
 	ActivityServiceDeleteCustomBestEffortProcedure = "/cairn.v1.ActivityService/DeleteCustomBestEffort"
+)
+
+var (
+	activityServiceListActivitiesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("ListActivities"),
+			Procedure:  ActivityServiceListActivitiesProcedure,
+		}
+	})
+	activityServiceGetActivitySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("GetActivity"),
+			Procedure:  ActivityServiceGetActivityProcedure,
+		}
+	})
+	activityServiceUpdateActivitySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("UpdateActivity"),
+			Procedure:  ActivityServiceUpdateActivityProcedure,
+		}
+	})
+	activityServiceDeleteActivitySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("DeleteActivity"),
+			Procedure:  ActivityServiceDeleteActivityProcedure,
+		}
+	})
+	activityServiceStreamActivityEventsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeServer,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("StreamActivityEvents"),
+			Procedure:  ActivityServiceStreamActivityEventsProcedure,
+		}
+	})
+	activityServiceListActivitySourcesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("ListActivitySources"),
+			Procedure:  ActivityServiceListActivitySourcesProcedure,
+		}
+	})
+	activityServiceReimportSourceSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("ReimportSource"),
+			Procedure:  ActivityServiceReimportSourceProcedure,
+		}
+	})
+	activityServicePreviewSourceReimportSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("PreviewSourceReimport"),
+			Procedure:  ActivityServicePreviewSourceReimportProcedure,
+		}
+	})
+	activityServiceCommitSourcePreviewSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("CommitSourcePreview"),
+			Procedure:  ActivityServiceCommitSourcePreviewProcedure,
+		}
+	})
+	activityServiceDiscardSourcePreviewSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("DiscardSourcePreview"),
+			Procedure:  ActivityServiceDiscardSourcePreviewProcedure,
+		}
+	})
+	activityServiceLinkSourceToActivitySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("LinkSourceToActivity"),
+			Procedure:  ActivityServiceLinkSourceToActivityProcedure,
+		}
+	})
+	activityServiceDetachSourceSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("DetachSource"),
+			Procedure:  ActivityServiceDetachSourceProcedure,
+		}
+	})
+	activityServiceGetActivityStreamSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("GetActivityStream"),
+			Procedure:  ActivityServiceGetActivityStreamProcedure,
+		}
+	})
+	activityServicePresignActivityUploadSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("PresignActivityUpload"),
+			Procedure:  ActivityServicePresignActivityUploadProcedure,
+		}
+	})
+	activityServiceUploadActivitySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("UploadActivity"),
+			Procedure:  ActivityServiceUploadActivityProcedure,
+		}
+	})
+	activityServiceListBestEffortsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("ListBestEfforts"),
+			Procedure:  ActivityServiceListBestEffortsProcedure,
+		}
+	})
+	activityServiceListRecordsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("ListRecords"),
+			Procedure:  ActivityServiceListRecordsProcedure,
+		}
+	})
+	activityServiceCreateCustomBestEffortSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("CreateCustomBestEffort"),
+			Procedure:  ActivityServiceCreateCustomBestEffortProcedure,
+		}
+	})
+	activityServiceDeleteCustomBestEffortSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods().ByName("DeleteCustomBestEffort"),
+			Procedure:  ActivityServiceDeleteCustomBestEffortProcedure,
+		}
+	})
 )
 
 // ActivityServiceClient is a client for the cairn.v1.ActivityService service.
 type ActivityServiceClient interface {
 	// List activities for the calling user. Supports filtering by time range,
 	// type, discipline, tag, and source-provider.
-	ListActivities(context.Context, *connect.Request[v1.ListActivitiesRequest]) (*connect.Response[v1.ListActivitiesResponse], error)
+	ListActivities(context.Context, *v1.ListActivitiesRequest) (*v1.ListActivitiesResponse, error)
 	// Get a single activity by id, including sources.
-	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
+	GetActivity(context.Context, *v1.GetActivityRequest) (*v1.GetActivityResponse, error)
 	// Update user-editable fields (title, description, tags, type override).
 	// Does NOT touch source data — only the merged Activity overrides.
-	UpdateActivity(context.Context, *connect.Request[v1.UpdateActivityRequest]) (*connect.Response[v1.UpdateActivityResponse], error)
+	UpdateActivity(context.Context, *v1.UpdateActivityRequest) (*v1.UpdateActivityResponse, error)
 	// Soft-delete an activity. Sources are detached, raw blobs retained per
 	// S3 lifecycle policy.
-	DeleteActivity(context.Context, *connect.Request[v1.DeleteActivityRequest]) (*connect.Response[v1.DeleteActivityResponse], error)
+	DeleteActivity(context.Context, *v1.DeleteActivityRequest) (*v1.DeleteActivityResponse, error)
 	// Server-streaming feed of activity-related events for the caller. Used
 	// by the UI for live import progress, new-PR toasts, etc.
-	StreamActivityEvents(context.Context, *connect.Request[v1.StreamActivityEventsRequest]) (*connect.ServerStreamForClient[v1.ActivityEvent], error)
+	StreamActivityEvents(context.Context, *v1.StreamActivityEventsRequest) (ActivityServiceStreamActivityEventsClientStream, error)
 	// Source management — attach/detach/reorder sources, trigger reimports.
-	ListActivitySources(context.Context, *connect.Request[v1.ListActivitySourcesRequest]) (*connect.Response[v1.ListActivitySourcesResponse], error)
+	ListActivitySources(context.Context, *v1.ListActivitySourcesRequest) (*v1.ListActivitySourcesResponse, error)
 	// Trigger a reimport of one source. Returns a job id; observe progress
 	// via StreamActivityEvents or via the job status endpoints in admin.proto.
-	ReimportSource(context.Context, *connect.Request[v1.ReimportSourceRequest]) (*connect.Response[v1.ReimportSourceResponse], error)
+	ReimportSource(context.Context, *v1.ReimportSourceRequest) (*v1.ReimportSourceResponse, error)
 	// Dry-run reimport: fetches fresh source data, computes the merge it would
 	// produce, returns the diff WITHOUT committing. The preview is stored
 	// with a TTL (default 1h) and can be either committed or discarded.
-	PreviewSourceReimport(context.Context, *connect.Request[v1.PreviewSourceReimportRequest]) (*connect.Response[v1.PreviewSourceReimportResponse], error)
-	CommitSourcePreview(context.Context, *connect.Request[v1.CommitSourcePreviewRequest]) (*connect.Response[v1.CommitSourcePreviewResponse], error)
-	DiscardSourcePreview(context.Context, *connect.Request[v1.DiscardSourcePreviewRequest]) (*connect.Response[v1.DiscardSourcePreviewResponse], error)
+	PreviewSourceReimport(context.Context, *v1.PreviewSourceReimportRequest) (*v1.PreviewSourceReimportResponse, error)
+	CommitSourcePreview(context.Context, *v1.CommitSourcePreviewRequest) (*v1.CommitSourcePreviewResponse, error)
+	DiscardSourcePreview(context.Context, *v1.DiscardSourcePreviewRequest) (*v1.DiscardSourcePreviewResponse, error)
 	// Manual source-linking when dedup misses or mistakes.
-	LinkSourceToActivity(context.Context, *connect.Request[v1.LinkSourceToActivityRequest]) (*connect.Response[v1.LinkSourceToActivityResponse], error)
-	DetachSource(context.Context, *connect.Request[v1.DetachSourceRequest]) (*connect.Response[v1.DetachSourceResponse], error)
+	LinkSourceToActivity(context.Context, *v1.LinkSourceToActivityRequest) (*v1.LinkSourceToActivityResponse, error)
+	DetachSource(context.Context, *v1.DetachSourceRequest) (*v1.DetachSourceResponse, error)
 	// Streams — full fidelity or downsampled.
-	GetActivityStream(context.Context, *connect.Request[v1.GetActivityStreamRequest]) (*connect.Response[v1.GetActivityStreamResponse], error)
+	GetActivityStream(context.Context, *v1.GetActivityStreamRequest) (*v1.GetActivityStreamResponse, error)
 	// Step 1 of a manual file upload: get a pre-signed S3 PUT URL.
 	// The client uploads the FIT/GPX/TCX file directly to S3, then calls
 	// UploadActivity with the returned blob_id. Separating presign from
 	// upload keeps large bodies off the Core entirely.
-	PresignActivityUpload(context.Context, *connect.Request[v1.PresignActivityUploadRequest]) (*connect.Response[v1.PresignActivityUploadResponse], error)
+	PresignActivityUpload(context.Context, *v1.PresignActivityUploadRequest) (*v1.PresignActivityUploadResponse, error)
 	// Step 2 of a manual file upload (FIT/GPX/TCX). Returns a job id; the
 	// generic-fit-parser worker processes the upload, dedup happens
 	// afterwards. UI surfaces progress via StreamActivityEvents.
-	UploadActivity(context.Context, *connect.Request[v1.UploadActivityRequest]) (*connect.Response[v1.UploadActivityResponse], error)
+	UploadActivity(context.Context, *v1.UploadActivityRequest) (*v1.UploadActivityResponse, error)
 	// Best efforts and records.
-	ListBestEfforts(context.Context, *connect.Request[v1.ListBestEffortsRequest]) (*connect.Response[v1.ListBestEffortsResponse], error)
-	ListRecords(context.Context, *connect.Request[v1.ListRecordsRequest]) (*connect.Response[v1.ListRecordsResponse], error)
-	CreateCustomBestEffort(context.Context, *connect.Request[v1.CreateCustomBestEffortRequest]) (*connect.Response[v1.CreateCustomBestEffortResponse], error)
-	DeleteCustomBestEffort(context.Context, *connect.Request[v1.DeleteCustomBestEffortRequest]) (*connect.Response[v1.DeleteCustomBestEffortResponse], error)
+	ListBestEfforts(context.Context, *v1.ListBestEffortsRequest) (*v1.ListBestEffortsResponse, error)
+	ListRecords(context.Context, *v1.ListRecordsRequest) (*v1.ListRecordsResponse, error)
+	CreateCustomBestEffort(context.Context, *v1.CreateCustomBestEffortRequest) (*v1.CreateCustomBestEffortResponse, error)
+	DeleteCustomBestEffort(context.Context, *v1.DeleteCustomBestEffortRequest) (*v1.DeleteCustomBestEffortResponse, error)
 }
 
-// NewActivityServiceClient constructs a client for the cairn.v1.ActivityService service. By
-// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
-// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewActivityServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ActivityServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	activityServiceMethods := v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods()
-	return &activityServiceClient{
-		listActivities: connect.NewClient[v1.ListActivitiesRequest, v1.ListActivitiesResponse](
-			httpClient,
-			baseURL+ActivityServiceListActivitiesProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ListActivities")),
-			connect.WithClientOptions(opts...),
-		),
-		getActivity: connect.NewClient[v1.GetActivityRequest, v1.GetActivityResponse](
-			httpClient,
-			baseURL+ActivityServiceGetActivityProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("GetActivity")),
-			connect.WithClientOptions(opts...),
-		),
-		updateActivity: connect.NewClient[v1.UpdateActivityRequest, v1.UpdateActivityResponse](
-			httpClient,
-			baseURL+ActivityServiceUpdateActivityProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("UpdateActivity")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteActivity: connect.NewClient[v1.DeleteActivityRequest, v1.DeleteActivityResponse](
-			httpClient,
-			baseURL+ActivityServiceDeleteActivityProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("DeleteActivity")),
-			connect.WithClientOptions(opts...),
-		),
-		streamActivityEvents: connect.NewClient[v1.StreamActivityEventsRequest, v1.ActivityEvent](
-			httpClient,
-			baseURL+ActivityServiceStreamActivityEventsProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("StreamActivityEvents")),
-			connect.WithClientOptions(opts...),
-		),
-		listActivitySources: connect.NewClient[v1.ListActivitySourcesRequest, v1.ListActivitySourcesResponse](
-			httpClient,
-			baseURL+ActivityServiceListActivitySourcesProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ListActivitySources")),
-			connect.WithClientOptions(opts...),
-		),
-		reimportSource: connect.NewClient[v1.ReimportSourceRequest, v1.ReimportSourceResponse](
-			httpClient,
-			baseURL+ActivityServiceReimportSourceProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ReimportSource")),
-			connect.WithClientOptions(opts...),
-		),
-		previewSourceReimport: connect.NewClient[v1.PreviewSourceReimportRequest, v1.PreviewSourceReimportResponse](
-			httpClient,
-			baseURL+ActivityServicePreviewSourceReimportProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("PreviewSourceReimport")),
-			connect.WithClientOptions(opts...),
-		),
-		commitSourcePreview: connect.NewClient[v1.CommitSourcePreviewRequest, v1.CommitSourcePreviewResponse](
-			httpClient,
-			baseURL+ActivityServiceCommitSourcePreviewProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("CommitSourcePreview")),
-			connect.WithClientOptions(opts...),
-		),
-		discardSourcePreview: connect.NewClient[v1.DiscardSourcePreviewRequest, v1.DiscardSourcePreviewResponse](
-			httpClient,
-			baseURL+ActivityServiceDiscardSourcePreviewProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("DiscardSourcePreview")),
-			connect.WithClientOptions(opts...),
-		),
-		linkSourceToActivity: connect.NewClient[v1.LinkSourceToActivityRequest, v1.LinkSourceToActivityResponse](
-			httpClient,
-			baseURL+ActivityServiceLinkSourceToActivityProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("LinkSourceToActivity")),
-			connect.WithClientOptions(opts...),
-		),
-		detachSource: connect.NewClient[v1.DetachSourceRequest, v1.DetachSourceResponse](
-			httpClient,
-			baseURL+ActivityServiceDetachSourceProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("DetachSource")),
-			connect.WithClientOptions(opts...),
-		),
-		getActivityStream: connect.NewClient[v1.GetActivityStreamRequest, v1.GetActivityStreamResponse](
-			httpClient,
-			baseURL+ActivityServiceGetActivityStreamProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("GetActivityStream")),
-			connect.WithClientOptions(opts...),
-		),
-		presignActivityUpload: connect.NewClient[v1.PresignActivityUploadRequest, v1.PresignActivityUploadResponse](
-			httpClient,
-			baseURL+ActivityServicePresignActivityUploadProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("PresignActivityUpload")),
-			connect.WithClientOptions(opts...),
-		),
-		uploadActivity: connect.NewClient[v1.UploadActivityRequest, v1.UploadActivityResponse](
-			httpClient,
-			baseURL+ActivityServiceUploadActivityProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("UploadActivity")),
-			connect.WithClientOptions(opts...),
-		),
-		listBestEfforts: connect.NewClient[v1.ListBestEffortsRequest, v1.ListBestEffortsResponse](
-			httpClient,
-			baseURL+ActivityServiceListBestEffortsProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ListBestEfforts")),
-			connect.WithClientOptions(opts...),
-		),
-		listRecords: connect.NewClient[v1.ListRecordsRequest, v1.ListRecordsResponse](
-			httpClient,
-			baseURL+ActivityServiceListRecordsProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ListRecords")),
-			connect.WithClientOptions(opts...),
-		),
-		createCustomBestEffort: connect.NewClient[v1.CreateCustomBestEffortRequest, v1.CreateCustomBestEffortResponse](
-			httpClient,
-			baseURL+ActivityServiceCreateCustomBestEffortProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("CreateCustomBestEffort")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteCustomBestEffort: connect.NewClient[v1.DeleteCustomBestEffortRequest, v1.DeleteCustomBestEffortResponse](
-			httpClient,
-			baseURL+ActivityServiceDeleteCustomBestEffortProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("DeleteCustomBestEffort")),
-			connect.WithClientOptions(opts...),
-		),
+// NewActivityServiceClient constructs a client for the cairn.v1.ActivityService service. Multiple
+// service clients may share a single connect.Client.
+func NewActivityServiceClient(client *connect.Client) ActivityServiceClient {
+	return &activityServiceClient{client: client}
+}
+
+// ActivityServiceStreamActivityEventsClientStream is the client stream for the ActivityService's
+// StreamActivityEvents RPC.
+type ActivityServiceStreamActivityEventsClientStream struct {
+	stream connect.ClientStream
+}
+
+// Receive returns the next response message from the server.
+func (s ActivityServiceStreamActivityEventsClientStream) Receive() (*v1.ActivityEvent, error) {
+	var res v1.ActivityEvent
+	if err := s.stream.Receive(&res); err != nil {
+		return nil, err
 	}
+	return &res, nil
 }
 
-// activityServiceClient implements ActivityServiceClient.
-type activityServiceClient struct {
-	listActivities         *connect.Client[v1.ListActivitiesRequest, v1.ListActivitiesResponse]
-	getActivity            *connect.Client[v1.GetActivityRequest, v1.GetActivityResponse]
-	updateActivity         *connect.Client[v1.UpdateActivityRequest, v1.UpdateActivityResponse]
-	deleteActivity         *connect.Client[v1.DeleteActivityRequest, v1.DeleteActivityResponse]
-	streamActivityEvents   *connect.Client[v1.StreamActivityEventsRequest, v1.ActivityEvent]
-	listActivitySources    *connect.Client[v1.ListActivitySourcesRequest, v1.ListActivitySourcesResponse]
-	reimportSource         *connect.Client[v1.ReimportSourceRequest, v1.ReimportSourceResponse]
-	previewSourceReimport  *connect.Client[v1.PreviewSourceReimportRequest, v1.PreviewSourceReimportResponse]
-	commitSourcePreview    *connect.Client[v1.CommitSourcePreviewRequest, v1.CommitSourcePreviewResponse]
-	discardSourcePreview   *connect.Client[v1.DiscardSourcePreviewRequest, v1.DiscardSourcePreviewResponse]
-	linkSourceToActivity   *connect.Client[v1.LinkSourceToActivityRequest, v1.LinkSourceToActivityResponse]
-	detachSource           *connect.Client[v1.DetachSourceRequest, v1.DetachSourceResponse]
-	getActivityStream      *connect.Client[v1.GetActivityStreamRequest, v1.GetActivityStreamResponse]
-	presignActivityUpload  *connect.Client[v1.PresignActivityUploadRequest, v1.PresignActivityUploadResponse]
-	uploadActivity         *connect.Client[v1.UploadActivityRequest, v1.UploadActivityResponse]
-	listBestEfforts        *connect.Client[v1.ListBestEffortsRequest, v1.ListBestEffortsResponse]
-	listRecords            *connect.Client[v1.ListRecordsRequest, v1.ListRecordsResponse]
-	createCustomBestEffort *connect.Client[v1.CreateCustomBestEffortRequest, v1.CreateCustomBestEffortResponse]
-	deleteCustomBestEffort *connect.Client[v1.DeleteCustomBestEffortRequest, v1.DeleteCustomBestEffortResponse]
-}
-
-// ListActivities calls cairn.v1.ActivityService.ListActivities.
-func (c *activityServiceClient) ListActivities(ctx context.Context, req *connect.Request[v1.ListActivitiesRequest]) (*connect.Response[v1.ListActivitiesResponse], error) {
-	return c.listActivities.CallUnary(ctx, req)
-}
-
-// GetActivity calls cairn.v1.ActivityService.GetActivity.
-func (c *activityServiceClient) GetActivity(ctx context.Context, req *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error) {
-	return c.getActivity.CallUnary(ctx, req)
-}
-
-// UpdateActivity calls cairn.v1.ActivityService.UpdateActivity.
-func (c *activityServiceClient) UpdateActivity(ctx context.Context, req *connect.Request[v1.UpdateActivityRequest]) (*connect.Response[v1.UpdateActivityResponse], error) {
-	return c.updateActivity.CallUnary(ctx, req)
-}
-
-// DeleteActivity calls cairn.v1.ActivityService.DeleteActivity.
-func (c *activityServiceClient) DeleteActivity(ctx context.Context, req *connect.Request[v1.DeleteActivityRequest]) (*connect.Response[v1.DeleteActivityResponse], error) {
-	return c.deleteActivity.CallUnary(ctx, req)
-}
-
-// StreamActivityEvents calls cairn.v1.ActivityService.StreamActivityEvents.
-func (c *activityServiceClient) StreamActivityEvents(ctx context.Context, req *connect.Request[v1.StreamActivityEventsRequest]) (*connect.ServerStreamForClient[v1.ActivityEvent], error) {
-	return c.streamActivityEvents.CallServerStream(ctx, req)
-}
-
-// ListActivitySources calls cairn.v1.ActivityService.ListActivitySources.
-func (c *activityServiceClient) ListActivitySources(ctx context.Context, req *connect.Request[v1.ListActivitySourcesRequest]) (*connect.Response[v1.ListActivitySourcesResponse], error) {
-	return c.listActivitySources.CallUnary(ctx, req)
-}
-
-// ReimportSource calls cairn.v1.ActivityService.ReimportSource.
-func (c *activityServiceClient) ReimportSource(ctx context.Context, req *connect.Request[v1.ReimportSourceRequest]) (*connect.Response[v1.ReimportSourceResponse], error) {
-	return c.reimportSource.CallUnary(ctx, req)
-}
-
-// PreviewSourceReimport calls cairn.v1.ActivityService.PreviewSourceReimport.
-func (c *activityServiceClient) PreviewSourceReimport(ctx context.Context, req *connect.Request[v1.PreviewSourceReimportRequest]) (*connect.Response[v1.PreviewSourceReimportResponse], error) {
-	return c.previewSourceReimport.CallUnary(ctx, req)
-}
-
-// CommitSourcePreview calls cairn.v1.ActivityService.CommitSourcePreview.
-func (c *activityServiceClient) CommitSourcePreview(ctx context.Context, req *connect.Request[v1.CommitSourcePreviewRequest]) (*connect.Response[v1.CommitSourcePreviewResponse], error) {
-	return c.commitSourcePreview.CallUnary(ctx, req)
-}
-
-// DiscardSourcePreview calls cairn.v1.ActivityService.DiscardSourcePreview.
-func (c *activityServiceClient) DiscardSourcePreview(ctx context.Context, req *connect.Request[v1.DiscardSourcePreviewRequest]) (*connect.Response[v1.DiscardSourcePreviewResponse], error) {
-	return c.discardSourcePreview.CallUnary(ctx, req)
-}
-
-// LinkSourceToActivity calls cairn.v1.ActivityService.LinkSourceToActivity.
-func (c *activityServiceClient) LinkSourceToActivity(ctx context.Context, req *connect.Request[v1.LinkSourceToActivityRequest]) (*connect.Response[v1.LinkSourceToActivityResponse], error) {
-	return c.linkSourceToActivity.CallUnary(ctx, req)
-}
-
-// DetachSource calls cairn.v1.ActivityService.DetachSource.
-func (c *activityServiceClient) DetachSource(ctx context.Context, req *connect.Request[v1.DetachSourceRequest]) (*connect.Response[v1.DetachSourceResponse], error) {
-	return c.detachSource.CallUnary(ctx, req)
-}
-
-// GetActivityStream calls cairn.v1.ActivityService.GetActivityStream.
-func (c *activityServiceClient) GetActivityStream(ctx context.Context, req *connect.Request[v1.GetActivityStreamRequest]) (*connect.Response[v1.GetActivityStreamResponse], error) {
-	return c.getActivityStream.CallUnary(ctx, req)
-}
-
-// PresignActivityUpload calls cairn.v1.ActivityService.PresignActivityUpload.
-func (c *activityServiceClient) PresignActivityUpload(ctx context.Context, req *connect.Request[v1.PresignActivityUploadRequest]) (*connect.Response[v1.PresignActivityUploadResponse], error) {
-	return c.presignActivityUpload.CallUnary(ctx, req)
-}
-
-// UploadActivity calls cairn.v1.ActivityService.UploadActivity.
-func (c *activityServiceClient) UploadActivity(ctx context.Context, req *connect.Request[v1.UploadActivityRequest]) (*connect.Response[v1.UploadActivityResponse], error) {
-	return c.uploadActivity.CallUnary(ctx, req)
-}
-
-// ListBestEfforts calls cairn.v1.ActivityService.ListBestEfforts.
-func (c *activityServiceClient) ListBestEfforts(ctx context.Context, req *connect.Request[v1.ListBestEffortsRequest]) (*connect.Response[v1.ListBestEffortsResponse], error) {
-	return c.listBestEfforts.CallUnary(ctx, req)
-}
-
-// ListRecords calls cairn.v1.ActivityService.ListRecords.
-func (c *activityServiceClient) ListRecords(ctx context.Context, req *connect.Request[v1.ListRecordsRequest]) (*connect.Response[v1.ListRecordsResponse], error) {
-	return c.listRecords.CallUnary(ctx, req)
-}
-
-// CreateCustomBestEffort calls cairn.v1.ActivityService.CreateCustomBestEffort.
-func (c *activityServiceClient) CreateCustomBestEffort(ctx context.Context, req *connect.Request[v1.CreateCustomBestEffortRequest]) (*connect.Response[v1.CreateCustomBestEffortResponse], error) {
-	return c.createCustomBestEffort.CallUnary(ctx, req)
-}
-
-// DeleteCustomBestEffort calls cairn.v1.ActivityService.DeleteCustomBestEffort.
-func (c *activityServiceClient) DeleteCustomBestEffort(ctx context.Context, req *connect.Request[v1.DeleteCustomBestEffortRequest]) (*connect.Response[v1.DeleteCustomBestEffortResponse], error) {
-	return c.deleteCustomBestEffort.CallUnary(ctx, req)
+// Close releases the stream's resources. It is idempotent and is typically deferred to clean up a
+// stream abandoned before io.EOF.
+func (s ActivityServiceStreamActivityEventsClientStream) Close() error {
+	return s.stream.Close()
 }
 
 // ActivityServiceHandler is an implementation of the cairn.v1.ActivityService service.
 type ActivityServiceHandler interface {
 	// List activities for the calling user. Supports filtering by time range,
 	// type, discipline, tag, and source-provider.
-	ListActivities(context.Context, *connect.Request[v1.ListActivitiesRequest]) (*connect.Response[v1.ListActivitiesResponse], error)
+	ListActivities(context.Context, *v1.ListActivitiesRequest) (*v1.ListActivitiesResponse, error)
 	// Get a single activity by id, including sources.
-	GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error)
+	GetActivity(context.Context, *v1.GetActivityRequest) (*v1.GetActivityResponse, error)
 	// Update user-editable fields (title, description, tags, type override).
 	// Does NOT touch source data — only the merged Activity overrides.
-	UpdateActivity(context.Context, *connect.Request[v1.UpdateActivityRequest]) (*connect.Response[v1.UpdateActivityResponse], error)
+	UpdateActivity(context.Context, *v1.UpdateActivityRequest) (*v1.UpdateActivityResponse, error)
 	// Soft-delete an activity. Sources are detached, raw blobs retained per
 	// S3 lifecycle policy.
-	DeleteActivity(context.Context, *connect.Request[v1.DeleteActivityRequest]) (*connect.Response[v1.DeleteActivityResponse], error)
+	DeleteActivity(context.Context, *v1.DeleteActivityRequest) (*v1.DeleteActivityResponse, error)
 	// Server-streaming feed of activity-related events for the caller. Used
 	// by the UI for live import progress, new-PR toasts, etc.
-	StreamActivityEvents(context.Context, *connect.Request[v1.StreamActivityEventsRequest], *connect.ServerStream[v1.ActivityEvent]) error
+	StreamActivityEvents(context.Context, *v1.StreamActivityEventsRequest, ActivityServiceStreamActivityEventsServerStream) error
 	// Source management — attach/detach/reorder sources, trigger reimports.
-	ListActivitySources(context.Context, *connect.Request[v1.ListActivitySourcesRequest]) (*connect.Response[v1.ListActivitySourcesResponse], error)
+	ListActivitySources(context.Context, *v1.ListActivitySourcesRequest) (*v1.ListActivitySourcesResponse, error)
 	// Trigger a reimport of one source. Returns a job id; observe progress
 	// via StreamActivityEvents or via the job status endpoints in admin.proto.
-	ReimportSource(context.Context, *connect.Request[v1.ReimportSourceRequest]) (*connect.Response[v1.ReimportSourceResponse], error)
+	ReimportSource(context.Context, *v1.ReimportSourceRequest) (*v1.ReimportSourceResponse, error)
 	// Dry-run reimport: fetches fresh source data, computes the merge it would
 	// produce, returns the diff WITHOUT committing. The preview is stored
 	// with a TTL (default 1h) and can be either committed or discarded.
-	PreviewSourceReimport(context.Context, *connect.Request[v1.PreviewSourceReimportRequest]) (*connect.Response[v1.PreviewSourceReimportResponse], error)
-	CommitSourcePreview(context.Context, *connect.Request[v1.CommitSourcePreviewRequest]) (*connect.Response[v1.CommitSourcePreviewResponse], error)
-	DiscardSourcePreview(context.Context, *connect.Request[v1.DiscardSourcePreviewRequest]) (*connect.Response[v1.DiscardSourcePreviewResponse], error)
+	PreviewSourceReimport(context.Context, *v1.PreviewSourceReimportRequest) (*v1.PreviewSourceReimportResponse, error)
+	CommitSourcePreview(context.Context, *v1.CommitSourcePreviewRequest) (*v1.CommitSourcePreviewResponse, error)
+	DiscardSourcePreview(context.Context, *v1.DiscardSourcePreviewRequest) (*v1.DiscardSourcePreviewResponse, error)
 	// Manual source-linking when dedup misses or mistakes.
-	LinkSourceToActivity(context.Context, *connect.Request[v1.LinkSourceToActivityRequest]) (*connect.Response[v1.LinkSourceToActivityResponse], error)
-	DetachSource(context.Context, *connect.Request[v1.DetachSourceRequest]) (*connect.Response[v1.DetachSourceResponse], error)
+	LinkSourceToActivity(context.Context, *v1.LinkSourceToActivityRequest) (*v1.LinkSourceToActivityResponse, error)
+	DetachSource(context.Context, *v1.DetachSourceRequest) (*v1.DetachSourceResponse, error)
 	// Streams — full fidelity or downsampled.
-	GetActivityStream(context.Context, *connect.Request[v1.GetActivityStreamRequest]) (*connect.Response[v1.GetActivityStreamResponse], error)
+	GetActivityStream(context.Context, *v1.GetActivityStreamRequest) (*v1.GetActivityStreamResponse, error)
 	// Step 1 of a manual file upload: get a pre-signed S3 PUT URL.
 	// The client uploads the FIT/GPX/TCX file directly to S3, then calls
 	// UploadActivity with the returned blob_id. Separating presign from
 	// upload keeps large bodies off the Core entirely.
-	PresignActivityUpload(context.Context, *connect.Request[v1.PresignActivityUploadRequest]) (*connect.Response[v1.PresignActivityUploadResponse], error)
+	PresignActivityUpload(context.Context, *v1.PresignActivityUploadRequest) (*v1.PresignActivityUploadResponse, error)
 	// Step 2 of a manual file upload (FIT/GPX/TCX). Returns a job id; the
 	// generic-fit-parser worker processes the upload, dedup happens
 	// afterwards. UI surfaces progress via StreamActivityEvents.
-	UploadActivity(context.Context, *connect.Request[v1.UploadActivityRequest]) (*connect.Response[v1.UploadActivityResponse], error)
+	UploadActivity(context.Context, *v1.UploadActivityRequest) (*v1.UploadActivityResponse, error)
 	// Best efforts and records.
-	ListBestEfforts(context.Context, *connect.Request[v1.ListBestEffortsRequest]) (*connect.Response[v1.ListBestEffortsResponse], error)
-	ListRecords(context.Context, *connect.Request[v1.ListRecordsRequest]) (*connect.Response[v1.ListRecordsResponse], error)
-	CreateCustomBestEffort(context.Context, *connect.Request[v1.CreateCustomBestEffortRequest]) (*connect.Response[v1.CreateCustomBestEffortResponse], error)
-	DeleteCustomBestEffort(context.Context, *connect.Request[v1.DeleteCustomBestEffortRequest]) (*connect.Response[v1.DeleteCustomBestEffortResponse], error)
+	ListBestEfforts(context.Context, *v1.ListBestEffortsRequest) (*v1.ListBestEffortsResponse, error)
+	ListRecords(context.Context, *v1.ListRecordsRequest) (*v1.ListRecordsResponse, error)
+	CreateCustomBestEffort(context.Context, *v1.CreateCustomBestEffortRequest) (*v1.CreateCustomBestEffortResponse, error)
+	DeleteCustomBestEffort(context.Context, *v1.DeleteCustomBestEffortRequest) (*v1.DeleteCustomBestEffortResponse, error)
 }
 
-// NewActivityServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewActivityServiceHandler(svc ActivityServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	activityServiceMethods := v1.File_cairn_v1_activity_proto.Services().ByName("ActivityService").Methods()
-	activityServiceListActivitiesHandler := connect.NewUnaryHandler(
-		ActivityServiceListActivitiesProcedure,
-		svc.ListActivities,
-		connect.WithSchema(activityServiceMethods.ByName("ListActivities")),
-		connect.WithHandlerOptions(opts...),
+// RegisterActivityServiceHandler registers svc as the cairn.v1.ActivityService implementation on
+// server.
+func RegisterActivityServiceHandler(server *connect.Server, svc ActivityServiceHandler) {
+	adapter := activityServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: activityServiceListActivitiesSpec(), Handler: adapter.listActivities},
+		connect.Method{Spec: activityServiceGetActivitySpec(), Handler: adapter.getActivity},
+		connect.Method{Spec: activityServiceUpdateActivitySpec(), Handler: adapter.updateActivity},
+		connect.Method{Spec: activityServiceDeleteActivitySpec(), Handler: adapter.deleteActivity},
+		connect.Method{Spec: activityServiceStreamActivityEventsSpec(), Handler: adapter.streamActivityEvents},
+		connect.Method{Spec: activityServiceListActivitySourcesSpec(), Handler: adapter.listActivitySources},
+		connect.Method{Spec: activityServiceReimportSourceSpec(), Handler: adapter.reimportSource},
+		connect.Method{Spec: activityServicePreviewSourceReimportSpec(), Handler: adapter.previewSourceReimport},
+		connect.Method{Spec: activityServiceCommitSourcePreviewSpec(), Handler: adapter.commitSourcePreview},
+		connect.Method{Spec: activityServiceDiscardSourcePreviewSpec(), Handler: adapter.discardSourcePreview},
+		connect.Method{Spec: activityServiceLinkSourceToActivitySpec(), Handler: adapter.linkSourceToActivity},
+		connect.Method{Spec: activityServiceDetachSourceSpec(), Handler: adapter.detachSource},
+		connect.Method{Spec: activityServiceGetActivityStreamSpec(), Handler: adapter.getActivityStream},
+		connect.Method{Spec: activityServicePresignActivityUploadSpec(), Handler: adapter.presignActivityUpload},
+		connect.Method{Spec: activityServiceUploadActivitySpec(), Handler: adapter.uploadActivity},
+		connect.Method{Spec: activityServiceListBestEffortsSpec(), Handler: adapter.listBestEfforts},
+		connect.Method{Spec: activityServiceListRecordsSpec(), Handler: adapter.listRecords},
+		connect.Method{Spec: activityServiceCreateCustomBestEffortSpec(), Handler: adapter.createCustomBestEffort},
+		connect.Method{Spec: activityServiceDeleteCustomBestEffortSpec(), Handler: adapter.deleteCustomBestEffort},
 	)
-	activityServiceGetActivityHandler := connect.NewUnaryHandler(
-		ActivityServiceGetActivityProcedure,
-		svc.GetActivity,
-		connect.WithSchema(activityServiceMethods.ByName("GetActivity")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceUpdateActivityHandler := connect.NewUnaryHandler(
-		ActivityServiceUpdateActivityProcedure,
-		svc.UpdateActivity,
-		connect.WithSchema(activityServiceMethods.ByName("UpdateActivity")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceDeleteActivityHandler := connect.NewUnaryHandler(
-		ActivityServiceDeleteActivityProcedure,
-		svc.DeleteActivity,
-		connect.WithSchema(activityServiceMethods.ByName("DeleteActivity")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceStreamActivityEventsHandler := connect.NewServerStreamHandler(
-		ActivityServiceStreamActivityEventsProcedure,
-		svc.StreamActivityEvents,
-		connect.WithSchema(activityServiceMethods.ByName("StreamActivityEvents")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceListActivitySourcesHandler := connect.NewUnaryHandler(
-		ActivityServiceListActivitySourcesProcedure,
-		svc.ListActivitySources,
-		connect.WithSchema(activityServiceMethods.ByName("ListActivitySources")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceReimportSourceHandler := connect.NewUnaryHandler(
-		ActivityServiceReimportSourceProcedure,
-		svc.ReimportSource,
-		connect.WithSchema(activityServiceMethods.ByName("ReimportSource")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServicePreviewSourceReimportHandler := connect.NewUnaryHandler(
-		ActivityServicePreviewSourceReimportProcedure,
-		svc.PreviewSourceReimport,
-		connect.WithSchema(activityServiceMethods.ByName("PreviewSourceReimport")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceCommitSourcePreviewHandler := connect.NewUnaryHandler(
-		ActivityServiceCommitSourcePreviewProcedure,
-		svc.CommitSourcePreview,
-		connect.WithSchema(activityServiceMethods.ByName("CommitSourcePreview")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceDiscardSourcePreviewHandler := connect.NewUnaryHandler(
-		ActivityServiceDiscardSourcePreviewProcedure,
-		svc.DiscardSourcePreview,
-		connect.WithSchema(activityServiceMethods.ByName("DiscardSourcePreview")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceLinkSourceToActivityHandler := connect.NewUnaryHandler(
-		ActivityServiceLinkSourceToActivityProcedure,
-		svc.LinkSourceToActivity,
-		connect.WithSchema(activityServiceMethods.ByName("LinkSourceToActivity")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceDetachSourceHandler := connect.NewUnaryHandler(
-		ActivityServiceDetachSourceProcedure,
-		svc.DetachSource,
-		connect.WithSchema(activityServiceMethods.ByName("DetachSource")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceGetActivityStreamHandler := connect.NewUnaryHandler(
-		ActivityServiceGetActivityStreamProcedure,
-		svc.GetActivityStream,
-		connect.WithSchema(activityServiceMethods.ByName("GetActivityStream")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServicePresignActivityUploadHandler := connect.NewUnaryHandler(
-		ActivityServicePresignActivityUploadProcedure,
-		svc.PresignActivityUpload,
-		connect.WithSchema(activityServiceMethods.ByName("PresignActivityUpload")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceUploadActivityHandler := connect.NewUnaryHandler(
-		ActivityServiceUploadActivityProcedure,
-		svc.UploadActivity,
-		connect.WithSchema(activityServiceMethods.ByName("UploadActivity")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceListBestEffortsHandler := connect.NewUnaryHandler(
-		ActivityServiceListBestEffortsProcedure,
-		svc.ListBestEfforts,
-		connect.WithSchema(activityServiceMethods.ByName("ListBestEfforts")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceListRecordsHandler := connect.NewUnaryHandler(
-		ActivityServiceListRecordsProcedure,
-		svc.ListRecords,
-		connect.WithSchema(activityServiceMethods.ByName("ListRecords")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceCreateCustomBestEffortHandler := connect.NewUnaryHandler(
-		ActivityServiceCreateCustomBestEffortProcedure,
-		svc.CreateCustomBestEffort,
-		connect.WithSchema(activityServiceMethods.ByName("CreateCustomBestEffort")),
-		connect.WithHandlerOptions(opts...),
-	)
-	activityServiceDeleteCustomBestEffortHandler := connect.NewUnaryHandler(
-		ActivityServiceDeleteCustomBestEffortProcedure,
-		svc.DeleteCustomBestEffort,
-		connect.WithSchema(activityServiceMethods.ByName("DeleteCustomBestEffort")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/cairn.v1.ActivityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case ActivityServiceListActivitiesProcedure:
-			activityServiceListActivitiesHandler.ServeHTTP(w, r)
-		case ActivityServiceGetActivityProcedure:
-			activityServiceGetActivityHandler.ServeHTTP(w, r)
-		case ActivityServiceUpdateActivityProcedure:
-			activityServiceUpdateActivityHandler.ServeHTTP(w, r)
-		case ActivityServiceDeleteActivityProcedure:
-			activityServiceDeleteActivityHandler.ServeHTTP(w, r)
-		case ActivityServiceStreamActivityEventsProcedure:
-			activityServiceStreamActivityEventsHandler.ServeHTTP(w, r)
-		case ActivityServiceListActivitySourcesProcedure:
-			activityServiceListActivitySourcesHandler.ServeHTTP(w, r)
-		case ActivityServiceReimportSourceProcedure:
-			activityServiceReimportSourceHandler.ServeHTTP(w, r)
-		case ActivityServicePreviewSourceReimportProcedure:
-			activityServicePreviewSourceReimportHandler.ServeHTTP(w, r)
-		case ActivityServiceCommitSourcePreviewProcedure:
-			activityServiceCommitSourcePreviewHandler.ServeHTTP(w, r)
-		case ActivityServiceDiscardSourcePreviewProcedure:
-			activityServiceDiscardSourcePreviewHandler.ServeHTTP(w, r)
-		case ActivityServiceLinkSourceToActivityProcedure:
-			activityServiceLinkSourceToActivityHandler.ServeHTTP(w, r)
-		case ActivityServiceDetachSourceProcedure:
-			activityServiceDetachSourceHandler.ServeHTTP(w, r)
-		case ActivityServiceGetActivityStreamProcedure:
-			activityServiceGetActivityStreamHandler.ServeHTTP(w, r)
-		case ActivityServicePresignActivityUploadProcedure:
-			activityServicePresignActivityUploadHandler.ServeHTTP(w, r)
-		case ActivityServiceUploadActivityProcedure:
-			activityServiceUploadActivityHandler.ServeHTTP(w, r)
-		case ActivityServiceListBestEffortsProcedure:
-			activityServiceListBestEffortsHandler.ServeHTTP(w, r)
-		case ActivityServiceListRecordsProcedure:
-			activityServiceListRecordsHandler.ServeHTTP(w, r)
-		case ActivityServiceCreateCustomBestEffortProcedure:
-			activityServiceCreateCustomBestEffortHandler.ServeHTTP(w, r)
-		case ActivityServiceDeleteCustomBestEffortProcedure:
-			activityServiceDeleteCustomBestEffortHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
+}
+
+// ActivityServiceStreamActivityEventsServerStream is the server stream for the ActivityService's
+// StreamActivityEvents RPC.
+type ActivityServiceStreamActivityEventsServerStream struct {
+	stream connect.ServerStream
+}
+
+// SendHeaders flushes the response headers without a message. The first Send does this implicitly.
+func (s ActivityServiceStreamActivityEventsServerStream) SendHeaders() error {
+	return s.stream.SendHeaders()
+}
+
+// Send sends a response message to the client.
+func (s ActivityServiceStreamActivityEventsServerStream) Send(res *v1.ActivityEvent) error {
+	return s.stream.Send(res)
 }
 
 // UnimplementedActivityServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedActivityServiceHandler struct{}
 
-func (UnimplementedActivityServiceHandler) ListActivities(context.Context, *connect.Request[v1.ListActivitiesRequest]) (*connect.Response[v1.ListActivitiesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.ListActivities is not implemented"))
+func (UnimplementedActivityServiceHandler) ListActivities(context.Context, *v1.ListActivitiesRequest) (*v1.ListActivitiesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.ListActivities is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) GetActivity(context.Context, *connect.Request[v1.GetActivityRequest]) (*connect.Response[v1.GetActivityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.GetActivity is not implemented"))
+func (UnimplementedActivityServiceHandler) GetActivity(context.Context, *v1.GetActivityRequest) (*v1.GetActivityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.GetActivity is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) UpdateActivity(context.Context, *connect.Request[v1.UpdateActivityRequest]) (*connect.Response[v1.UpdateActivityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.UpdateActivity is not implemented"))
+func (UnimplementedActivityServiceHandler) UpdateActivity(context.Context, *v1.UpdateActivityRequest) (*v1.UpdateActivityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.UpdateActivity is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) DeleteActivity(context.Context, *connect.Request[v1.DeleteActivityRequest]) (*connect.Response[v1.DeleteActivityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.DeleteActivity is not implemented"))
+func (UnimplementedActivityServiceHandler) DeleteActivity(context.Context, *v1.DeleteActivityRequest) (*v1.DeleteActivityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.DeleteActivity is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) StreamActivityEvents(context.Context, *connect.Request[v1.StreamActivityEventsRequest], *connect.ServerStream[v1.ActivityEvent]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.StreamActivityEvents is not implemented"))
+func (UnimplementedActivityServiceHandler) StreamActivityEvents(context.Context, *v1.StreamActivityEventsRequest, ActivityServiceStreamActivityEventsServerStream) error {
+	return connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.StreamActivityEvents is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) ListActivitySources(context.Context, *connect.Request[v1.ListActivitySourcesRequest]) (*connect.Response[v1.ListActivitySourcesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.ListActivitySources is not implemented"))
+func (UnimplementedActivityServiceHandler) ListActivitySources(context.Context, *v1.ListActivitySourcesRequest) (*v1.ListActivitySourcesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.ListActivitySources is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) ReimportSource(context.Context, *connect.Request[v1.ReimportSourceRequest]) (*connect.Response[v1.ReimportSourceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.ReimportSource is not implemented"))
+func (UnimplementedActivityServiceHandler) ReimportSource(context.Context, *v1.ReimportSourceRequest) (*v1.ReimportSourceResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.ReimportSource is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) PreviewSourceReimport(context.Context, *connect.Request[v1.PreviewSourceReimportRequest]) (*connect.Response[v1.PreviewSourceReimportResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.PreviewSourceReimport is not implemented"))
+func (UnimplementedActivityServiceHandler) PreviewSourceReimport(context.Context, *v1.PreviewSourceReimportRequest) (*v1.PreviewSourceReimportResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.PreviewSourceReimport is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) CommitSourcePreview(context.Context, *connect.Request[v1.CommitSourcePreviewRequest]) (*connect.Response[v1.CommitSourcePreviewResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.CommitSourcePreview is not implemented"))
+func (UnimplementedActivityServiceHandler) CommitSourcePreview(context.Context, *v1.CommitSourcePreviewRequest) (*v1.CommitSourcePreviewResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.CommitSourcePreview is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) DiscardSourcePreview(context.Context, *connect.Request[v1.DiscardSourcePreviewRequest]) (*connect.Response[v1.DiscardSourcePreviewResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.DiscardSourcePreview is not implemented"))
+func (UnimplementedActivityServiceHandler) DiscardSourcePreview(context.Context, *v1.DiscardSourcePreviewRequest) (*v1.DiscardSourcePreviewResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.DiscardSourcePreview is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) LinkSourceToActivity(context.Context, *connect.Request[v1.LinkSourceToActivityRequest]) (*connect.Response[v1.LinkSourceToActivityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.LinkSourceToActivity is not implemented"))
+func (UnimplementedActivityServiceHandler) LinkSourceToActivity(context.Context, *v1.LinkSourceToActivityRequest) (*v1.LinkSourceToActivityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.LinkSourceToActivity is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) DetachSource(context.Context, *connect.Request[v1.DetachSourceRequest]) (*connect.Response[v1.DetachSourceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.DetachSource is not implemented"))
+func (UnimplementedActivityServiceHandler) DetachSource(context.Context, *v1.DetachSourceRequest) (*v1.DetachSourceResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.DetachSource is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) GetActivityStream(context.Context, *connect.Request[v1.GetActivityStreamRequest]) (*connect.Response[v1.GetActivityStreamResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.GetActivityStream is not implemented"))
+func (UnimplementedActivityServiceHandler) GetActivityStream(context.Context, *v1.GetActivityStreamRequest) (*v1.GetActivityStreamResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.GetActivityStream is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) PresignActivityUpload(context.Context, *connect.Request[v1.PresignActivityUploadRequest]) (*connect.Response[v1.PresignActivityUploadResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.PresignActivityUpload is not implemented"))
+func (UnimplementedActivityServiceHandler) PresignActivityUpload(context.Context, *v1.PresignActivityUploadRequest) (*v1.PresignActivityUploadResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.PresignActivityUpload is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) UploadActivity(context.Context, *connect.Request[v1.UploadActivityRequest]) (*connect.Response[v1.UploadActivityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.UploadActivity is not implemented"))
+func (UnimplementedActivityServiceHandler) UploadActivity(context.Context, *v1.UploadActivityRequest) (*v1.UploadActivityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.UploadActivity is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) ListBestEfforts(context.Context, *connect.Request[v1.ListBestEffortsRequest]) (*connect.Response[v1.ListBestEffortsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.ListBestEfforts is not implemented"))
+func (UnimplementedActivityServiceHandler) ListBestEfforts(context.Context, *v1.ListBestEffortsRequest) (*v1.ListBestEffortsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.ListBestEfforts is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) ListRecords(context.Context, *connect.Request[v1.ListRecordsRequest]) (*connect.Response[v1.ListRecordsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.ListRecords is not implemented"))
+func (UnimplementedActivityServiceHandler) ListRecords(context.Context, *v1.ListRecordsRequest) (*v1.ListRecordsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.ListRecords is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) CreateCustomBestEffort(context.Context, *connect.Request[v1.CreateCustomBestEffortRequest]) (*connect.Response[v1.CreateCustomBestEffortResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.CreateCustomBestEffort is not implemented"))
+func (UnimplementedActivityServiceHandler) CreateCustomBestEffort(context.Context, *v1.CreateCustomBestEffortRequest) (*v1.CreateCustomBestEffortResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.CreateCustomBestEffort is not implemented")
 }
 
-func (UnimplementedActivityServiceHandler) DeleteCustomBestEffort(context.Context, *connect.Request[v1.DeleteCustomBestEffortRequest]) (*connect.Response[v1.DeleteCustomBestEffortResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cairn.v1.ActivityService.DeleteCustomBestEffort is not implemented"))
+func (UnimplementedActivityServiceHandler) DeleteCustomBestEffort(context.Context, *v1.DeleteCustomBestEffortRequest) (*v1.DeleteCustomBestEffortResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.ActivityService.DeleteCustomBestEffort is not implemented")
+}
+
+type activityServiceClient struct {
+	client *connect.Client
+}
+
+func (c *activityServiceClient) ListActivities(ctx context.Context, req *v1.ListActivitiesRequest) (*v1.ListActivitiesResponse, error) {
+	var res v1.ListActivitiesResponse
+	if err := c.client.CallUnary(ctx, activityServiceListActivitiesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) GetActivity(ctx context.Context, req *v1.GetActivityRequest) (*v1.GetActivityResponse, error) {
+	var res v1.GetActivityResponse
+	if err := c.client.CallUnary(ctx, activityServiceGetActivitySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) UpdateActivity(ctx context.Context, req *v1.UpdateActivityRequest) (*v1.UpdateActivityResponse, error) {
+	var res v1.UpdateActivityResponse
+	if err := c.client.CallUnary(ctx, activityServiceUpdateActivitySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) DeleteActivity(ctx context.Context, req *v1.DeleteActivityRequest) (*v1.DeleteActivityResponse, error) {
+	var res v1.DeleteActivityResponse
+	if err := c.client.CallUnary(ctx, activityServiceDeleteActivitySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) StreamActivityEvents(ctx context.Context, req *v1.StreamActivityEventsRequest) (ActivityServiceStreamActivityEventsClientStream, error) {
+	stream, err := c.client.CallServerStream(ctx, activityServiceStreamActivityEventsSpec(), req)
+	if err != nil {
+		return ActivityServiceStreamActivityEventsClientStream{}, err
+	}
+	return ActivityServiceStreamActivityEventsClientStream{stream: stream}, nil
+}
+
+func (c *activityServiceClient) ListActivitySources(ctx context.Context, req *v1.ListActivitySourcesRequest) (*v1.ListActivitySourcesResponse, error) {
+	var res v1.ListActivitySourcesResponse
+	if err := c.client.CallUnary(ctx, activityServiceListActivitySourcesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) ReimportSource(ctx context.Context, req *v1.ReimportSourceRequest) (*v1.ReimportSourceResponse, error) {
+	var res v1.ReimportSourceResponse
+	if err := c.client.CallUnary(ctx, activityServiceReimportSourceSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) PreviewSourceReimport(ctx context.Context, req *v1.PreviewSourceReimportRequest) (*v1.PreviewSourceReimportResponse, error) {
+	var res v1.PreviewSourceReimportResponse
+	if err := c.client.CallUnary(ctx, activityServicePreviewSourceReimportSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) CommitSourcePreview(ctx context.Context, req *v1.CommitSourcePreviewRequest) (*v1.CommitSourcePreviewResponse, error) {
+	var res v1.CommitSourcePreviewResponse
+	if err := c.client.CallUnary(ctx, activityServiceCommitSourcePreviewSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) DiscardSourcePreview(ctx context.Context, req *v1.DiscardSourcePreviewRequest) (*v1.DiscardSourcePreviewResponse, error) {
+	var res v1.DiscardSourcePreviewResponse
+	if err := c.client.CallUnary(ctx, activityServiceDiscardSourcePreviewSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) LinkSourceToActivity(ctx context.Context, req *v1.LinkSourceToActivityRequest) (*v1.LinkSourceToActivityResponse, error) {
+	var res v1.LinkSourceToActivityResponse
+	if err := c.client.CallUnary(ctx, activityServiceLinkSourceToActivitySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) DetachSource(ctx context.Context, req *v1.DetachSourceRequest) (*v1.DetachSourceResponse, error) {
+	var res v1.DetachSourceResponse
+	if err := c.client.CallUnary(ctx, activityServiceDetachSourceSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) GetActivityStream(ctx context.Context, req *v1.GetActivityStreamRequest) (*v1.GetActivityStreamResponse, error) {
+	var res v1.GetActivityStreamResponse
+	if err := c.client.CallUnary(ctx, activityServiceGetActivityStreamSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) PresignActivityUpload(ctx context.Context, req *v1.PresignActivityUploadRequest) (*v1.PresignActivityUploadResponse, error) {
+	var res v1.PresignActivityUploadResponse
+	if err := c.client.CallUnary(ctx, activityServicePresignActivityUploadSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) UploadActivity(ctx context.Context, req *v1.UploadActivityRequest) (*v1.UploadActivityResponse, error) {
+	var res v1.UploadActivityResponse
+	if err := c.client.CallUnary(ctx, activityServiceUploadActivitySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) ListBestEfforts(ctx context.Context, req *v1.ListBestEffortsRequest) (*v1.ListBestEffortsResponse, error) {
+	var res v1.ListBestEffortsResponse
+	if err := c.client.CallUnary(ctx, activityServiceListBestEffortsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) ListRecords(ctx context.Context, req *v1.ListRecordsRequest) (*v1.ListRecordsResponse, error) {
+	var res v1.ListRecordsResponse
+	if err := c.client.CallUnary(ctx, activityServiceListRecordsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) CreateCustomBestEffort(ctx context.Context, req *v1.CreateCustomBestEffortRequest) (*v1.CreateCustomBestEffortResponse, error) {
+	var res v1.CreateCustomBestEffortResponse
+	if err := c.client.CallUnary(ctx, activityServiceCreateCustomBestEffortSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *activityServiceClient) DeleteCustomBestEffort(ctx context.Context, req *v1.DeleteCustomBestEffortRequest) (*v1.DeleteCustomBestEffortResponse, error) {
+	var res v1.DeleteCustomBestEffortResponse
+	if err := c.client.CallUnary(ctx, activityServiceDeleteCustomBestEffortSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type activityServiceHandler struct{ svc ActivityServiceHandler }
+
+func (h activityServiceHandler) listActivities(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListActivitiesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListActivities(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) getActivity(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetActivityRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetActivity(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) updateActivity(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateActivityRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateActivity(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) deleteActivity(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteActivityRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteActivity(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) streamActivityEvents(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StreamActivityEventsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	return h.svc.StreamActivityEvents(ctx, &req, ActivityServiceStreamActivityEventsServerStream{stream: stream})
+}
+
+func (h activityServiceHandler) listActivitySources(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListActivitySourcesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListActivitySources(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) reimportSource(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ReimportSourceRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ReimportSource(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) previewSourceReimport(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.PreviewSourceReimportRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.PreviewSourceReimport(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) commitSourcePreview(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CommitSourcePreviewRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CommitSourcePreview(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) discardSourcePreview(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DiscardSourcePreviewRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DiscardSourcePreview(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) linkSourceToActivity(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.LinkSourceToActivityRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.LinkSourceToActivity(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) detachSource(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DetachSourceRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DetachSource(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) getActivityStream(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetActivityStreamRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetActivityStream(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) presignActivityUpload(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.PresignActivityUploadRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.PresignActivityUpload(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) uploadActivity(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UploadActivityRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UploadActivity(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) listBestEfforts(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListBestEffortsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListBestEfforts(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) listRecords(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListRecordsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListRecords(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) createCustomBestEffort(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateCustomBestEffortRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateCustomBestEffort(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h activityServiceHandler) deleteCustomBestEffort(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteCustomBestEffortRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteCustomBestEffort(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

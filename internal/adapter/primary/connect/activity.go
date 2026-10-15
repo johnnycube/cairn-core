@@ -18,11 +18,10 @@ package connect
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
@@ -93,8 +92,8 @@ const defaultListWindow = 90 * 24 * time.Hour
 
 func (s *ActivityServer) ListActivities(
 	ctx context.Context,
-	req *connectrpc.Request[v1.ListActivitiesRequest],
-) (*connectrpc.Response[v1.ListActivitiesResponse], error) {
+	req *v1.ListActivitiesRequest,
+) (*v1.ListActivitiesResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
@@ -103,17 +102,17 @@ func (s *ActivityServer) ListActivities(
 	// No explicit time range → count-based feed (newest N regardless of age),
 	// so older imports don't fall out of an arbitrary default window. An
 	// explicit range still uses the time-windowed query.
-	tr := req.Msg.GetTimeRange()
+	tr := req.GetTimeRange()
 	var activities []domain.Activity
 	if tr == nil || (tr.GetFrom() == nil && tr.GetTo() == nil) {
-		limit := int(req.Msg.GetPage().GetLimit())
+		limit := int(req.GetPage().GetLimit())
 		activities, err = s.Activities.ListRecentActivitiesForUser(ctx, userID, limit)
 	} else {
 		start, end := windowFromRequest(tr)
 		activities, err = s.Activities.ListActivitiesForUser(ctx, userID, start, end)
 	}
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list activities: %w", err))
 	}
 
@@ -122,10 +121,10 @@ func (s *ActivityServer) ListActivities(
 	}
 	for _, a := range activities {
 		var sources []domain.ActivitySource
-		if req.Msg.GetIncludeSources() {
+		if req.GetIncludeSources() {
 			srcs, err := s.Activities.ListSourcesForActivity(ctx, a.ID)
 			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeInternal,
+				return nil, connectError(connectrpc.CodeInternal,
 					fmt.Errorf("list sources for %s: %w", a.ID, err))
 			}
 			sources = srcs
@@ -136,11 +135,11 @@ func (s *ActivityServer) ListActivities(
 	// Reverse to start-time-DESC unless the caller asked otherwise. The
 	// repo currently returns ASC; the proto default is DESC and the
 	// frontend feed expects newest first.
-	if req.Msg.GetSort() != v1.ActivitySort_ACTIVITY_SORT_START_TIME_ASC {
+	if req.GetSort() != v1.ActivitySort_ACTIVITY_SORT_START_TIME_ASC {
 		reverseActivities(out.Activities)
 	}
 
-	return connectrpc.NewResponse(out), nil
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -149,17 +148,17 @@ func (s *ActivityServer) ListActivities(
 
 func (s *ActivityServer) GetActivity(
 	ctx context.Context,
-	req *connectrpc.Request[v1.GetActivityRequest],
-) (*connectrpc.Response[v1.GetActivityResponse], error) {
+	req *v1.GetActivityRequest,
+) (*v1.GetActivityResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	id, err := uuid.Parse(req.Msg.GetId())
+	id, err := uuid.Parse(req.GetId())
 	if err != nil {
 		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("invalid activity id"))
+			"invalid activity id")
 	}
 
 	activity, err := s.Activities.GetActivity(ctx, domain.ActivityID(id))
@@ -171,22 +170,22 @@ func (s *ActivityServer) GetActivity(
 	// Future RBAC (admin override, follower sharing) plugs in here.
 	if activity.UserID != userID {
 		return nil, connectrpc.NewError(connectrpc.CodeNotFound,
-			errors.New("not found"))
+			"not found")
 	}
 	if activity.IsDeleted() {
 		return nil, connectrpc.NewError(connectrpc.CodeNotFound,
-			errors.New("not found"))
+			"not found")
 	}
 
 	sources, err := s.Activities.ListSourcesForActivity(ctx, activity.ID)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list sources: %w", err))
 	}
 
-	return connectrpc.NewResponse(&v1.GetActivityResponse{
+	return &v1.GetActivityResponse{
 		Activity: activityToProto(activity, sources),
-	}), nil
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -207,24 +206,24 @@ func (s *ActivityServer) GetActivity(
 
 func (s *ActivityServer) UpdateActivity(
 	ctx context.Context,
-	req *connectrpc.Request[v1.UpdateActivityRequest],
-) (*connectrpc.Response[v1.UpdateActivityResponse], error) {
-	activity, err := s.activityUpdateLoad(ctx, req.Msg.GetId())
+	req *v1.UpdateActivityRequest,
+) (*v1.UpdateActivityResponse, error) {
+	activity, err := s.activityUpdateLoad(ctx, req.GetId())
 	if err != nil {
 		return nil, err
 	}
 	activityID := activity.ID
 
-	mask := req.Msg.GetFieldMask()
+	mask := req.GetFieldMask()
 	if len(mask) == 0 {
 		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("field_mask must list at least one field to update"))
+			"field_mask must list at least one field to update")
 	}
 
 	// Capture the pre-edit privacy so a public⇄non-public transition can be
 	// federated after the save.
 	prevPrivacy := activity.Privacy
-	e := &activityUpdateEdit{s: s, ctx: ctx, msg: req.Msg, activity: &activity}
+	e := &activityUpdateEdit{s: s, ctx: ctx, msg: req, activity: &activity}
 	for _, f := range mask {
 		if err := e.applyField(f); err != nil {
 			return nil, err
@@ -237,7 +236,7 @@ func (s *ActivityServer) UpdateActivity(
 
 	updated, err := s.Activities.GetActivity(ctx, activityID)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("reload activity: %w", err))
 	}
 
@@ -247,13 +246,13 @@ func (s *ActivityServer) UpdateActivity(
 
 	sources, err := s.Activities.ListSourcesForActivity(ctx, activityID)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list sources: %w", err))
 	}
 
-	return connectrpc.NewResponse(&v1.UpdateActivityResponse{
+	return &v1.UpdateActivityResponse{
 		Activity: activityToProto(updated, sources),
-	}), nil
+	}, nil
 }
 
 // activityUpdateLoad resolves the caller and loads the activity they own.
@@ -266,7 +265,7 @@ func (s *ActivityServer) activityUpdateLoad(ctx context.Context, rawID string) (
 	id, err := uuid.Parse(rawID)
 	if err != nil {
 		return domain.Activity{}, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("invalid activity id"))
+			"invalid activity id")
 	}
 	activityID := domain.ActivityID(id)
 
@@ -275,7 +274,7 @@ func (s *ActivityServer) activityUpdateLoad(ctx context.Context, rawID string) (
 		return domain.Activity{}, notFoundErr(err)
 	}
 	if activity.UserID != userID || activity.IsDeleted() {
-		return domain.Activity{}, connectrpc.NewError(connectrpc.CodeNotFound, errors.New("not found"))
+		return domain.Activity{}, connectrpc.NewError(connectrpc.CodeNotFound, "not found")
 	}
 	return activity, nil
 }
@@ -325,7 +324,7 @@ func (e *activityUpdateEdit) applyField(f string) error {
 		p, ok := privacyFromProto(e.msg.GetPrivacy())
 		if !ok {
 			return connectrpc.NewError(connectrpc.CodeInvalidArgument,
-				errors.New("privacy must be one of private|followers|public"))
+				"privacy must be one of private|followers|public")
 		}
 		e.activity.Privacy = p
 		e.privacyTouched = true
@@ -336,7 +335,7 @@ func (e *activityUpdateEdit) applyField(f string) error {
 	default:
 		set, ok := activityUpdateClassSetters[f]
 		if !ok {
-			return connectrpc.NewError(connectrpc.CodeInvalidArgument,
+			return connectError(connectrpc.CodeInvalidArgument,
 				fmt.Errorf("unknown field %q in field_mask", f))
 		}
 		return e.applyClassField(f, set)
@@ -352,7 +351,7 @@ func (e *activityUpdateEdit) applyClassField(f string, set func(*domain.Classifi
 	if e.classOverride == nil {
 		existing, err := e.s.ClassOverrides.Get(e.ctx, e.activity.ID)
 		if err != nil {
-			return connectrpc.NewError(connectrpc.CodeInternal, err)
+			return connectError(connectrpc.CodeInternal, err)
 		}
 		e.classOverride = &existing
 	}
@@ -365,27 +364,27 @@ func (e *activityUpdateEdit) applyClassField(f string, set func(*domain.Classifi
 func (e *activityUpdateEdit) persist() error {
 	if e.classTouched {
 		if err := e.s.ClassOverrides.Set(e.ctx, *e.classOverride); err != nil {
-			return connectrpc.NewError(connectrpc.CodeInternal,
+			return connectError(connectrpc.CodeInternal,
 				fmt.Errorf("save classification override: %w", err))
 		}
 	}
 
 	if err := e.s.Activities.SaveActivity(e.ctx, *e.activity); err != nil {
-		return connectrpc.NewError(connectrpc.CodeInternal,
+		return connectError(connectrpc.CodeInternal,
 			fmt.Errorf("save activity: %w", err))
 	}
 
 	// Re-merge from all sources. preserveUserEdits copies the just-saved
 	// user fields onto the merged result, so the edit sticks.
 	if _, err := e.s.Recompute.Execute(e.ctx, e.activity.ID); err != nil {
-		return connectrpc.NewError(connectrpc.CodeInternal,
+		return connectError(connectrpc.CodeInternal,
 			fmt.Errorf("recompute activity: %w", err))
 	}
 	return nil
 }
 
 func activityUpdateRejectClass(f string) error {
-	return connectrpc.NewError(connectrpc.CodeInvalidArgument,
+	return connectError(connectrpc.CodeInvalidArgument,
 		fmt.Errorf("field %q is not editable on this instance", f))
 }
 
@@ -464,17 +463,17 @@ var activityUpdateClassSetters = map[string]func(*domain.ClassificationOverride,
 
 func (s *ActivityServer) GetActivityStream(
 	ctx context.Context,
-	req *connectrpc.Request[v1.GetActivityStreamRequest],
-) (*connectrpc.Response[v1.GetActivityStreamResponse], error) {
+	req *v1.GetActivityStreamRequest,
+) (*v1.GetActivityStreamResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	sourceUUID, err := uuid.Parse(req.Msg.GetActivitySourceId())
+	sourceUUID, err := uuid.Parse(req.GetActivitySourceId())
 	if err != nil {
 		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("invalid activity_source_id"))
+			"invalid activity_source_id")
 	}
 	sourceID := domain.SourceID(sourceUUID)
 
@@ -491,24 +490,24 @@ func (s *ActivityServer) GetActivityStream(
 	}
 	if activity.UserID != userID {
 		return nil, connectrpc.NewError(connectrpc.CodeNotFound,
-			errors.New("not found"))
+			"not found")
 	}
 
-	channels := channelsFromProto(req.Msg.GetChannels())
+	channels := channelsFromProto(req.GetChannels())
 	stream, err := s.Streams.QueryStream(ctx, domain.StreamQuery{
 		ActivitySourceID: sourceID,
 		Channels:         channels,
-		Resolution:       chooseResolution(req.Msg.GetMaxResolutionHz()),
+		Resolution:       chooseResolution(req.GetMaxResolutionHz()),
 	})
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("query stream: %w", err))
 	}
 
 	// The repository treats Channels as advisory; enforce the subset here.
-	return connectrpc.NewResponse(&v1.GetActivityStreamResponse{
+	return &v1.GetActivityStreamResponse{
 		Stream: streamToProto(stream.KeepChannels(channels)),
-	}), nil
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -521,17 +520,17 @@ func (s *ActivityServer) GetActivityStream(
 
 func (s *ActivityServer) ListBestEfforts(
 	ctx context.Context,
-	req *connectrpc.Request[v1.ListBestEffortsRequest],
-) (*connectrpc.Response[v1.ListBestEffortsResponse], error) {
+	req *v1.ListBestEffortsRequest,
+) (*v1.ListBestEffortsResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	id, err := uuid.Parse(req.Msg.GetActivityId())
+	id, err := uuid.Parse(req.GetActivityId())
 	if err != nil {
 		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("invalid activity_id"))
+			"invalid activity_id")
 	}
 	activityID := domain.ActivityID(id)
 
@@ -541,18 +540,18 @@ func (s *ActivityServer) ListBestEfforts(
 		return nil, notFoundErr(err)
 	}
 	if activity.UserID != userID || activity.IsDeleted() {
-		return nil, connectrpc.NewError(connectrpc.CodeNotFound, errors.New("not found"))
+		return nil, connectrpc.NewError(connectrpc.CodeNotFound, "not found")
 	}
 
 	efforts, err := s.BestEfforts.ListForActivity(ctx, activityID)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list best efforts: %w", err))
 	}
 
 	// Optional metric filter. UNSPECIFIED in the input list is dropped;
 	// an empty post-filter set means "no filter".
-	allowed := metricFilter(req.Msg.GetMetrics())
+	allowed := metricFilter(req.GetMetrics())
 
 	out := &v1.ListBestEffortsResponse{
 		Efforts: make([]*v1.BestEffort, 0, len(efforts)),
@@ -565,7 +564,7 @@ func (s *ActivityServer) ListBestEfforts(
 		}
 		out.Efforts = append(out.Efforts, bestEffortToProto(e))
 	}
-	return connectrpc.NewResponse(out), nil
+	return out, nil
 }
 
 // metricFilter converts the proto repeated-enum filter into a domain set.

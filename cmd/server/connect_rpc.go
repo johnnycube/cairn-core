@@ -4,7 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 
 	"github.com/johnnycube/cairn-core/gen/proto/cairn/v1/cairnv1connect"
 	connectadapter "github.com/johnnycube/cairn-core/internal/adapter/primary/connect"
@@ -29,42 +30,27 @@ func mountConnectRPC(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	sessionInterceptor := connectadapter.SessionInterceptor(app.Sessions, app.PATs, app.OAuth, sessionCookieName)
 	// ScopeInterceptor keeps read-only OAuth tokens read-only; no-op for
 	// cookie/PAT callers. Runs after the session resolver.
-	opts := connectrpc.WithInterceptors(sessionInterceptor, connectadapter.ScopeInterceptor())
+	server := connectrpc.NewServer(sessionInterceptor, connectadapter.ScopeInterceptor())
 
 	activitySvc := connectadapter.NewActivityServer(app.Activities, app.Streams, app.BestEfforts, app.RecomputeActivity,
 		app.ClassOverrides, newFederationPublisher(app, logger))
-	{
-		path, handler := cairnv1connect.NewActivityServiceHandler(activitySvc, opts)
-		mux.Handle(path, handler)
-		logger.Info("connect-rpc handler mounted", "service", "cairn.v1.ActivityService", "path", path)
-	}
+	cairnv1connect.RegisterActivityServiceHandler(server, activitySvc)
+	cairnv1connect.RegisterNotificationServiceHandler(server, connectadapter.NewNotificationServer(app.Notifications))
+	cairnv1connect.RegisterAuthServiceHandler(server, connectadapter.NewAuthServer(app.Users, app.OIDCProviders))
+	connecthttp.Mount(mux, server)
+	logger.Info("connect-rpc services mounted", "services", []string{
+		cairnv1connect.ActivityServiceName, cairnv1connect.NotificationServiceName, cairnv1connect.AuthServiceName,
+	})
 
-	notificationSvc := connectadapter.NewNotificationServer(app.Notifications)
-	{
-		path, handler := cairnv1connect.NewNotificationServiceHandler(notificationSvc, opts)
-		mux.Handle(path, handler)
-		logger.Info("connect-rpc handler mounted", "service", "cairn.v1.NotificationService", "path", path)
-	}
-
-	authSvc := connectadapter.NewAuthServer(app.Users, app.OIDCProviders)
-	{
-		path, handler := cairnv1connect.NewAuthServiceHandler(authSvc, opts)
-		mux.Handle(path, handler)
-		logger.Info("connect-rpc handler mounted", "service", "cairn.v1.AuthService", "path", path)
-	}
-
-	adminSvc := connectadapter.NewAdminServer(app.Users, app.OIDCProviders)
-	{
-		// AdminService chains the session resolver with a role-check
-		// interceptor. Non-admins get CodePermissionDenied before the
-		// handler runs.
-		adminOpts := connectrpc.WithInterceptors(
-			sessionInterceptor,
-			connectadapter.ScopeInterceptor(),
-			connectadapter.RequireAdminInterceptor(app.Users),
-		)
-		path, handler := cairnv1connect.NewAdminServiceHandler(adminSvc, adminOpts)
-		mux.Handle(path, handler)
-		logger.Info("connect-rpc handler mounted", "service", "cairn.v1.AdminService", "path", path)
-	}
+	// AdminService chains the session resolver with a role-check
+	// interceptor on its own server. Non-admins get CodePermissionDenied
+	// before the handler runs.
+	adminServer := connectrpc.NewServer(
+		sessionInterceptor,
+		connectadapter.ScopeInterceptor(),
+		connectadapter.RequireAdminInterceptor(app.Users),
+	)
+	cairnv1connect.RegisterAdminServiceHandler(adminServer, connectadapter.NewAdminServer(app.Users, app.OIDCProviders))
+	connecthttp.Mount(mux, adminServer)
+	logger.Info("connect-rpc services mounted", "services", []string{cairnv1connect.AdminServiceName})
 }

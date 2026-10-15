@@ -4,11 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"net/http"
 	"strings"
 	"time"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 
 	"github.com/johnnycube/cairn-core/internal/domain"
 	"github.com/johnnycube/cairn-core/internal/port"
@@ -27,18 +26,40 @@ import (
 // any user by setting it. It has been removed; do not reintroduce a
 // client-controlled identity header.
 func connectErrNotAuthenticated() error {
-	return connectrpc.NewError(
-		connectrpc.CodeUnauthenticated,
-		errors.New("not authenticated"),
-	)
+	return connectrpc.NewError(connectrpc.CodeUnauthenticated, "not authenticated")
+}
+
+// connectError keeps the v1 wire message (err.Error()) and err as the local cause.
+func connectError(code connectrpc.Code, err error) error {
+	return connectrpc.NewError(code, err.Error()).WithCause(err)
 }
 
 // notFoundErr is the canonical mapping for repo lookups that miss.
 func notFoundErr(err error) error {
 	if errors.Is(err, domain.ErrNotFound) {
-		return connectrpc.NewError(connectrpc.CodeNotFound, err)
+		return connectError(connectrpc.CodeNotFound, err)
 	}
-	return connectrpc.NewError(connectrpc.CodeInternal, err)
+	return connectError(connectrpc.CodeInternal, err)
+}
+
+// unaryInterceptor adapts fn to a server interceptor; streams pass through untouched, as in v1.
+func unaryInterceptor(fn func(ctx context.Context, spec connectrpc.Spec, next func(context.Context) error) error) connectrpc.ServerInterceptor {
+	return func(next connectrpc.ServerFunc) connectrpc.ServerFunc {
+		return func(ctx context.Context, spec connectrpc.Spec, stream connectrpc.ServerStream) error {
+			if spec.StreamType != connectrpc.StreamTypeUnary {
+				return next(ctx, spec, stream)
+			}
+			return fn(ctx, spec, func(ctx context.Context) error { return next(ctx, spec, stream) })
+		}
+	}
+}
+
+// requestHeader returns the inbound request headers of a server call.
+func requestHeader(ctx context.Context) *connectrpc.Header {
+	if info, ok := connectrpc.CallInfoForServerContext(ctx); ok {
+		return info.RequestHeader()
+	}
+	return &connectrpc.Header{}
 }
 
 // ---------------------------------------------------------------------------
@@ -72,25 +93,23 @@ const (
 	oauthTokenPrefix = "cairn_at_"
 )
 
-// SessionInterceptor builds a connect.Interceptor that resolves the caller's
+// SessionInterceptor builds a connect.ServerInterceptor that resolves the caller's
 // identity from either the cairn_session cookie (browser) or an
 // `Authorization: Bearer cairn_pat_…` personal access token (CLI/API), stashing
 // the user id in the context. Touches last-seen/last-used best-effort. `pats`
 // may be nil (PAT auth then disabled).
-func SessionInterceptor(sessions port.SessionRepo, pats port.PATRepo, oauth port.OAuthServerRepo, sessionCookieName string) connectrpc.UnaryInterceptorFunc {
-	return func(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
-		return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
-			if authed, ok := connectAuthenticate(ctx, req.Header(), sessions, pats, oauth, sessionCookieName); ok {
-				return next(authed, req)
-			}
-			// Not authenticated; handlers decide whether to refuse.
-			return next(ctx, req)
+func SessionInterceptor(sessions port.SessionRepo, pats port.PATRepo, oauth port.OAuthServerRepo, sessionCookieName string) connectrpc.ServerInterceptor {
+	return unaryInterceptor(func(ctx context.Context, _ connectrpc.Spec, next func(context.Context) error) error {
+		if authed, ok := connectAuthenticate(ctx, requestHeader(ctx), sessions, pats, oauth, sessionCookieName); ok {
+			return next(authed)
 		}
-	}
+		// Not authenticated; handlers decide whether to refuse.
+		return next(ctx)
+	})
 }
 
 // connectAuthenticate tries cookie, PAT, then OAuth token; ok reports whether one matched.
-func connectAuthenticate(ctx context.Context, h http.Header, sessions port.SessionRepo, pats port.PATRepo, oauth port.OAuthServerRepo, sessionCookieName string) (context.Context, bool) {
+func connectAuthenticate(ctx context.Context, h *connectrpc.Header, sessions port.SessionRepo, pats port.PATRepo, oauth port.OAuthServerRepo, sessionCookieName string) (context.Context, bool) {
 	// 1. Session cookie.
 	if authed, ok := connectAuthSessionCookie(ctx, h, sessions, sessionCookieName); ok {
 		return authed, true
@@ -118,7 +137,7 @@ func connectAuthenticate(ctx context.Context, h http.Header, sessions port.Sessi
 }
 
 // connectAuthSessionCookie resolves the caller from the session cookie, if any.
-func connectAuthSessionCookie(ctx context.Context, h http.Header, sessions port.SessionRepo, sessionCookieName string) (context.Context, bool) {
+func connectAuthSessionCookie(ctx context.Context, h *connectrpc.Header, sessions port.SessionRepo, sessionCookieName string) (context.Context, bool) {
 	if sessions == nil {
 		return ctx, false
 	}
@@ -141,20 +160,18 @@ func connectAuthSessionCookie(ctx context.Context, h http.Header, sessions port.
 // keeps read-only tokens — the default for agents — truly read-only.
 //
 // Mount AFTER SessionInterceptor so scopes are already in ctx.
-func ScopeInterceptor() connectrpc.UnaryInterceptorFunc {
-	return func(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
-		return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
-			scopes, isOAuth := ctx.Value(ctxKeyScopes).([]string)
-			if !isOAuth {
-				return next(ctx, req) // cookie/PAT: unrestricted
-			}
-			if isMutatingProcedure(req.Spec().Procedure) && !hasAnyWriteScope(scopes) {
-				return nil, connectrpc.NewError(connectrpc.CodePermissionDenied,
-					errors.New("this OAuth token lacks a write scope for this operation"))
-			}
-			return next(ctx, req)
+func ScopeInterceptor() connectrpc.ServerInterceptor {
+	return unaryInterceptor(func(ctx context.Context, spec connectrpc.Spec, next func(context.Context) error) error {
+		scopes, isOAuth := ctx.Value(ctxKeyScopes).([]string)
+		if !isOAuth {
+			return next(ctx) // cookie/PAT: unrestricted
 		}
-	}
+		if isMutatingProcedure(spec.Procedure) && !hasAnyWriteScope(scopes) {
+			return connectrpc.NewError(connectrpc.CodePermissionDenied,
+				"this OAuth token lacks a write scope for this operation")
+		}
+		return next(ctx)
+	})
 }
 
 // isMutatingProcedure classifies a Connect procedure ("/svc/Method") as a
@@ -200,31 +217,25 @@ func userIDFromHandlerCtx(ctx context.Context) (domain.UserID, error) {
 // Cost: one extra UserRepo.GetUser lookup per call. Cache later if it
 // shows up on traces — admin endpoints are low-volume so the join is
 // fine for now.
-func RequireAdminInterceptor(users port.UserRepo) connectrpc.UnaryInterceptorFunc {
-	return func(next connectrpc.UnaryFunc) connectrpc.UnaryFunc {
-		return func(ctx context.Context, req connectrpc.AnyRequest) (connectrpc.AnyResponse, error) {
-			v := ctx.Value(ctxKeyUserID)
-			if v == nil {
-				return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated,
-					errors.New("authentication required"))
-			}
-			uid, ok := v.(domain.UserID)
-			if !ok {
-				return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated,
-					errors.New("invalid session"))
-			}
-			u, err := users.GetUser(ctx, uid)
-			if err != nil {
-				return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated,
-					errors.New("user not found"))
-			}
-			if u.Role != domain.UserRoleAdmin {
-				return nil, connectrpc.NewError(connectrpc.CodePermissionDenied,
-					errors.New("admin role required"))
-			}
-			return next(ctx, req)
+func RequireAdminInterceptor(users port.UserRepo) connectrpc.ServerInterceptor {
+	return unaryInterceptor(func(ctx context.Context, _ connectrpc.Spec, next func(context.Context) error) error {
+		v := ctx.Value(ctxKeyUserID)
+		if v == nil {
+			return connectrpc.NewError(connectrpc.CodeUnauthenticated, "authentication required")
 		}
-	}
+		uid, ok := v.(domain.UserID)
+		if !ok {
+			return connectrpc.NewError(connectrpc.CodeUnauthenticated, "invalid session")
+		}
+		u, err := users.GetUser(ctx, uid)
+		if err != nil {
+			return connectrpc.NewError(connectrpc.CodeUnauthenticated, "user not found")
+		}
+		if u.Role != domain.UserRoleAdmin {
+			return connectrpc.NewError(connectrpc.CodePermissionDenied, "admin role required")
+		}
+		return next(ctx)
+	})
 }
 
 // readSessionCookie parses the supplied Cookie header line for the named

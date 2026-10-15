@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
@@ -49,8 +49,8 @@ func NewAuthServer(users port.UserRepo, providers []domain.OIDCProvider) *AuthSe
 
 func (s *AuthServer) GetCurrentUser(
 	ctx context.Context,
-	req *connectrpc.Request[v1.GetCurrentUserRequest],
-) (*connectrpc.Response[v1.GetCurrentUserResponse], error) {
+	req *v1.GetCurrentUserRequest,
+) (*v1.GetCurrentUserResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
@@ -63,9 +63,9 @@ func (s *AuthServer) GetCurrentUser(
 			// as unauthenticated rather than 500 — the cookie will be
 			// invalidated by the next /auth/logout or expire naturally.
 			return nil, connectrpc.NewError(connectrpc.CodeUnauthenticated,
-				errors.New("user not found"))
+				"user not found")
 		}
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("get user: %w", err))
 	}
 
@@ -77,10 +77,10 @@ func (s *AuthServer) GetCurrentUser(
 		perms = append(perms, "moderate")
 	}
 
-	return connectrpc.NewResponse(&v1.GetCurrentUserResponse{
+	return &v1.GetCurrentUserResponse{
 		User:        userToProto(u),
 		Permissions: perms,
-	}), nil
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +96,8 @@ func (s *AuthServer) GetCurrentUser(
 
 func (s *AuthServer) GetLoginMethods(
 	ctx context.Context,
-	req *connectrpc.Request[v1.GetLoginMethodsRequest],
-) (*connectrpc.Response[v1.GetLoginMethodsResponse], error) {
+	req *v1.GetLoginMethodsRequest,
+) (*v1.GetLoginMethodsResponse, error) {
 	out := &v1.GetLoginMethodsResponse{
 		// Password / passkey availability is global today. Once
 		// per-user gating ships, branch on the request's hint.
@@ -112,7 +112,7 @@ func (s *AuthServer) GetLoginMethods(
 			DisplayName: p.Name,
 		})
 	}
-	return connectrpc.NewResponse(out), nil
+	return out, nil
 }
 
 // userToProto converts the domain User into the proto wire type.
@@ -237,24 +237,24 @@ func timeFormatFromProto(t v1.TimeFormat) string {
 // returns the updated user. Session-gated (userIDFromHandlerCtx).
 func (s *AuthServer) UpdateUserPreferences(
 	ctx context.Context,
-	req *connectrpc.Request[v1.UpdateUserPreferencesRequest],
-) (*connectrpc.Response[v1.UpdateUserPreferencesResponse], error) {
+	req *v1.UpdateUserPreferencesRequest,
+) (*v1.UpdateUserPreferencesResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	m := req.Msg
+	m := req
 	if err := s.Users.UpdateUserPreferences(ctx, userID,
 		unitsFromProto(m.GetUnits()),
 		dateFormatFromProto(m.GetDateFormat()),
 		timeFormatFromProto(m.GetTimeFormat()),
 	); err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("update preferences: %w", err))
 	}
 	u, err := s.Users.GetUser(ctx, userID)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal, fmt.Errorf("reload user: %w", err))
+		return nil, connectError(connectrpc.CodeInternal, fmt.Errorf("reload user: %w", err))
 	}
-	return connectrpc.NewResponse(&v1.UpdateUserPreferencesResponse{User: userToProto(u)}), nil
+	return &v1.UpdateUserPreferencesResponse{User: userToProto(u)}, nil
 }

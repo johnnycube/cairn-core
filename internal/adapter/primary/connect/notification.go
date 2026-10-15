@@ -2,10 +2,9 @@ package connect
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	connectrpc "connectrpc.com/connect"
+	connectrpc "connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 
 	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
@@ -38,20 +37,20 @@ func NewNotificationServer(notifications port.NotificationRepo) *NotificationSer
 // encoded as a string. Empty cursor = page 0.
 func (s *NotificationServer) ListNotifications(
 	ctx context.Context,
-	req *connectrpc.Request[v1.ListNotificationsRequest],
-) (*connectrpc.Response[v1.ListNotificationsResponse], error) {
+	req *v1.ListNotificationsRequest,
+) (*v1.ListNotificationsResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	limit, offset := pageFrom(req.Msg.GetPage())
+	limit, offset := pageFrom(req.GetPage())
 
 	notifs, err := s.Notifications.ListNotificationsForUser(
-		ctx, userID, req.Msg.GetOnlyUnread(), limit, offset,
+		ctx, userID, req.GetOnlyUnread(), limit, offset,
 	)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list notifications: %w", err))
 	}
 
@@ -71,7 +70,7 @@ func (s *NotificationServer) ListNotifications(
 	} else {
 		out.Page = &v1.PageResponse{NextCursor: "", Total: int64(offset + len(notifs))}
 	}
-	return connectrpc.NewResponse(out), nil
+	return out, nil
 }
 
 // MarkNotificationRead flips one notification to read = true and returns
@@ -80,22 +79,22 @@ func (s *NotificationServer) ListNotifications(
 // "exists but isn't yours").
 func (s *NotificationServer) MarkNotificationRead(
 	ctx context.Context,
-	req *connectrpc.Request[v1.MarkNotificationReadRequest],
-) (*connectrpc.Response[v1.MarkNotificationReadResponse], error) {
+	req *v1.MarkNotificationReadRequest,
+) (*v1.MarkNotificationReadResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	id, err := uuid.Parse(req.Msg.GetId())
+	id, err := uuid.Parse(req.GetId())
 	if err != nil {
 		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument,
-			errors.New("invalid notification id"))
+			"invalid notification id")
 	}
 	nid := domain.NotificationID(id)
 
 	if err := s.Notifications.MarkRead(ctx, userID, []domain.NotificationID{nid}); err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("mark notification read: %w", err))
 	}
 
@@ -104,9 +103,9 @@ func (s *NotificationServer) MarkNotificationRead(
 		return nil, notFoundErr(err)
 	}
 
-	return connectrpc.NewResponse(&v1.MarkNotificationReadResponse{
+	return &v1.MarkNotificationReadResponse{
 		Notification: notificationToProto(updated),
-	}), nil
+	}, nil
 }
 
 // MarkAllNotificationsRead flips every unread row of the caller to
@@ -114,18 +113,18 @@ func (s *NotificationServer) MarkNotificationRead(
 // repo gains a per-type variant we'll pass it through.
 func (s *NotificationServer) MarkAllNotificationsRead(
 	ctx context.Context,
-	req *connectrpc.Request[v1.MarkAllNotificationsReadRequest],
-) (*connectrpc.Response[v1.MarkAllNotificationsReadResponse], error) {
+	req *v1.MarkAllNotificationsReadRequest,
+) (*v1.MarkAllNotificationsReadResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	n, err := s.Notifications.MarkAllReadForUser(ctx, userID)
 	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInternal,
+		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("mark all notifications read: %w", err))
 	}
-	return connectrpc.NewResponse(&v1.MarkAllNotificationsReadResponse{
+	return &v1.MarkAllNotificationsReadResponse{
 		MarkedCount: connectClampInt32(n),
-	}), nil
+	}, nil
 }
