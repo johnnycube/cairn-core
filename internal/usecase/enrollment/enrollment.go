@@ -74,10 +74,10 @@ func NewCreateWorkerEnrollment(
 }
 
 type CreateEnrollmentInput struct {
+	// Provider scopes the worker's NATS permissions ([a-z0-9_-]+). Required.
 	Provider string
 	// Name is the admin-defined NATS-safe worker name ([a-z0-9-]). With
-	// Provider it forms the worker key {name}-{provider}. Optional for
-	// back-compat: empty falls the worker key back to the provider.
+	// Provider it forms the worker key {name}-{provider}.
 	Name string
 	// Version is the worker's integer schema version (part of the admission
 	// identity). Defaults to 1 when <= 0. Bumping it = a new worker = a new
@@ -188,8 +188,10 @@ func (uc *CreateWorkerEnrollment) generateTokenAndHash() (string, []byte, error)
 var ErrInvalidInput = errors.New("enrollment: invalid input")
 
 func validateCreateInput(in CreateEnrollmentInput) error {
-	// Provider + version are worker-reported (heartbeat), not admin-set, so the
-	// enrollment only needs a NATS-safe name.
+	// The provider scopes the issued NATS permissions; without it they would be empty.
+	if !domain.ValidProviderID(in.Provider) {
+		return fmt.Errorf("%w: provider required — lowercase letters, digits, hyphens, underscores", ErrInvalidInput)
+	}
 	if !domain.ValidWorkerName(in.Name) {
 		return fmt.Errorf("%w: name required — lowercase letters, digits, hyphens (no leading/trailing hyphen)", ErrInvalidInput)
 	}
@@ -309,6 +311,8 @@ type AuthRejection struct {
 	Reason string
 	Detail string
 	Cause  error
+	// EnrollmentID is set once the token resolved to an enrollment.
+	EnrollmentID *domain.WorkerEnrollmentID
 }
 
 func (e *AuthRejection) Error() string {
@@ -324,8 +328,8 @@ func (e *AuthRejection) Unwrap() error { return e.Cause }
 //
 // Steps:
 //  1. Hash the token; lookup enrollment by hash.
-//  2. Validate enrollment (revoked/expired/exhausted) — constant-time
-//     hash compare prevents timing oracle on token validity.
+//  2. Validate enrollment (revoked/expired/exhausted, then provider set) —
+//     constant-time hash compare prevents timing oracle on token validity.
 //  3. Validate worker-name against enrollment pattern.
 //  4. Validate user-nkey format.
 //  5. Mint JWT (issuer call; signs in-process).
@@ -440,7 +444,7 @@ func (uc *ProcessAuthCallout) authCalloutPersistGrant(
 	return grantID, nil
 }
 
-// authCalloutEnrollment runs steps 1–2: token lookup and lifecycle validation.
+// authCalloutEnrollment runs steps 1–2: token lookup, lifecycle and provider validation.
 func (uc *ProcessAuthCallout) authCalloutEnrollment(ctx context.Context, token string, now time.Time) (domain.WorkerEnrollment, error) {
 	// (1) hash the token; the auth-callout receives plaintext.
 	if token == "" {
@@ -484,6 +488,17 @@ func (uc *ProcessAuthCallout) authCalloutEnrollment(ctx context.Context, token s
 			Reason: reason,
 			Detail: "enrollment failed lifecycle check",
 			Cause:  err,
+		}
+	}
+
+	// Pre-v0.3.1 rows may lack a provider; their permissions would be empty.
+	if enroll.NeedsReenroll() {
+		id := enroll.ID
+		return domain.WorkerEnrollment{}, &AuthRejection{
+			Reason:       "enrollment_missing_provider",
+			Detail:       fmt.Sprintf("enrollment %s has no provider; re-enroll the worker", id),
+			Cause:        domain.ErrEnrollmentMissingProvider,
+			EnrollmentID: &id,
 		}
 	}
 

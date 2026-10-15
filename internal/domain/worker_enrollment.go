@@ -26,7 +26,9 @@ type WorkerEnrollment struct {
 	// Name is the admin-defined worker identity (NATS-safe, [a-z0-9-]). It is
 	// NOT self-set by the worker — the worker must present CAIRN_WORKER_NAME ==
 	// Name at connect. Combined with Provider it forms the WorkerKey().
-	Name     string
+	Name string
+	// Provider scopes the worker's NATS permissions; required since v0.3.1.
+	// Older rows may hold "" and are refused at connect (NeedsReenroll).
 	Provider string
 	// Version is the worker's schema version — a simple incrementing integer,
 	// part of the admission identity (provider, name, version). Bumping it makes
@@ -84,6 +86,26 @@ func (e WorkerEnrollment) IsValidAt(now time.Time) error {
 		return ErrEnrollmentExhausted
 	}
 	return nil
+}
+
+// NeedsReenroll reports whether the enrollment predates the provider requirement;
+// the auth-callout refuses it, so the worker needs a new enrollment.
+func (e WorkerEnrollment) NeedsReenroll() bool {
+	return e.Provider == ""
+}
+
+// ValidProviderID reports whether s is a non-empty NATS-subject-safe provider
+// id ([a-z0-9_-]+, as the worker_enrollments CHECK constraint).
+func ValidProviderID(s string) bool {
+	if s == "" || len(s) > 48 {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // WorkerKey is the composite identity/routing token {name}-{provider} used in
@@ -147,6 +169,7 @@ var (
 	ErrEnrollmentNotFound         = errors.New("worker enrollment not found")
 	ErrEnrollmentNameMismatch     = errors.New("worker name does not match enrollment pattern")
 	ErrEnrollmentProviderMismatch = errors.New("worker provider does not match enrollment provider")
+	ErrEnrollmentMissingProvider  = errors.New("worker enrollment has no provider")
 )
 
 // ---------------------------------------------------------------------------
@@ -233,7 +256,8 @@ type WorkerPermissionTemplate struct {
 // for exactly those (see workerJetStreamPublish).
 //
 // The function is pure (no I/O, no shared state) so the auth-callout can call
-// it on the hot path without coordination.
+// it on the hot path without coordination. An empty provider yields empty
+// allow lists, which the credential issuer refuses to sign.
 func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemplate {
 	if provider == "" {
 		return WorkerPermissionTemplate{Name: "standard"}

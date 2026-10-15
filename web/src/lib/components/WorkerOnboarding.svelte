@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { formatDate } from '#lib/format.js';
+	import { enrollmentRequest, enrollmentStatus } from '#lib/enrollments.js';
 
 	type Enrollment = {
 		id: string;
@@ -11,6 +12,7 @@
 		worker_name_pattern?: string;
 		status?: string;
 		is_revoked?: boolean;
+		reenroll_required?: boolean;
 		expires_at?: string;
 		created_at?: string;
 		note?: string;
@@ -57,9 +59,10 @@
 	}
 
 	let enrollments = $state<Enrollment[]>([]);
-	// Provider + version are worker-reported (heartbeat) — the admin sets only
-	// a name, expiry, and note.
+	// Providers an enrollment may name; the server's list is canonical.
+	let providers = $state<string[]>([]);
 	let name = $state('');
+	let provider = $state('');
 	let expiresDays = $state(365);
 	let note = $state('');
 	let creating = $state(false);
@@ -72,7 +75,11 @@
 				fetch('/api/admin/worker-enrollments'),
 				fetch('/api/admin/workers')
 			]);
-			if (eRes.ok) enrollments = (await eRes.json()).enrollments ?? [];
+			if (eRes.ok) {
+				const body = await eRes.json();
+				enrollments = body.enrollments ?? [];
+				providers = body.providers ?? [];
+			}
 			if (wRes.ok) workers = (await wRes.json()).workers ?? [];
 		} catch {
 			/* ignore */
@@ -80,6 +87,8 @@
 	}
 
 	async function create() {
+		const req = enrollmentRequest(name, provider, expiresDays, note);
+		if (!req) return;
 		creating = true;
 		error = null;
 		newToken = null;
@@ -87,11 +96,7 @@
 			const res = await fetch('/api/admin/worker-enrollments', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: name.trim(),
-					expires_in_hours: Math.max(1, Math.round(expiresDays * 24)),
-					note: note.trim()
-				})
+				body: JSON.stringify(req)
 			});
 			if (!res.ok) throw new Error((await res.text()).trim());
 			const body = await res.json();
@@ -139,16 +144,12 @@
 		return iso ? formatDate(iso) : '—';
 	}
 
-	// An enrollment is expired once "now" is past its expires_at (independent of
-	// revocation). Recomputed reactively so the badge stays correct over time.
+	// Recomputed reactively so the expiry badge stays correct over time.
 	let nowMs = $state(Date.now());
 	onMount(() => {
 		const t = setInterval(() => (nowMs = Date.now()), 30_000);
 		return () => clearInterval(t);
 	});
-	function isExpired(e: Enrollment): boolean {
-		return !!e.expires_at && new Date(e.expires_at).getTime() <= nowMs;
-	}
 
 	onMount(load);
 </script>
@@ -283,6 +284,19 @@
 					/>
 				</div>
 				<div>
+					<label for="wo-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
+					<select
+						id="wo-provider"
+						bind:value={provider}
+						class="w-32 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm focus:border-accent-400 focus:outline-none"
+					>
+						<option value="" disabled>Select…</option>
+						{#each providers as p (p)}
+							<option value={p}>{p}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
 					<label for="wo-expires" class="mb-1 block text-xs text-zinc-500">Expires in (days)</label>
 					<input
 						id="wo-expires"
@@ -304,7 +318,7 @@
 				</div>
 				<button
 					type="button"
-					disabled={creating || !name.trim()}
+					disabled={creating || !enrollmentRequest(name, provider, expiresDays, note)}
 					onclick={create}
 					class="rounded bg-accent-500 px-3 py-1.5 text-sm font-medium text-zinc-950 hover:bg-accent-400 disabled:opacity-50"
 				>
@@ -337,9 +351,20 @@
 						<li class="flex items-center justify-between gap-4 px-3 py-2 text-xs max-md:flex-wrap">
 							<div>
 								<span class="font-medium text-zinc-200">{e.name || '—'}</span>
-								{#if e.is_revoked}
+								{#if e.provider}
+									<span class="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 text-accent-300"
+										>{e.provider}</span
+									>
+								{/if}
+								{#if enrollmentStatus(e, nowMs) === 'revoked'}
 									<span class="ml-2 rounded bg-red-500/15 px-1.5 py-0.5 text-red-300">revoked</span>
-								{:else if isExpired(e)}
+								{:else if enrollmentStatus(e, nowMs) === 'reenroll'}
+									<span
+										class="ml-2 rounded bg-red-500/15 px-1.5 py-0.5 text-red-300"
+										title="This enrollment has no provider and is refused at connect. Create a new enrollment with a provider and revoke this one."
+										>re-enroll required</span
+									>
+								{:else if enrollmentStatus(e, nowMs) === 'expired'}
 									<span class="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300"
 										>expired</span
 									>
@@ -352,7 +377,7 @@
 								<div class="mt-0.5 text-zinc-600">expires {fmt(e.expires_at)} · {e.id}</div>
 							</div>
 							<div class="flex shrink-0 gap-2">
-								{#if !e.is_revoked}
+								{#if !e.is_revoked && !e.reenroll_required}
 									<button
 										type="button"
 										onclick={() => prolong(e.id)}

@@ -69,6 +69,13 @@ func (i *CredentialIssuer) IssueWorkerCredential(
 	if err := validateUserNKey(in.UserNKeyPublic); err != nil {
 		return port.IssueCredentialOutput{}, err
 	}
+	// NATS reads an empty allow list as "allow everything".
+	if len(in.Permissions.AllowPublish) == 0 || len(in.Permissions.AllowSubscribe) == 0 {
+		return port.IssueCredentialOutput{}, &port.IssueValidationError{
+			Field:   "Permissions",
+			Message: "publish and subscribe allow lists must not be empty",
+		}
+	}
 	if in.TTL <= 0 {
 		in.TTL = 24 * time.Hour
 	}

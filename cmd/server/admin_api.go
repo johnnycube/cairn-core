@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +22,7 @@ import (
 // is logged in via the session cookie, so these check the session user's role.
 //
 //	GET  /api/admin/worker-enrollments
-//	POST /api/admin/worker-enrollments          { provider, expires_in_hours, worker_name_pattern? }
+//	POST /api/admin/worker-enrollments          { name, provider, expires_in_hours?, note? }
 //	POST /api/admin/worker-enrollments/{id}/revoke   { reason? }
 
 // resolveAdminUser resolves the session user and confirms they're an admin.
@@ -184,7 +187,12 @@ func (h *adminAPIHandlers) listEnrollments(w http.ResponseWriter, r *http.Reques
 	for _, e := range list {
 		out = append(out, enrollmentResponseJSON(e))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"enrollments": out})
+	writeJSON(w, http.StatusOK, map[string]any{"enrollments": out, "providers": enrollmentProviders()})
+}
+
+// enrollmentProviders lists the providers an enrollment may name, from providerRegistry.
+func enrollmentProviders() []string {
+	return slices.Sorted(maps.Keys(providerRegistry))
 }
 
 func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Request) {
@@ -193,10 +201,10 @@ func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "admin only", http.StatusForbidden)
 		return
 	}
-	// Provider + version are WORKER-reported (heartbeat metadata), NOT
-	// admin-set. The admin supplies only a name, expiry, and note.
+	// The provider scopes the worker's NATS permissions, so it is admin-set.
 	var body struct {
 		Name           string `json:"name"`
+		Provider       string `json:"provider"`
 		ExpiresInHours int    `json:"expires_in_hours"`
 		Note           string `json:"note"`
 	}
@@ -208,11 +216,16 @@ func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
+	if _, known := providerRegistry[body.Provider]; !known {
+		http.Error(w, "provider is required (one of: "+strings.Join(enrollmentProviders(), ", ")+")", http.StatusBadRequest)
+		return
+	}
 	if body.ExpiresInHours <= 0 {
 		body.ExpiresInHours = 365 * 24 // default 365 days (the use-case cap)
 	}
 	result, err := h.app.CreateWorkerEnrollment.Execute(r.Context(), enrollment.CreateEnrollmentInput{
 		Name:      body.Name,
+		Provider:  body.Provider,
 		ExpiresIn: time.Duration(body.ExpiresInHours) * time.Hour,
 		Note:      body.Note,
 	})
@@ -220,7 +233,7 @@ func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "create enrollment failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	h.logger.Info("worker enrollment created via admin UI", "admin", admin.ID, "name", body.Name)
+	h.logger.Info("worker enrollment created via admin UI", "admin", admin.ID, "name", body.Name, "provider", body.Provider)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"enrollment": enrollmentResponseJSON(result.Enrollment),
 		"token":      result.Token, // shown once
