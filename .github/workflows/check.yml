@@ -24,6 +24,9 @@ jobs:
     timeout-minutes: 30
     container:
       image: ghcr.io/johnnycube/cairn-build-base:1
+    env:
+      # The image pins GOTOOLCHAIN=local; follow go.mod's toolchain line instead.
+      GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,6 +56,9 @@ jobs:
           curl -sSfL "${base}/gitleaks_${v}_checksums.txt" | grep " gitleaks_${v}_linux_x64.tar.gz$" | sha256sum -c -
           tar -xzf "gitleaks_${v}_linux_x64.tar.gz" -C /usr/local/bin gitleaks
           rm "gitleaks_${v}_linux_x64.tar.gz"
+      # The image carries no C toolchain; the race detector needs cgo.
+      - name: gcc for go test -race
+        run: apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev
       - name: Go tools (pinned in the Makefile)
         run: make tools
       - run: make check
@@ -64,6 +70,9 @@ jobs:
     timeout-minutes: 30
     container:
       image: ghcr.io/johnnycube/cairn-build-base:1
+    env:
+      # The image pins GOTOOLCHAIN=local; follow go.mod's toolchain line instead.
+      GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

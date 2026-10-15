@@ -93,6 +93,8 @@ test: web-test ## unit tests: Go with the race detector (shuffled) + web
 	$(GO) test -race -shuffle=on -count=1 $(PKGS)
 
 cover: web-cover ## coverage gates: Go total (gen/ excluded) >= COVER_MIN, web thresholds in vite.config.ts
+	# Build covdata once up front: parallel first builds race ("text file busy") on a cold cache.
+	$(GO) tool covdata help >/dev/null 2>&1 || true
 	$(GO) test -count=1 -coverprofile=cover.raw.out $(PKGS)
 	grep -v '/gen/' cover.raw.out > cover.out
 	total=$$($(GO) tool cover -func=cover.out | awk '/^total:/ {sub("%", "", $$3); print $$3}')
