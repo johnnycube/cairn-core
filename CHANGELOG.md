@@ -27,6 +27,16 @@ All notable changes to Cairn are documented here. The format follows
   Webhook URL validation uses the same guard.
 
 ### Fixed
+- Publishing to a subject outside any JetStream stream that has a core NATS
+  subscriber no longer waits five seconds for an ack and delivers the message
+  twice on retry. The bus looks up whether a stream covers the subject,
+  caches the answer and picks JetStream or core publish up front.
+- Enrolled workers are granted the JetStream API subjects they use: stream
+  lookup by subject, their own pull consumers on `CAIRN_JOBS` and
+  `CAIRN_WEBHOOKS` (create filtered to their subjects, fetch, ack) and the
+  presence, manifest and rate-limit KV buckets. Before, a worker admitted by
+  the auth-callout could not pull jobs at all. Installations running NATS
+  without auth are unaffected.
 - `GetActivityStream` honours the requested channels. Requests for only
   `TIME` or the advanced cycling/running channels used to return every
   channel; a `TIME`-only request now returns just the timestamps.
