@@ -43,9 +43,9 @@ concurrency:
   group: build-base-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; the job below asks for what the publish steps need.
 permissions:
   contents: read
-  packages: write
 
 env:
   REGISTRY: ghcr.io
