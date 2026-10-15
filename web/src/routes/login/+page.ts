@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { connectClients } from '$lib/connect';
+import { connectClients } from '#lib/connect.js';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url, parent }) => {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatDateOnly } from '$lib/format';
+	import { formatDateOnly } from '#lib/format.js';
 
 	type Spec = { key: string; label: string; unit: string; min: number; max: number };
 	type Entry = { id: string; key: string; effective_date: string; value: number };

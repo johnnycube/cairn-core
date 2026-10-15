@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import { formatDistance, formatDuration, formatRelativeDate } from '$lib/format';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import { formatDistance, formatDuration, formatRelativeDate } from '#lib/format.js';
 
 	let { data } = $props();
 

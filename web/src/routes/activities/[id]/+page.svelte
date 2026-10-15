@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		formatDate,
 		formatDistance,
@@ -10,14 +10,14 @@
 		formatPower,
 		formatSpeed,
 		formatTemp
-	} from '$lib/format';
-	import ActivityMap from '$lib/components/ActivityMap.svelte';
-	import StreamChart from '$lib/components/StreamChart.svelte';
-	import ElevationProfile from '$lib/components/ElevationProfile.svelte';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import KudosComments from '$lib/components/KudosComments.svelte';
+	} from '#lib/format.js';
+	import ActivityMap from '#lib/components/ActivityMap.svelte';
+	import StreamChart from '#lib/components/StreamChart.svelte';
+	import ElevationProfile from '#lib/components/ElevationProfile.svelte';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import KudosComments from '#lib/components/KudosComments.svelte';
 	import { onMount } from 'svelte';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, refreshAll } from '$app/navigation';
 	import { buildSeries } from './streamSeries';
 	import type { PageData } from './$types';
 	import type { SourceView } from './+layout';
@@ -195,7 +195,7 @@
 				await goto('/activities');
 				return;
 			}
-			await invalidateAll();
+			await refreshAll();
 		} catch (e) {
 			sourceError = (e as Error).message;
 		} finally {
@@ -478,7 +478,7 @@
 				<span>Couldn't load this activity's streams.</span>
 				<button
 					type="button"
-					onclick={() => invalidateAll()}
+					onclick={() => refreshAll()}
 					class="rounded border border-amber-700/50 px-3 py-1 text-xs hover:bg-amber-900/30"
 				>
 					Retry

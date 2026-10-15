@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import { formatSpeed, formatPower, formatHeartRate, formatDateOnly } from '$lib/format';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import { formatSpeed, formatPower, formatHeartRate, formatDateOnly } from '#lib/format.js';
 
 	// Cross-provider personal records (brief §11): the all-time best per
 	// (activity type, metric, window) across every activity + provider.

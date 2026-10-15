@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatRelativeDate } from '$lib/format';
+	import { formatRelativeDate } from '#lib/format.js';
 
 	type Report = {
 		id: string;

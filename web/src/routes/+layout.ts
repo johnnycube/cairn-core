@@ -1,11 +1,11 @@
-import { connectClients, isUnauthenticated } from '$lib/connect';
+import { connectClients, isUnauthenticated } from '#lib/connect.js';
 import {
 	type User,
 	UserRole,
 	UnitSystem,
 	DateFormat,
 	TimeFormat
-} from '$proto/cairn/v1/auth_pb.js';
+} from '#lib/proto/cairn/v1/auth_pb.js';
 import type { LayoutLoad } from './$types';
 
 // The whole app is a client-rendered SPA: prod ships as a static bundle

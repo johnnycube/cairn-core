@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StreamChart from '$lib/components/StreamChart.svelte';
+	import StreamChart from '#lib/components/StreamChart.svelte';
 	import { buildSeries } from '../streamSeries';
 	import type { PageData } from './$types';
 

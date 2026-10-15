@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatDistance, formatDuration, formatDateOnly } from '$lib/format';
+	import { formatDistance, formatDuration, formatDateOnly } from '#lib/format.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

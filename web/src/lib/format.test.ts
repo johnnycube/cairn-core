@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const locale = vi.hoisted(() => ({ current: 'de' }));
-vi.mock('$lib/paraglide/runtime', () => ({ getLocale: () => locale.current }));
+vi.mock('#lib/paraglide/runtime.js', () => ({ getLocale: () => locale.current }));
 
 import {
 	formatDate,

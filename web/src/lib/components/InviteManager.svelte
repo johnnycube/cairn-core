@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { formatDate } from '$lib/format';
+	import { formatDate } from '#lib/format.js';
 
 	type Invite = {
 		id: string;

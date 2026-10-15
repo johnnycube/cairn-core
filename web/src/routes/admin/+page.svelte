@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { formatDate } from '$lib/format';
-	import WorkerOnboarding from '$lib/components/WorkerOnboarding.svelte';
-	import InviteManager from '$lib/components/InviteManager.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { formatDate } from '#lib/format.js';
+	import WorkerOnboarding from '#lib/components/WorkerOnboarding.svelte';
+	import InviteManager from '#lib/components/InviteManager.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

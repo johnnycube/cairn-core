@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
-import { connectClients, isUnauthenticated, Code, ConnectError } from '$lib/connect';
-import type { OIDCClient } from '$proto/cairn/v1/admin_pb.js';
+import { connectClients, isUnauthenticated, Code, ConnectError } from '#lib/connect.js';
+import type { OIDCClient } from '#lib/proto/cairn/v1/admin_pb.js';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url, parent }) => {

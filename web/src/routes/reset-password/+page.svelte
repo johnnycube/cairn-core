@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { invalidateAll, goto } from '$app/navigation';
+	import { refreshAll, goto } from '$app/navigation';
 
 	const code = $derived(page.url.searchParams.get('code') ?? '');
 
@@ -33,7 +33,7 @@
 			}
 			const body = await res.json().catch(() => ({}));
 			if (body.logged_in) {
-				await invalidateAll();
+				await refreshAll();
 				await goto('/');
 			} else {
 				await goto('/login?reset=1');

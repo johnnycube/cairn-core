@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
-import { connectClients, isUnauthenticated, Code, ConnectError } from '$lib/connect';
-import { protoTimestampToISO } from '$lib/proto-helpers';
-import type { AdminUserSummary } from '$lib/proto/cairn/v1/admin_pb';
+import { connectClients, isUnauthenticated, Code, ConnectError } from '#lib/connect.js';
+import { protoTimestampToISO } from '#lib/proto-helpers.js';
+import type { AdminUserSummary } from '#lib/proto/cairn/v1/admin_pb.js';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url, parent }) => {

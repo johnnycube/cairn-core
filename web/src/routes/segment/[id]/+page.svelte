@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import ActivityMap from '$lib/components/ActivityMap.svelte';
-	import SportIcon from '$lib/components/SportIcon.svelte';
-	import { decodePolylineLonLat } from '$lib/polyline';
-	import { formatDistance, formatDuration, formatDate, formatElevation } from '$lib/format';
+	import ActivityMap from '#lib/components/ActivityMap.svelte';
+	import SportIcon from '#lib/components/SportIcon.svelte';
+	import { decodePolylineLonLat } from '#lib/polyline.js';
+	import { formatDistance, formatDuration, formatDate, formatElevation } from '#lib/format.js';
 
 	type Segment = {
 		id: string;

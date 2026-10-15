@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ActivityMap from '$lib/components/ActivityMap.svelte';
+	import ActivityMap from '#lib/components/ActivityMap.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

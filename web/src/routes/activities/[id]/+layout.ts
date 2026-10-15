@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { connectClients, isUnauthenticated, Code, ConnectError } from '$lib/connect';
+import { connectClients, isUnauthenticated, Code, ConnectError } from '#lib/connect.js';
 import {
 	type Activity,
 	type ActivityStream,
@@ -11,8 +11,8 @@ import {
 	Discipline,
 	ReimportStatus,
 	StreamChannel
-} from '$proto/cairn/v1/activity_pb.js';
-import { enumName, protoDurationToSeconds, protoTimestampToISO } from '$lib/proto-helpers';
+} from '#lib/proto/cairn/v1/activity_pb.js';
+import { enumName, protoDurationToSeconds, protoTimestampToISO } from '#lib/proto-helpers.js';
 import type { LayoutLoad } from './$types';
 
 export const load: LayoutLoad = async ({ fetch, url, params, parent }) => {

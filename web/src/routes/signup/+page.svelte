@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { invalidateAll, goto } from '$app/navigation';
+	import { refreshAll, goto } from '$app/navigation';
 
 	let code = $state(page.url.searchParams.get('code') ?? '');
 	let username = $state('');
@@ -30,7 +30,7 @@
 				})
 			});
 			if (!res.ok) throw new Error((await res.text()).trim() || 'Sign-up failed.');
-			await invalidateAll();
+			await refreshAll();
 			await goto('/');
 		} catch (err) {
 			error = (err as Error).message;
