@@ -274,9 +274,7 @@ type AuthCalloutInput struct {
 	// enrollment row.
 	EnrollmentToken string
 
-	// UserNKeyPublic is the Ed25519 public key the worker generated
-	// in-process. NATS will verify the worker's signed nonce against
-	// this key after the auth-callout admits the connection.
+	// UserNKeyPublic is the per-connection user nkey nats-server assigns in the auth request.
 	UserNKeyPublic string
 
 	// WorkerName from the CONNECT client_name option. Must match the

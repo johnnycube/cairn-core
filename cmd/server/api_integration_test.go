@@ -595,12 +595,16 @@ func TestAPI_EndToEnd(t *testing.T) {
 	}
 	alice.do(http.MethodPost, "/api/notifications/webhooks", map[string]any{"name": "ssrf", "url": "http://127.0.0.1/x"}, http.StatusBadRequest)
 
-	// Worker enrollments: provider is required and must be a known one.
-	for _, p := range []string{"", "nope"} {
+	// Worker enrollments: provider is required and format-checked, not limited to built-ins.
+	for _, p := range []string{"", "polar.>", "*", "po.lar", "Polar", strings.Repeat("p", 49)} {
 		msg := adm.do(http.MethodPost, "/api/admin/worker-enrollments", map[string]any{"name": "itest-worker", "provider": p}, http.StatusBadRequest)
-		if want := "provider is required (one of: garmin, strava)"; strings.TrimSpace(string(msg)) != want {
+		if want := "provider required — lowercase letters, digits, hyphens, underscores"; strings.TrimSpace(string(msg)) != want {
 			t.Errorf("provider %q: body %q, want %q", p, msg, want)
 		}
+	}
+	polar := adm.post("/api/admin/worker-enrollments", map[string]any{"name": "polar-worker", "provider": "polar"}, http.StatusCreated)
+	if e, ok := polar["enrollment"].(map[string]any); !ok || str(e, "provider") != "polar" || str(polar, "token") == "" {
+		t.Errorf("polar enrollment = %v", polar)
 	}
 	legacy := domain.WorkerEnrollment{
 		ID: domain.WorkerEnrollmentID(uuid.New()), TokenHash: make([]byte, 32), Name: "legacy-worker",

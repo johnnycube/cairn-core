@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -190,7 +191,7 @@ func (h *adminAPIHandlers) listEnrollments(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"enrollments": out, "providers": enrollmentProviders()})
 }
 
-// enrollmentProviders lists the providers an enrollment may name, from providerRegistry.
+// enrollmentProviders lists the built-in providers as suggestions; any well-formed provider id is accepted.
 func enrollmentProviders() []string {
 	return slices.Sorted(maps.Keys(providerRegistry))
 }
@@ -201,7 +202,7 @@ func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "admin only", http.StatusForbidden)
 		return
 	}
-	// The provider scopes the worker's NATS permissions, so it is admin-set.
+	// The provider scopes the worker's NATS permissions, so it is admin-set; the use case format-checks it.
 	var body struct {
 		Name           string `json:"name"`
 		Provider       string `json:"provider"`
@@ -216,10 +217,6 @@ func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
-	if _, known := providerRegistry[body.Provider]; !known {
-		http.Error(w, "provider is required (one of: "+strings.Join(enrollmentProviders(), ", ")+")", http.StatusBadRequest)
-		return
-	}
 	if body.ExpiresInHours <= 0 {
 		body.ExpiresInHours = 365 * 24 // default 365 days (the use-case cap)
 	}
@@ -229,8 +226,13 @@ func (h *adminAPIHandlers) createEnrollment(w http.ResponseWriter, r *http.Reque
 		ExpiresIn: time.Duration(body.ExpiresInHours) * time.Hour,
 		Note:      body.Note,
 	})
+	if errors.Is(err, enrollment.ErrInvalidInput) {
+		http.Error(w, strings.TrimPrefix(err.Error(), enrollment.ErrInvalidInput.Error()+": "), http.StatusBadRequest)
+		return
+	}
 	if err != nil {
-		http.Error(w, "create enrollment failed: "+err.Error(), http.StatusBadRequest)
+		h.logger.Error("create enrollment failed", "error", err)
+		http.Error(w, "create enrollment failed", http.StatusInternalServerError)
 		return
 	}
 	h.logger.Info("worker enrollment created via admin UI", "admin", admin.ID, "name", body.Name, "provider", body.Provider)

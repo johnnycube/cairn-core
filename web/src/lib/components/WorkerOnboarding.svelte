@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { formatDate } from '#lib/format.js';
-	import { enrollmentRequest, enrollmentStatus } from '#lib/enrollments.js';
+	import { enrollmentRequest, enrollmentStatus, providerError } from '#lib/enrollments.js';
 
 	type Enrollment = {
 		id: string;
@@ -59,10 +59,11 @@
 	}
 
 	let enrollments = $state<Enrollment[]>([]);
-	// Providers an enrollment may name; the server's list is canonical.
+	// Built-in providers as suggestions; any well-formed provider id is accepted.
 	let providers = $state<string[]>([]);
 	let name = $state('');
 	let provider = $state('');
+	const providerHint = $derived(providerError(provider));
 	let expiresDays = $state(365);
 	let note = $state('');
 	let creating = $state(false);
@@ -285,16 +286,24 @@
 				</div>
 				<div>
 					<label for="wo-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
-					<select
+					<input
 						id="wo-provider"
 						bind:value={provider}
-						class="w-32 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm focus:border-accent-400 focus:outline-none"
-					>
-						<option value="" disabled>Select…</option>
+						list="wo-provider-suggestions"
+						placeholder="e.g. strava"
+						autocomplete="off"
+						spellcheck="false"
+						aria-invalid={providerHint !== null}
+						aria-describedby="wo-provider-error"
+						class="w-32 rounded border bg-zinc-900 px-2 py-1.5 text-sm focus:outline-none {providerHint
+							? 'border-red-600 focus:border-red-500'
+							: 'border-zinc-700 focus:border-accent-400'}"
+					/>
+					<datalist id="wo-provider-suggestions">
 						{#each providers as p (p)}
-							<option value={p}>{p}</option>
+							<option value={p}></option>
 						{/each}
-					</select>
+					</datalist>
 				</div>
 				<div>
 					<label for="wo-expires" class="mb-1 block text-xs text-zinc-500">Expires in (days)</label>
@@ -325,6 +334,10 @@
 					{creating ? 'Creating…' : 'Create enrollment'}
 				</button>
 			</div>
+
+			{#if providerHint}
+				<p id="wo-provider-error" class="text-xs text-red-300">{providerHint}</p>
+			{/if}
 
 			{#if error}
 				<div class="rounded border border-red-700/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
