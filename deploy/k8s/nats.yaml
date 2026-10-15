@@ -1,8 +1,8 @@
 # NATS 2.14 + JetStream — worker control plane + async job/result bus.
 # In-cluster only (ClusterIP); not exposed. Workers and the server connect
 # anonymously over the private network (matches the dev "no enrollment token"
-# path). For internet-exposed NATS, switch to enrollment-token auth-callout —
-# see deploy/k8s/README.md "Hardening".
+# path). For internet-exposed NATS, switch to enrollment-token auth-callout
+# (docker/nats-auth-callout.conf) — see deploy/k8s/README.md "Hardening".
 apiVersion: v1
 kind: ConfigMap
 metadata:

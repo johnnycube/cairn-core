@@ -6,23 +6,34 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Worker enrollment under NATS auth never worked: nats-server rejected every
+  auth-callout reply (wrong audience, and a user JWT with `issuer_account`
+  and no target account). Replies are now accepted and admitted workers get
+  the standard permission template. The auth-callout is opt-in with the new
+  settings `CAIRN_NATS_AUTH_CALLOUT=true` and `CAIRN_NATS_WORKER_ACCOUNT`
+  (the nats.conf account core and workers share; startup fails if it is
+  missing). `docker/nats-auth-callout.conf` is a working NATS config; the
+  setup in the README, `docs/architecture.md` and the Kubernetes hardening
+  notes was corrected to match.
+
 ### Security
 - For worker enrollments without a provider (every enrollment created
-  through the admin API or UI since v0.2.0), the auth-callout minted NATS
-  credentials with empty publish and subscribe allow lists, which NATS
-  treats as unrestricted. The auth-callout now refuses such enrollments (reason
-  `enrollment_missing_provider`, logged with the enrollment ID) and the
+  through the admin API or UI since v0.2.0), the auth-callout issued NATS
+  credentials with empty publish and subscribe allow lists, which NATS treats
+  as unrestricted. nats-server rejected those replies (see Fixed), so no
+  worker was admitted with them. Such enrollments are now refused (reason
+  `enrollment_missing_provider`, logged with the enrollment ID), and the
   credential issuer refuses to sign a token with an empty allow list.
-  Core does not store the provider a worker reports, so existing enrollments
-  cannot be backfilled: workers enrolled without a provider must be
-  re-enrolled. The admin enrollment list (API field `reenroll_required`, UI
-  badge "re-enroll required") marks them.
 
 ### Changed
 - `POST /api/admin/worker-enrollments` requires `provider`, one of the
   providers core knows (`garmin`, `strava`); a missing or unknown provider
   is answered with `400`. The admin UI has a provider selector, and
   `GET /api/admin/worker-enrollments` returns the accepted `providers`.
+- Enrollments without a provider cannot be backfilled (core does not store
+  the provider a worker reports): re-enroll those workers. The enrollment list
+  marks them (API field `reenroll_required`, UI badge "re-enroll required").
 
 ## [0.3.0] — 2026-10-15
 

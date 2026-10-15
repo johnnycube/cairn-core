@@ -83,10 +83,19 @@ ingress.yaml          TLS entry point (nginx + cert-manager example)
 
 - **NATS auth.** This bundle runs NATS unauthenticated on the cluster network
   (matches the dev path: workers connect anonymously). For untrusted networks,
-  enable enrollment-token **auth-callout**: bootstrap the account key
-  (`POST /api/admin/nats/bootstrap-account-key`), put the returned public key in
-  `nats.conf`, and set `CAIRN_WORKER_ENROLLMENT_TOKEN` on each worker. See the
-  README "Going to production" + `docs/architecture.md` §4.5.
+  enable enrollment-token **auth-callout**:
+  1. bootstrap the account key (`POST /api/admin/nats/bootstrap-account-key`);
+  2. replace `nats.conf` in `nats.yaml` with `docker/nats-auth-callout.conf`
+     and give the NATS pod `CAIRN_NATS_AUTH_ISSUER` (the returned public key)
+     and `CAIRN_NATS_PASSWORD`;
+  3. set `CAIRN_NATS_USERNAME=cairn-core`, `CAIRN_NATS_PASSWORD`,
+     `CAIRN_NATS_AUTH_CALLOUT=true` and `CAIRN_NATS_WORKER_ACCOUNT=CAIRN` on
+     core;
+  4. create an enrollment per worker (name + provider) and set
+     `CAIRN_WORKER_ENROLLMENT_TOKEN` on the Strava worker. The Garmin worker
+     has no enrollment support; give it a static user (see the comments in
+     `docker/nats-auth-callout.conf`).
+  See `docs/architecture.md` §4.5.
 - **Secrets management.** `secrets.example.yaml` uses plain `stringData` for
   readability — use SealedSecrets / External Secrets / SOPS for real clusters.
   Back up `CAIRN_AUTH_MASTER_ENCRYPTION_KEY` separately from the database; it

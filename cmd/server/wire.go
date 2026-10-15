@@ -468,7 +468,7 @@ func wireAppNATS(ctx context.Context, app *App, cfg *config.Config, logger *slog
 		return err
 	}
 
-	credentialIssuer := natsadapter.NewCredentialIssuer(app.SigningKeys, app.SecretBox)
+	credentialIssuer := natsadapter.NewCredentialIssuer(app.SigningKeys, app.SecretBox, cfg.NATS.WorkerAccount)
 
 	// Build the rate limiter on the rate-limits KV bucket. The
 	// server-side limiter is intentionally permissive (nil
@@ -496,9 +496,11 @@ func wireAppNATS(ctx context.Context, app *App, cfg *config.Config, logger *slog
 	app.ProcessAuthCallout = processAuth
 	// Start() is invoked from serve.go so the subscription's
 	// lifecycle matches the HTTP server's.
-	app.NATSAuthCallout = natsadapter.NewAuthCalloutSubscriber(
-		bus, processAuth, credentialIssuer, logger,
-	)
+	if cfg.NATS.AuthCallout {
+		app.NATSAuthCallout = natsadapter.NewAuthCalloutSubscriber(
+			bus, processAuth, credentialIssuer, logger,
+		)
+	}
 
 	// Reconciliation scheduler use case now has a real bus. The budget
 	// gate skips accounts whose provider API budget is spent (live KV

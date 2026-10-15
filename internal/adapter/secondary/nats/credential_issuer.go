@@ -31,6 +31,8 @@ import (
 type CredentialIssuer struct {
 	keys    port.SigningKeyRepo
 	secrets *auth.SecretBox
+	// workerAccount is the nats.conf account issued users are placed in.
+	workerAccount string
 
 	// Cache of the active account NKey. Refreshed on rotation by the
 	// caller; here we lazy-load on first use.
@@ -46,8 +48,9 @@ type CredentialIssuer struct {
 func NewCredentialIssuer(
 	keys port.SigningKeyRepo,
 	secrets *auth.SecretBox,
+	workerAccount string,
 ) *CredentialIssuer {
-	return &CredentialIssuer{keys: keys, secrets: secrets}
+	return &CredentialIssuer{keys: keys, secrets: secrets, workerAccount: workerAccount}
 }
 
 // IssueWorkerCredential mints a User JWT with the requested permissions.
@@ -59,9 +62,9 @@ func NewCredentialIssuer(
 //  4. Set the exp claim to now+TTL.
 //  5. Encode + sign with the account NKey's seed.
 //
-// The worker JWT's `iss` claim is the account public key (NATS server
-// uses it to look up the trusted account key); `sub` is the worker's
-// own user NKey. NATS validates the chain at CONNECT time.
+// The worker JWT's `iss` claim is the account public key (nats.conf
+// auth_callout.issuer), `aud` the account the worker is placed in, and
+// `sub` the user NKey nats-server generated for the connection.
 func (i *CredentialIssuer) IssueWorkerCredential(
 	ctx context.Context,
 	in port.IssueCredentialInput,
@@ -76,6 +79,9 @@ func (i *CredentialIssuer) IssueWorkerCredential(
 			Message: "publish and subscribe allow lists must not be empty",
 		}
 	}
+	if i.workerAccount == "" {
+		return port.IssueCredentialOutput{}, errors.New("nats credential issuer: no worker account configured")
+	}
 	if in.TTL <= 0 {
 		in.TTL = 24 * time.Hour
 	}
@@ -89,7 +95,8 @@ func (i *CredentialIssuer) IssueWorkerCredential(
 	claims.IssuedAt = time.Now().UTC().Unix()
 	claims.Expires = time.Now().UTC().Add(in.TTL).Unix()
 	claims.Name = subjectAccountFromPermissionName(in.Permissions)
-	claims.IssuerAccount = accountPub
+	// Config-mode auth-callout: aud names the target account; issuer_account is refused.
+	claims.Audience = i.workerAccount
 
 	// Permissions: pub/sub allow-lists. NATS denies anything not in the
 	// allow-list when these are set.

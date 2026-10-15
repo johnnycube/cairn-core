@@ -190,6 +190,10 @@ func TestValidate(t *testing.T) {
 		{"cert without key", func(c *Config) { c.HTTP.TLSCertFile = "c" }, "TLS_CERT_FILE and HTTP_TLS_KEY_FILE"},
 		{"key without cert", func(c *Config) { c.HTTP.TLSKeyFile = "k" }, "TLS_CERT_FILE and HTTP_TLS_KEY_FILE"},
 		{"max below min", func(c *Config) { c.Database.MaxConns = 1 }, "DATABASE_MAX_CONNS (1) must be >= DATABASE_MIN_CONNS (2)"},
+		{"callout with account", func(c *Config) { c.NATS.URL, c.NATS.AuthCallout, c.NATS.WorkerAccount = "nats://n", true, "CAIRN" }, ""},
+		{"callout without nats", func(c *Config) { c.NATS.URL, c.NATS.AuthCallout = "", true }, ""},
+		{"callout without account", func(c *Config) { c.NATS.URL, c.NATS.AuthCallout = "nats://n", true }, "NATS_WORKER_ACCOUNT required"},
+		{"callout bad account", func(c *Config) { c.NATS.URL, c.NATS.AuthCallout, c.NATS.WorkerAccount = "nats://n", true, "A.B" }, "NATS account name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
