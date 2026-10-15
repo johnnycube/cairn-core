@@ -257,7 +257,8 @@ flow lives in `docs/architecture.md §4.5`; this is the operator-facing
 piece you'll actually invoke.
 
 ```sh
-# Generate a 7-day token. The provider scopes the worker's NATS permissions;
+# Generate a 7-day token. The provider scopes the worker's NATS permissions
+# and may be any id of lowercase letters, digits, '-' and '_' (max 48 chars);
 # the name must equal CAIRN_WORKER_NAME on the worker.
 curl -s -X POST "$BASE/api/admin/worker-enrollments" $ADMIN \
   -H 'content-type: application/json' -d '{
@@ -279,7 +280,8 @@ curl -s -X POST "$BASE/api/admin/worker-enrollments" $ADMIN \
 #   CAIRN_WORKER_NAME=strava-fetcher
 #   CAIRN_WORKER_ENROLLMENT_TOKEN=cairn_enroll_3kF8vR1nQXjQ...
 
-# List enrollments, including revoked and expired ones.
+# List enrollments, including revoked and expired ones. `providers` lists the
+# built-in providers as suggestions only.
 curl -s "$BASE/api/admin/worker-enrollments" $ADMIN | jq
 
 # Revoke an enrollment (kills future connects from this token; does NOT

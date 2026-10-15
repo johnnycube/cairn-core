@@ -170,8 +170,8 @@ type NATSCredentialIssuer interface {
 }
 
 type IssueCredentialInput struct {
-	// UserNKeyPublic is the public form of the Ed25519 keypair the worker
-	// generated. Must start with "U" and be 56 chars long (NATS encoding).
+	// UserNKeyPublic is the connection's user nkey, assigned by nats-server.
+	// Must start with "U" and be 56 chars long (NATS encoding).
 	// The JWT's `sub` claim is this value.
 	UserNKeyPublic string
 

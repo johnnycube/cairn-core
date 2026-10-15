@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { enrollmentRequest, enrollmentStatus } from './enrollments';
+import {
+	enrollmentRequest,
+	enrollmentStatus,
+	providerError,
+	providerFormatHint
+} from './enrollments';
 
 describe('enrollmentStatus', () => {
 	const now = Date.parse('2026-10-15T12:00:00Z');
@@ -42,7 +47,34 @@ describe('enrollmentRequest', () => {
 		});
 	});
 
+	it('accepts providers outside the built-in list', () => {
+		expect(enrollmentRequest('w1', ' polar ', 30, '')?.provider).toBe('polar');
+		expect(enrollmentRequest('w1', 'fit_upload-2', 30, '')?.provider).toBe('fit_upload-2');
+	});
+
+	it('rejects malformed providers', () => {
+		for (const p of ['polar.>', '*', '>', 'po.lar', 'Polar', 'a b', 'p'.repeat(49)]) {
+			expect(enrollmentRequest('w1', p, 30, '')).toBeNull();
+		}
+		expect(enrollmentRequest('w1', 'p'.repeat(48), 30, '')).not.toBeNull();
+	});
+
 	it('clamps the expiry to at least one hour', () => {
 		expect(enrollmentRequest('w1', 'strava', 0, '')?.expires_in_hours).toBe(1);
+	});
+});
+
+describe('providerError', () => {
+	it('is silent while empty or valid', () => {
+		expect(providerError('')).toBeNull();
+		expect(providerError('  ')).toBeNull();
+		expect(providerError('polar')).toBeNull();
+		expect(providerError('strava')).toBeNull();
+	});
+
+	it('explains the format for malformed providers', () => {
+		for (const p of ['polar.>', '*', 'po.lar', 'Polar', 'p'.repeat(49)]) {
+			expect(providerError(p)).toBe(providerFormatHint);
+		}
 	});
 });

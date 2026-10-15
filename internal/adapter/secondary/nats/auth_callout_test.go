@@ -413,3 +413,68 @@ func TestIssueWorkerCredential(t *testing.T) {
 		t.Error("issuer without worker account must refuse")
 	}
 }
+
+// A provider outside the built-in list is admitted, scoped to its own subjects only.
+func TestAuthCalloutScopesUnregisteredProvider(t *testing.T) {
+	env := newCalloutEnv(t)
+	nc, err := env.connectWorker("p1", env.enroll(t, "p1", "polar"))
+	if err != nil {
+		t.Fatalf("polar worker must be admitted: %v", err)
+	}
+	worker, err := NewBusFromConn(nc, "p1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(worker.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	ps, err := worker.Pull(ctx, port.ConsumerConfig{Stream: StreamJobs, Durable: "polar__fetch", Subject: "cairn.jobs.fetch_source.polar"})
+	if err != nil {
+		t.Fatalf("pull own jobs: %v", err)
+	}
+	if err := env.core.Publish(ctx, "cairn.jobs.fetch_source.polar", "", []byte("job")); err != nil {
+		t.Fatal(err)
+	}
+	if msgs, err := ps.Fetch(ctx, 1); err != nil || len(msgs) != 1 {
+		t.Fatalf("fetch own job: %v (%d msgs)", err, len(msgs))
+	}
+
+	for _, subj := range []string{"cairn.jobs.parse_blob.polar", "cairn.cmd.worker.p1-polar.restart", "cairn.webhooks.p1-polar.event"} {
+		if !canSubscribe(t, nc, subj) {
+			t.Errorf("subscribe %s must be allowed", subj)
+		}
+	}
+	for _, subj := range []string{"cairn.tokens.polar.get", "cairn.creds.polar.get", "cairn.results.fetch_source.polar", "cairn.workers.p1-polar.heartbeat"} {
+		if !canPublish(t, nc, subj) {
+			t.Errorf("publish %s must be allowed", subj)
+		}
+	}
+	for _, subj := range []string{"cairn.jobs.fetch_source.strava", "cairn.tokens.strava.>", "cairn.cmd.worker.w1-strava.>", "cairn.tokens.>", ">"} {
+		if canSubscribe(t, nc, subj) {
+			t.Errorf("subscribe %s must be denied", subj)
+		}
+	}
+	for _, subj := range []string{"cairn.tokens.strava.get", "cairn.creds.strava.get", "cairn.jobs.fetch_source.strava", "cairn.results.fetch_source.strava", "cairn.workers.w1-strava.heartbeat"} {
+		if canPublish(t, nc, subj) {
+			t.Errorf("publish %s must be denied", subj)
+		}
+	}
+	short, cancelShort := context.WithTimeout(context.Background(), time.Second)
+	defer cancelShort()
+	if _, err := worker.Pull(short, port.ConsumerConfig{Stream: StreamJobs, Durable: "steal", Subject: "cairn.jobs.fetch_source.strava"}); err == nil {
+		t.Error("consumer on strava's jobs must be denied")
+	}
+}
+
+// Malformed provider ids never reach the permission template.
+func TestAuthCalloutEnrollRejectsMalformedProvider(t *testing.T) {
+	env := newCalloutEnv(t)
+	for _, p := range []string{"polar.>", "*", ">", "po.lar", "Polar", ""} {
+		if _, err := env.create.Execute(context.Background(), enrollment.CreateEnrollmentInput{
+			Name: "w1", Provider: p, ExpiresIn: time.Hour,
+		}); !errors.Is(err, enrollment.ErrInvalidInput) {
+			t.Errorf("provider %q: err = %v, want ErrInvalidInput", p, err)
+		}
+	}
+}

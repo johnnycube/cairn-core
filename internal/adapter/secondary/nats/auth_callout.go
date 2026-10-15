@@ -22,7 +22,7 @@ import (
 //
 // Wire diagram from architecture.md §4.5:
 //
-//	worker --CONNECT(token,nkey)--> nats-server
+//	worker --CONNECT(token,name)--> nats-server
 //	                                      |
 //	                                      v
 //	                              $SYS.REQ.USER.AUTH (subject)
@@ -96,7 +96,7 @@ func (s *AuthCalloutSubscriber) Start(ctx context.Context) (port.Subscription, e
 // Steps:
 //
 //  1. Decode the incoming jwt.AuthorizationRequest claims.
-//  2. Pull the worker's CONNECT options (token, name, nkey, etc.).
+//  2. Pull the worker's CONNECT options (token, name, etc.) and the server-assigned user nkey.
 //  3. Call ProcessAuthCallout.
 //  4. On success, build an AuthorizationResponseClaims with the user JWT.
 //  5. On rejection, build a response with Error set and Jwt empty.

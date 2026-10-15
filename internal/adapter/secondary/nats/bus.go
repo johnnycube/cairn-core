@@ -63,7 +63,7 @@ const defaultNoStreamTTL = time.Minute
 
 // NewBusFromConn wraps an already-connected *nats.Conn into a Bus.
 // Used by workers, which build their own connection with the enrollment
-// token + ephemeral nkey before the auth-callout admits them. The Bus
+// token before the auth-callout admits them. The Bus
 // takes ownership of the connection — caller should not Close it
 // directly; instead call Bus.Close which drains + closes.
 //

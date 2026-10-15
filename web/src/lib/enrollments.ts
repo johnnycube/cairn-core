@@ -23,7 +23,20 @@ export type EnrollmentRequest = {
 	note: string;
 };
 
-// enrollmentRequest builds the POST body, or null while name or provider is missing.
+// Same rule as the server (domain.ValidProviderID); keeps NATS wildcards out of subjects.
+const providerPattern = /^[a-z0-9_-]{1,48}$/;
+
+export const providerFormatHint =
+	'Provider: 1–48 lowercase letters, digits, hyphens or underscores (e.g. polar).';
+
+// providerError explains why a typed provider is rejected, or null when it is valid or still empty.
+export function providerError(provider: string): string | null {
+	const p = provider.trim();
+	if (!p || providerPattern.test(p)) return null;
+	return providerFormatHint;
+}
+
+// enrollmentRequest builds the POST body, or null while name or provider is missing or malformed.
 export function enrollmentRequest(
 	name: string,
 	provider: string,
@@ -31,10 +44,11 @@ export function enrollmentRequest(
 	note: string
 ): EnrollmentRequest | null {
 	const n = name.trim();
-	if (!n || !provider) return null;
+	const p = provider.trim();
+	if (!n || !providerPattern.test(p)) return null;
 	return {
 		name: n,
-		provider,
+		provider: p,
 		expires_in_hours: Math.max(1, Math.round(expiresDays * 24)),
 		note: note.trim()
 	};

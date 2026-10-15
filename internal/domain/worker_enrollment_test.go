@@ -51,8 +51,8 @@ func TestEnrollmentProviderRequirement(t *testing.T) {
 		t.Error("enrollment with provider must not need re-enrollment")
 	}
 	for s, want := range map[string]bool{
-		"strava": true, "garmin": true, "fit_upload": true, "a-b": true,
-		"": false, "Strava": false, "a.b": false, "a>": false, "a*": false, strings.Repeat("a", 49): false,
+		"strava": true, "garmin": true, "fit_upload": true, "a-b": true, "polar": true, "_": true, "-": true, "9": true, strings.Repeat("a", 48): true,
+		"": false, "Strava": false, "a.b": false, "a>": false, "a*": false, "polar.>": false, ">": false, "*": false, "a b": false, "a/b": false, "ä": false, strings.Repeat("a", 49): false,
 	} {
 		if got := ValidProviderID(s); got != want {
 			t.Errorf("ValidProviderID(%q) = %v, want %v", s, got, want)

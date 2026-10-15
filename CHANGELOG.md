@@ -6,6 +6,17 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Worker enrollments accept any well-formed provider type (lowercase letters,
+  digits, `-`, `_`, at most 48 characters) instead of only the built-in
+  providers, so a worker for a new provider can be enrolled without a core
+  change. The admin still sets the provider; the format check keeps NATS
+  wildcards and subject separators out of the worker's permissions. The
+  admin UI suggests the known providers, and `providers` in
+  `GET /api/admin/worker-enrollments` is a list of suggestions. Linking user
+  accounts for a new provider still needs core support (OAuth connect and
+  job dispatch use the built-in provider list).
+
 ## [0.3.1] — 2026-10-15
 
 ### Fixed
