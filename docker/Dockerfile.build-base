@@ -42,7 +42,7 @@ FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595
 # Matched to the repo (go.mod, web/package.json) so locally-generated code is
 # byte-identical to the committed output. Dockerfile instructions don't allow
 # inline comments, so the per-ARG notes live here:
-#   GO_VERSION                full version; matches go.mod's `go 1.26` (GOTOOLCHAIN=local pins it)
+#   GO_VERSION                full version; matches go.mod's toolchain line (GOTOOLCHAIN=local pins it)
 #   NODE_VERSION              matches web/.nvmrc
 #   *_SHA256                  linux-amd64 artifact checksums; bump together with the version
 #   PROTOC_GEN_GO             = google.golang.org/protobuf in go.mod
@@ -51,15 +51,15 @@ FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595
 #   PROTOC_GEN_ES             ~ @bufbuild/protobuf in web/package.json
 #   PROTOC_VERSION            protoc → "Protobuf Python Version: 7.35.1" (matches committed pb2 stubs)
 #   PROTOC_GEN_CONNECT_PYTHON pip protoc-gen-connect-python (the codegen plugin, NOT the connect-python runtime)
-ARG GO_VERSION=1.26.9
-ARG GO_SHA256=42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d
-ARG BUF_VERSION=1.70.0
-ARG BUF_SHA256=e2bbcdd324da09c16a15963dc2dae0525c955c05dc118223cf732f4f7509c5e6
+ARG GO_VERSION=1.27.2
+ARG GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+ARG BUF_VERSION=1.73.0
+ARG BUF_SHA256=8f2986298ad08f0cc1bf999b9797b7c383adf32d7edf0f73d6f1e1a701baeac1
 ARG NODE_VERSION=24.21.0
 ARG NODE_SHA256=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
-ARG PROTOC_GEN_GO=v1.36.11
-ARG PROTOC_GEN_CONNECT_GO=v1.20.0
-ARG PROTOC_GEN_OPENAPIV2=v2.27.2
+ARG PROTOC_GEN_GO=v1.36.12
+ARG PROTOC_GEN_CONNECT_GO=v1.21.0
+ARG PROTOC_GEN_OPENAPIV2=v2.31.0
 ARG PROTOC_GEN_ES=2.12.0
 ARG PROTOC_VERSION=35.1
 ARG PROTOC_SHA256=6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7
