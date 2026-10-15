@@ -6,6 +6,8 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-10-15
+
 ### Changed
 - **Breaking:** configuration is read only from `CAIRN_`-prefixed variables.
   Previously a missing `CAIRN_*` variable fell back to the bare name, so host
@@ -16,7 +18,30 @@ All notable changes to Cairn are documented here. The format follows
   accepted. Setting an optional variable to an empty value still means empty
   (for example `CAIRN_NATS_URL=` keeps NATS disabled).
 - `cairn config help` lists each variable with its type, default and whether
-  it is required.
+  it is required. Configuration loading moved from kelseyhightower/envconfig
+  to sethvargo/go-envconfig v2.
+- Out-of-range integer conversions saturate instead of wrapping (proto
+  int32/int16, Postgres smallint/int), and upload and attachment endpoints
+  cap the request body (64/32 MiB file limit plus 1 MiB framing): oversized
+  bodies get `400` instead of being truncated.
+- Build and CI: the repository is onboarded to fleetlint. `make check` is the
+  single gate (proto drift, golangci-lint, ESLint/Prettier/svelte-check, race
+  tests, Go unit + Postgres integration coverage gates, web coverage,
+  govulncheck, licenses, gitleaks, both builds), run by `check.yml` inside the
+  build-base image and as the gate before image publishing. Actions and base
+  images are pinned by digest, toolchain downloads are checksum-verified, and
+  CodeQL and a weekly mutation run were added. The web app is linted,
+  formatted and strictly typed.
+- Toolchain: Go 1.27.2 (go.mod toolchain and the build-base image), buf
+  1.73.0, protoc-gen-go 1.36.12, protoc-gen-connect-go 1.21.0,
+  protoc-gen-openapiv2 2.31.0; the committed stubs are regenerated.
+- Dependency updates: connect-go 1.21.1, go-jose 4.1.6, goose 3.29.0,
+  aws-sdk-go-v2 (S3 1.114.3), prometheus client_golang 1.25.0,
+  golang.org/x/crypto 0.58.0, NATS 2.15.1 (dev compose), maplibre-gl 6.14.0,
+  vite 8.3.4, paraglide-js 2.28.0, the routine Go and npm minor/patch bumps,
+  and npm/compose/CI dependencies pinned to exact versions and digests. The
+  deployment manifests reference cairn-core v0.2.6, cairn-provider-strava
+  v0.2.5 and cairn-provider-garmin v0.2.2.
 
 ### Security
 - The SSRF guard for federation fetches and webhook delivery now blocks every
@@ -25,6 +50,8 @@ All notable changes to Cairn are documented here. The format follows
   benchmarking ranges, `240.0.0.0/4`, NAT64 (`64:ff9b::/96`,
   `64:ff9b:1::/48`), 6to4 `2002::/16`, Teredo and IPv4-mapped addresses.
   Webhook URL validation uses the same guard.
+- Login redirects reject backslashes and control characters, which browsers
+  turned into an off-site redirect (`/\evil.com`, `/<TAB>/evil.com`).
 
 ### Fixed
 - Publishing to a subject outside any JetStream stream that has a core NATS
@@ -37,9 +64,10 @@ All notable changes to Cairn are documented here. The format follows
   presence, manifest and rate-limit KV buckets. Before, a worker admitted by
   the auth-callout could not pull jobs at all. Installations running NATS
   without auth are unaffected.
-- `GetActivityStream` honours the requested channels. Requests for only
-  `TIME` or the advanced cycling/running channels used to return every
-  channel; a `TIME`-only request now returns just the timestamps.
+- `GetActivityStream` honours the requested channels (behaviour change: the
+  subset is now enforced on the response). Requests for only `TIME` or the
+  advanced cycling/running channels used to return every channel; a
+  `TIME`-only request now returns just the timestamps.
 - The Nominatim geocoder returns `ErrNoPlace` when a coordinate has no place,
   so the start-place backfill records it as resolved instead of relying on an
   empty name.
@@ -256,6 +284,7 @@ workers ([cairn-provider-strava], [cairn-provider-garmin]).
 
 Initial development (internal pre-release iterations v0.1.0–v0.1.12).
 
+[0.2.7]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.7
 [0.2.6]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.6
 [0.2.5]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.5
 [0.2.4]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.4
