@@ -531,4 +531,3 @@ AGPL-3.0 for this repository (`LICENSE`). The provider contract under
 `api/proto/` is Apache-2.0 (`api/proto/LICENSE`) so third-party workers and
 clients can implement it without copyleft obligations; the provider worker
 repos are Apache-2.0 as well.
-

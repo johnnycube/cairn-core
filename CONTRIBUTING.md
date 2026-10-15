@@ -10,7 +10,8 @@ know to file a useful issue or open a PR that has a chance of being merged.
 2. **Sign off your commits** with `git commit -s`. We use the
    [Developer Certificate of Origin](https://developercertificate.org) — no
    separate CLA paperwork.
-3. **Run `make lint test` before pushing.** CI runs the same checks.
+3. **Run `make check` before pushing.** It is the definition of green, and CI
+   (`.github/workflows/check.yml`) runs exactly that.
 4. **Keep PRs small and focused.** One change per PR. Big refactors get
    split into reviewable chunks.
 
@@ -18,10 +19,14 @@ know to file a useful issue or open a PR that has a chance of being merged.
 
 Prerequisites:
 
-- Go 1.26 or newer
+- Go (version in `go.mod`) and Node (version in `web/.nvmrc`)
 - Docker (for the Postgres+TimescaleDB+PostGIS+MinIO+NATS dev stack)
-- `make`
-- `golangci-lint` (CI uses the version pinned in `.github/workflows/ci.yml`)
+- `make`, plus the pinned gate tools: `make tools proto-tools` (golangci-lint,
+  govulncheck, go-licenses, fleetlint, buf and the Go proto plugins);
+  `protoc-gen-es` (`npm i -g @bufbuild/protoc-gen-es@<version in
+  docker/Dockerfile.build-base>`) and [gitleaks](https://github.com/gitleaks/gitleaks)
+  come from their own releases. `docker/Dockerfile.build-base` carries all of them.
+- Git hooks: `prek install` (runs `.pre-commit-config.yaml`; `make check` on push)
 
 Quick start:
 
@@ -46,7 +51,7 @@ once the server is up.
 
 ## Code style and architecture
 
-**Read `CLAUDE.md` first.** It documents the hexagonal-architecture rules
+**Read `docs/adr/` first.** ADR 0002 documents the hexagonal-architecture rules
 that the whole codebase is built around. The short version:
 
 - `domain/` is pure. No imports from `port/`, `usecase/`, or `adapter/`.
@@ -68,7 +73,8 @@ Other conventions:
   matching.
 - **`uc.tx.InTx(ctx, fn)` for multi-write transactions** — never grab a
   `*pgx.Tx` directly from inside a use case.
-- **`gofumpt`** (not just `gofmt`) — stricter formatting, no debate.
+- **`gofmt`**, enforced with the linters in `.golangci.yml` (`make fmt` fixes it);
+  the web app follows Prettier and ESLint (`web/.prettierrc`, `web/eslint.config.js`).
 - **`slog`** (standard library) — no Zap, Logrus, or other logging libs.
 - **No ORM.** Hand-written SQL in `adapter/secondary/postgres/`. The schema
   uses features (PostGIS, JSONB operators, partial indexes, window functions)
@@ -80,7 +86,8 @@ We're conservative with dependencies. Before opening a PR that pulls in a
 new module, please:
 
 1. Check it has an active maintainer and a healthy issue tracker.
-2. Verify it's MIT, BSD-2/3-Clause, Apache-2.0, or MPL-2.0. We keep
+2. Verify it's MIT, BSD-2/3-Clause, ISC, Apache-2.0, or MPL-2.0 (`make audit`
+   enforces the list). We keep
    dependencies permissive even though the core is AGPL-3.0 — it keeps
    licensing simple and our options open.
 3. Justify it in the PR description: what does it do that stdlib can't,
@@ -92,8 +99,8 @@ is "this saves more developer time than it will cost over five years".
 ## Pull request process
 
 1. Fork, branch off `main`, push your branch to your fork.
-2. Open a PR against `cairn-app/cairn:main`. Fill in the template.
-3. CI must pass (lint + test + build). Maintainers won't review red PRs.
+2. Open a PR against `johnnycube/cairn-core:main`. Fill in the template.
+3. CI must pass (`make check`). Maintainers won't review red PRs.
 4. Address review feedback by amending or pushing follow-up commits.
    We squash on merge, so commit-history-grooming on your branch is
    optional.
@@ -119,15 +126,16 @@ CI checks DCO sign-off and fails the build if any commit lacks it.
 ## Testing
 
 ```sh
-make test         # unit tests (no DB required)
-make test-race    # unit tests with -race
-make lint         # golangci-lint
-make tidy         # go mod tidy + go mod verify
+make check             # everything CI runs: proto drift, lint, tests, coverage, audit, build, fleetlint
+make test              # Go unit tests (-race, no DB required) + web vitest
+make lint              # golangci-lint, go vet, buf lint, prettier, eslint, svelte-check
+make cover             # coverage gates (Go COVER_MIN in the Makefile, web thresholds in web/vite.config.ts)
+make test-integration  # Postgres adapter suite; needs CAIRN_TEST_DATABASE_URL
 ```
 
 The pure-domain and pure-use-case tests run without infrastructure. The
-DB-backed adapter tests will (once added) require the docker-compose
-stack to be up.
+`integration`-tagged suite needs a throwaway TimescaleDB+PostGIS database
+(the dev compose stack's Postgres image works).
 
 ## Reporting bugs
 
