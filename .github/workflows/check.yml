@@ -1,5 +1,5 @@
-# Runs `make check`, the definition of green: proto drift, lint (Go + web), tests, coverage gates,
-# audit (govulncheck, licenses, tidy, npm audit, gitleaks), build and fleetlint.
+# Runs `make check`, the definition of green: proto drift, lint (Go + web), tests, coverage gates
+# (unit + Postgres integration suites), audit (govulncheck, licenses, tidy, npm audit, gitleaks), build and fleetlint.
 # Runs inside the build-base toolchain image (Go + Node + buf + local proto plugins), so no setup-* steps.
 # build-core.yml calls this workflow as the gate before it publishes an image from main or a v* tag.
 # Actions are pinned to commit SHAs; Renovate keeps the pins current.
@@ -29,9 +29,22 @@ jobs:
     timeout-minutes: 30
     container:
       image: ghcr.io/johnnycube/cairn-build-base:1
+    # Throwaway TimescaleDB+PostGIS for the integration suite; same image as docker-compose.dev.yml.
+    services:
+      postgres:
+        image: timescale/timescaledb-ha:pg17-ts2.27
+        env:
+          POSTGRES_USER: cairn
+          POSTGRES_PASSWORD: cairn
+          POSTGRES_DB: cairn
+        options: >-
+          --health-cmd "pg_isready -U cairn -d cairn"
+          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       # The image pins GOTOOLCHAIN=local; follow go.mod's toolchain line instead.
       GOTOOLCHAIN: auto
+      # make cover runs the integration suite against the service and gates COVER_MIN.
+      CAIRN_TEST_DATABASE_URL: postgres://cairn:cairn@postgres:5432/cairn?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -19,9 +19,16 @@ BIN_DIR   := bin
 # web/node_modules can carry stray Go sources; keep them out of every Go gate.
 PKGS       = $(shell $(GO) list ./... | grep -v /web/)
 WEB       := web
-# Go statement coverage of the DB-free unit suite, gen/ excluded. Honest floor at today's 13.5%, far below the usual 80:
-# HTTP handlers and Postgres adapters are exercised only by the integration suite. Raise it as tests land.
-COVER_MIN ?= 13
+# Go statement coverage across all packages (-coverpkg), gen/ excluded. COVER_MIN gates unit + integration suites
+# (CAIRN_TEST_DATABASE_URL set, as in CI); COVER_MIN_UNIT gates a DB-less local run. Honest floors just below today's
+# numbers, under the usual 80: NATS/S3/OIDC paths have no test infrastructure yet. Raise them as tests land.
+COVER_MIN      ?= 57
+COVER_MIN_UNIT ?= 19
+# Test database for the integration suite (make test-db-up); keep in step with docker-compose.dev.yml and check.yml.
+TEST_DB_IMAGE   ?= docker.io/timescale/timescaledb-ha:pg17-ts2.27
+TEST_DB_PORT    ?= 55432
+TEST_DB_URL     := postgres://cairn:cairn@127.0.0.1:$(TEST_DB_PORT)/cairn?sslmode=disable
+CONTAINER       ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 LICENSES  ?= MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # Each pin carries a `# renovate:` comment so Renovate bumps it (customManagers in renovate.json).
 # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
@@ -51,7 +58,7 @@ TOOLCHAIN := $(shell $(GO) env GOVERSION)
 LDFLAGS := -X main.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: help tools proto-tools fmt lint vet test cover audit build dist check-fast check release tidy clean \
-	install mutate test-race test-integration web-deps web-lint web-check web-test web-cover web-audit web-build \
+	install mutate test-race test-integration test-db-up test-db-down web-deps web-lint web-check web-test web-cover web-audit web-build \
 	proto proto-lint proto-format proto-check migrate-up migrate-status migrate-redo run \
 	dev-up dev-down dev-logs dev-server dev-web all
 
@@ -92,14 +99,19 @@ vet: ## go vet only
 test: web-test ## unit tests: Go with the race detector (shuffled) + web
 	$(GO) test -race -shuffle=on -count=1 $(PKGS)
 
-cover: web-cover ## coverage gates: Go total (gen/ excluded) >= COVER_MIN, web thresholds in vite.config.ts
+cover: web-cover ## coverage gates: Go total (gen/ excluded) >= COVER_MIN (with DB) / COVER_MIN_UNIT, web in vite.config.ts
 	# Build covdata once up front: parallel first builds race ("text file busy") on a cold cache.
 	$(GO) tool covdata help >/dev/null 2>&1 || true
-	$(GO) test -count=1 -coverprofile=cover.raw.out $(PKGS)
+	if [ -n "$${CAIRN_TEST_DATABASE_URL:-}" ]; then tags=integration; min=$(COVER_MIN); \
+	elif [ -n "$${CI:-}" ]; then echo "CI must set CAIRN_TEST_DATABASE_URL"; exit 1; \
+	else tags=; min=$(COVER_MIN_UNIT); echo "CAIRN_TEST_DATABASE_URL unset: unit suite only (make test-db-up for the full gate)"; fi
+	coverpkg=$$($(GO) list ./... | grep -v -e /web/ -e /gen/ | paste -sd, -)
+	# -coverpkg makes each line list every package; keep the summary short.
+	$(GO) test -count=1 -tags "$$tags" -coverpkg="$$coverpkg" -coverprofile=cover.raw.out $(PKGS) | sed 's/ of statements in .*//'
 	grep -v '/gen/' cover.raw.out > cover.out
 	total=$$($(GO) tool cover -func=cover.out | awk '/^total:/ {sub("%", "", $$3); print $$3}')
-	echo "coverage $$total% (minimum $(COVER_MIN)%)"
-	if [ "$${total%.*}" -lt $(COVER_MIN) ]; then echo "coverage below $(COVER_MIN)%"; exit 1; fi
+	echo "coverage $$total% (minimum $$min%)"
+	if [ "$${total%.*}" -lt "$$min" ]; then echo "coverage below $$min%"; exit 1; fi
 
 # go-licenses spots stdlib packages by GOROOT; pass the active toolchain's, not the one it was built with
 audit: web-audit ## vulnerabilities, licenses, tidy module graph, secrets
@@ -150,10 +162,21 @@ install: ## go install the server
 test-race: ## Go unit tests with the race detector
 	$(GO) test -race $(PKGS)
 
-# Integration tests run against a real Postgres (TimescaleDB+PostGIS). Set CAIRN_TEST_DATABASE_URL to a throwaway DB;
-# the suite runs all migrations against it first. Build-tagged `integration` so plain `make test` stays DB-free.
+# Integration tests run against a real Postgres (TimescaleDB+PostGIS). Set CAIRN_TEST_DATABASE_URL to a throwaway DB
+# whose user may CREATE DATABASE; the suites migrate it (cmd/server uses a fresh database per run). Build-tagged
+# `integration` so plain `make test` stays DB-free. `make test-db-up` starts one with podman or docker.
 test-integration: ## Go integration tests (needs CAIRN_TEST_DATABASE_URL)
-	$(GO) test -tags integration $(PKGS)
+	$(GO) test -count=1 -tags integration $(PKGS)
+
+test-db-up: ## start a throwaway TimescaleDB+PostGIS for the integration suite and print its URL
+	test -n "$(CONTAINER)" || { echo "need podman or docker"; exit 1; }
+	$(CONTAINER) run -d --rm --name cairn-test-db -e POSTGRES_USER=cairn -e POSTGRES_PASSWORD=cairn -e POSTGRES_DB=cairn \
+		-p 127.0.0.1:$(TEST_DB_PORT):5432 $(TEST_DB_IMAGE) >/dev/null
+	for _ in $$(seq 60); do $(CONTAINER) exec cairn-test-db pg_isready -q -h 127.0.0.1 -U cairn -d cairn && break; sleep 2; done
+	echo "export CAIRN_TEST_DATABASE_URL='$(TEST_DB_URL)'"
+
+test-db-down: ## stop the test database
+	$(CONTAINER) rm -f cairn-test-db >/dev/null
 
 # ----------------------------------------------------------------------------
 # Web (SvelteKit SPA in web/; tool versions pinned by web/package-lock.json)

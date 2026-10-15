@@ -129,13 +129,25 @@ CI checks DCO sign-off and fails the build if any commit lacks it.
 make check             # everything CI runs: proto drift, lint, tests, coverage, audit, build, fleetlint
 make test              # Go unit tests (-race, no DB required) + web vitest
 make lint              # golangci-lint, go vet, buf lint, prettier, eslint, svelte-check
-make cover             # coverage gates (Go COVER_MIN in the Makefile, web thresholds in web/vite.config.ts)
-make test-integration  # Postgres adapter suite; needs CAIRN_TEST_DATABASE_URL
+make cover             # coverage gates (Go COVER_MIN / COVER_MIN_UNIT in the Makefile, web thresholds in web/vite.config.ts)
+make test-integration  # Postgres suites (repos + the HTTP API end to end); needs CAIRN_TEST_DATABASE_URL
 ```
 
 The pure-domain and pure-use-case tests run without infrastructure. The
-`integration`-tagged suite needs a throwaway TimescaleDB+PostGIS database
-(the dev compose stack's Postgres image works).
+`integration`-tagged suites need a throwaway TimescaleDB+PostGIS database whose
+user may `CREATE DATABASE`; `make test-db-up` starts one with podman or docker:
+
+```sh
+make test-db-up                 # prints: export CAIRN_TEST_DATABASE_URL=...
+export CAIRN_TEST_DATABASE_URL='postgres://cairn:cairn@127.0.0.1:55432/cairn?sslmode=disable'
+make check                      # cover now runs unit + integration and gates COVER_MIN
+make test-db-down
+```
+
+With `CAIRN_TEST_DATABASE_URL` set, `make cover` measures unit and integration
+suites together and gates `COVER_MIN`; without it, it runs the unit suite only
+against the lower `COVER_MIN_UNIT` and says so. CI always provides the database
+(a service container in `.github/workflows/check.yml`) and fails if it is missing.
 
 ## Reporting bugs
 
