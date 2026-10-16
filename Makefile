@@ -42,7 +42,7 @@ GREMLINS_VERSION      ?= v0.6.0
 # Mutation test efficacy floor for the pure domain package (58.8% today).
 MUTATION_MIN ?= 55
 # renovate: datasource=go depName=github.com/fleetlint/fleetlint
-FLEETLINT_VERSION     ?= v0.4.0
+FLEETLINT_VERSION     ?= v0.5.1
 # Proto toolchain; keep in step with docker/Dockerfile.build-base.
 # renovate: datasource=go depName=github.com/bufbuild/buf
 BUF_VERSION           ?= v1.73.0
@@ -59,7 +59,7 @@ LDFLAGS := -X main.Version=$(shell git describe --tags --always --dirty 2>/dev/n
 
 .PHONY: help tools proto-tools fmt lint vet test cover audit build dist check-fast check release tidy clean \
 	install mutate test-race test-integration test-db-up test-db-down web-deps web-lint web-check web-test web-cover web-audit web-build \
-	proto proto-lint proto-format proto-check migrate-up migrate-status migrate-redo run \
+	proto proto-lint proto-format proto-check proto-breaking migrate-up migrate-status migrate-redo run \
 	dev-up dev-down dev-logs dev-server dev-web all
 
 help: ## list targets
@@ -134,7 +134,7 @@ check-fast: ## before every commit (< 30 s)
 	golangci-lint run --new-from-rev=origin/$(MAIN_BRANCH) || golangci-lint run
 	$(GO) test -short $(PKGS)
 
-check: proto-check lint test cover audit build ## definition of green (< 10 min)
+check: proto-check proto-breaking lint test cover audit build ## definition of green (< 10 min)
 	fleetlint check --fail-on error
 
 release: ## refuse dirty/non-main -> check -> signed tag V (its CHANGELOG.md section must exist); pushing the tag publishes the image
@@ -230,6 +230,11 @@ proto-format: ## buf format in place
 
 proto-check: proto ## regenerate and fail if the committed Go stubs drifted
 	git diff --exit-code -- gen/proto
+
+# The proto contract is the public API (workers build against it); gorelease does not apply to a binary.
+proto-breaking: ## buf breaking against the previous release tag (needs tags: fetch-depth 0 in CI)
+	base=$$(git describe --tags --abbrev=0 --match 'v*')
+	$(BUF) breaking api/proto --against ".git#tag=$$base,subdir=api/proto"
 
 # ----------------------------------------------------------------------------
 # Database migrations (delegates to the cairn binary's `migrate` subcommand)

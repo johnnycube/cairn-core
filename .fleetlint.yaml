@@ -7,6 +7,19 @@ facts:
 # discovered: stacks=[go] forge=github visibility=public tier=1 (default) layout=nested release=yes taskrunner=make container=none
 # scopes (each checked as its own project): web. List them under `scopes:` to change that.
 # Facts are re-detected on every run; pin one under `facts:` only when detection is wrong.
+# The catalog's release/api-compatibility applies to libraries (gorelease); this module is a binary whose public API
+# is the proto contract, so the gate is `buf breaking` against the previous release tag (make proto-breaking).
+rules:
+  - id: release/proto-breaking
+    kind: outcome
+    severity: warning
+    scope: root
+    when: exists("api/proto/buf.yaml")
+    satisfiers:
+      - name: buf-breaking-in-check
+        expr: text("Makefile").matches("\\bbreaking\\b.*--against")
+    message: "the proto contract is not checked for breaking changes against the previous release"
+    requirement: "`make check` runs `buf breaking` against the previous release tag."
 overrides:
   changelog/generator-configured:
     enabled: false
