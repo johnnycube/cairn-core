@@ -6,6 +6,9 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `make proto-breaking`, part of `make check`: `buf breaking` against the previous release tag, so a breaking change to the proto contract fails before the tag.
+
 ## [0.3.2] — 2026-10-15
 
 ### Changed
