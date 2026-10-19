@@ -36,7 +36,7 @@
     "@tailwindcss/vite": "4.3.3",
     "@types/geojson": "7946.0.16",
     "@types/node": "25.9.9",
-    "@vitest/coverage-v8": "5.0.4",
+    "@vitest/coverage-v8": "5.0.5",
     "eslint": "10.12.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-svelte": "3.23.1",
@@ -51,7 +51,7 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "vite": "8.3.4",
-    "vitest": "5.0.4"
+    "vitest": "5.0.5"
   },
   "imports": {
     "#lib/*": "./src/lib/*"
