@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // ActivityRepo persists the Activity aggregate (activities + activity_sources).

@@ -30,9 +30,9 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // BlobStore is the aws-sdk-go-v2-backed implementation of port.BlobStore.

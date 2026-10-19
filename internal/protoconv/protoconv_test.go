@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	cairnv1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 func TestActivityStreamSamplesFromProto(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/export"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/export"
 )
 
 // mountActivityExport serves the merged activity as a standard interchange

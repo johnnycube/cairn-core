@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/usecase/invite"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/usecase/invite"
 )
 
 // invitesAPI holds the dependencies of the invite endpoints.

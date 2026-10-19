@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	matchuc "github.com/johnnycube/cairn-core/internal/usecase/match"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	matchuc "github.com/opencairn-org/cairn-core/internal/usecase/match"
 )
 
 // mergeOverridesAPI holds the dependencies of the manual-override handlers.

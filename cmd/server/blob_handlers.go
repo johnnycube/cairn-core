@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // startBlobHandlers wires the NATS request/reply subjects workers call to

@@ -13,8 +13,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cairnv1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	workerv1 "github.com/johnnycube/cairn-core/gen/proto/cairn/worker/v1"
+	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
 )
 
 // mountManualActivityEndpoint registers manual activity creation:

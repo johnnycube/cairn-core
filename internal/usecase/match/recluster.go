@@ -13,11 +13,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	dmatch "github.com/johnnycube/cairn-core/internal/domain/match"
-	"github.com/johnnycube/cairn-core/internal/domain/reconcile"
-	"github.com/johnnycube/cairn-core/internal/port"
-	"github.com/johnnycube/cairn-core/internal/usecase/activity"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	dmatch "github.com/opencairn-org/cairn-core/internal/domain/match"
+	"github.com/opencairn-org/cairn-core/internal/domain/reconcile"
+	"github.com/opencairn-org/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/usecase/activity"
 )
 
 // DefaultBucketMargin is the time-window half-width around an ingested activity.

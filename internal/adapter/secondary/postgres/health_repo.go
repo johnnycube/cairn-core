@@ -7,9 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/domain/capability"
-	"github.com/johnnycube/cairn-core/internal/domain/health"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain/capability"
+	"github.com/opencairn-org/cairn-core/internal/domain/health"
 )
 
 // HealthRepo implements port.HealthRepo over the health_samples hypertable.

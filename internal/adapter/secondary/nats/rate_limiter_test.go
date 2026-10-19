@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/adapter/secondary/inmem"
+	"github.com/opencairn-org/cairn-core/internal/adapter/secondary/inmem"
 )
 
 // helper: spin up an inmem KV bucket and a rate-limiter on top.

@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // remoteAuthorCard is the JSON shape for a federated kudos-er / commenter — the

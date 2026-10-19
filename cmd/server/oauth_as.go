@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 const (

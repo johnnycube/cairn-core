@@ -58,7 +58,7 @@
 package workerv1
 
 import (
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -4999,8 +4999,8 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"#WEBHOOK_EVENT_TYPE_ACTIVITY_CREATED\x10\x01\x12'\n" +
 	"#WEBHOOK_EVENT_TYPE_ACTIVITY_UPDATED\x10\x02\x12'\n" +
 	"#WEBHOOK_EVENT_TYPE_ACTIVITY_DELETED\x10\x03\x12+\n" +
-	"'WEBHOOK_EVENT_TYPE_ACCOUNT_DEAUTHORIZED\x10\x04B\xcc\x01\n" +
-	"\x13com.cairn.worker.v1B\x12WorkerServiceProtoP\x01ZCgithub.com/johnnycube/cairn-core/gen/proto/cairn/worker/v1;workerv1\xa2\x02\x03CWX\xaa\x02\x0fCairn.Worker.V1\xca\x02\x0fCairn\\Worker\\V1\xe2\x02\x1bCairn\\Worker\\V1\\GPBMetadata\xea\x02\x11Cairn::Worker::V1b\x06proto3"
+	"'WEBHOOK_EVENT_TYPE_ACCOUNT_DEAUTHORIZED\x10\x04B\xcf\x01\n" +
+	"\x13com.cairn.worker.v1B\x12WorkerServiceProtoP\x01ZFgithub.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1;workerv1\xa2\x02\x03CWX\xaa\x02\x0fCairn.Worker.V1\xca\x02\x0fCairn\\Worker\\V1\xe2\x02\x1bCairn\\Worker\\V1\\GPBMetadata\xea\x02\x11Cairn::Worker::V1b\x06proto3"
 
 var (
 	file_cairn_worker_v1_worker_service_proto_rawDescOnce sync.Once

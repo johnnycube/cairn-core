@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
-	"github.com/johnnycube/cairn-core/internal/auth"
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/db"
+	"github.com/opencairn-org/cairn-core/internal/auth"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/db"
 )
 
 // newRotateKeyCmd re-encrypts every secret-at-rest under a new master key.

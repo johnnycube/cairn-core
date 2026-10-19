@@ -3,7 +3,7 @@ package port
 import (
 	"context"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // ShareLinkRepo persists activity share links (migration 34).

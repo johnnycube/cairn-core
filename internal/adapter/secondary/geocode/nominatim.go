@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // Nominatim is a port.Geocoder backed by a Nominatim-compatible /reverse API.
@@ -47,7 +47,7 @@ type Nominatim struct {
 func New(cfg config.GeocoderConfig) *Nominatim {
 	ua := cfg.UserAgent
 	if ua == "" {
-		ua = "Cairn self-hosted activity tracker (https://github.com/johnnycube/cairn-core)"
+		ua = "Cairn self-hosted activity tracker (https://github.com/opencairn-org/cairn-core)"
 	}
 	if cfg.Email != "" {
 		ua = ua + " - " + cfg.Email

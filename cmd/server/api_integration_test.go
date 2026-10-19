@@ -28,10 +28,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/db"
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/httpsig"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/db"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/httpsig"
 )
 
 // The API suite drives the real mux (all REST + Connect-RPC mounts, real Postgres, no NATS/S3)

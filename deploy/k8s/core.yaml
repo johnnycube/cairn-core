@@ -35,7 +35,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: cairn
-          image: ghcr.io/johnnycube/cairn-core:v0.2.0
+          image: ghcr.io/opencairn-org/cairn-core:v0.2.0
           args: ["serve"]
           ports:
             - name: http

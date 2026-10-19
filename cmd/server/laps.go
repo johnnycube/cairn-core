@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // mountLaps exposes an activity's provider-reported laps (splits) for the

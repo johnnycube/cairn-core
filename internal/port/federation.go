@@ -5,7 +5,7 @@ import (
 	"crypto/rsa"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // FederationPublisher announces local activity changes to a user's remote

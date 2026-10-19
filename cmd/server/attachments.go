@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // attachmentsMaxUpload caps an attachment file; attachmentsMaxBody adds headroom for multipart framing and caption.

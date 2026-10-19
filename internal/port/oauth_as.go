@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // OAuthServerRepo persists the OAuth 2.1 authorization-server state: registered

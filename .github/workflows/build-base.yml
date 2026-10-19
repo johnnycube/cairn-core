@@ -17,7 +17,7 @@ name: Build & push build-base toolchain image
 # NOT on every push. Downstream pins the image by the `:1` tag; bump BASE_TAG
 # here AND the `:1` refs in the Dockerfiles/workflows when a tool version moves.
 #
-# Registry: ghcr.io/johnnycube/cairn-build-base
+# Registry: ghcr.io/opencairn-org/cairn-build-base
 # Auth: the built-in GITHUB_TOKEN (packages: write) — no extra secret needed.
 # Supply chain: pushed images get BuildKit provenance + SBOM, a keyless cosign
 # signature, and a GitHub provenance attestation (see build-core.yml for the
@@ -49,7 +49,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/johnnycube/cairn-build-base
+  IMAGE: ghcr.io/opencairn-org/cairn-build-base
   # The pinned major tag downstream Dockerfiles/workflows reference (:1).
   BASE_TAG: "1"
 

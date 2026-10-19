@@ -9,7 +9,7 @@ import (
 
 	"github.com/tormoder/fit"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // FIT renders the activity as a binary FIT activity file using tormoder/fit.

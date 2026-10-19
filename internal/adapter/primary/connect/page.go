@@ -3,7 +3,7 @@ package connect
 import (
 	"strconv"
 
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 )
 
 // Pagination helpers. The proto PageRequest uses an opaque cursor; for

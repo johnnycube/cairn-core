@@ -11,7 +11,7 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // ComputeStartPlace resolves an activity's start location from the first GPS

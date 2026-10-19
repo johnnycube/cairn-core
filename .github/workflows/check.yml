@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
-      image: ghcr.io/johnnycube/cairn-build-base:1
+      image: ghcr.io/opencairn-org/cairn-build-base:1
     # Throwaway TimescaleDB+PostGIS for the integration suite; same image as docker-compose.dev.yml.
     services:
       postgres:
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
-      image: ghcr.io/johnnycube/cairn-build-base:1
+      image: ghcr.io/opencairn-org/cairn-build-base:1
     env:
       # The image pins GOTOOLCHAIN=local; follow go.mod's toolchain line instead.
       GOTOOLCHAIN: auto

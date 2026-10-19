@@ -24,7 +24,7 @@ spec:
         runAsUser: 10002 # the `worker` user baked into the image
       containers:
         - name: worker
-          image: ghcr.io/johnnycube/cairn-provider-strava:v0.2.0
+          image: ghcr.io/opencairn-org/cairn-provider-strava:v0.2.0
           env:
             - name: CAIRN_NATS_URL
               valueFrom:

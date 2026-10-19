@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // unsetEnv clears key for the test and restores it afterwards.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // Options selects which parts of the activity end up in an exported file.

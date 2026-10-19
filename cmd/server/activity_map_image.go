@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/staticmap"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/staticmap"
 )
 
 // activity_map_image.go serves a static PNG snapshot of an activity's course —
@@ -48,7 +48,7 @@ func newTileFetcher(cfg config.MapConfig) staticmap.TileFetcher {
 	client := &http.Client{Timeout: cfg.Timeout}
 	ua := cfg.UserAgent
 	if ua == "" {
-		ua = "Cairn/" + Version + " (static map; +https://github.com/johnnycube/cairn-core)"
+		ua = "Cairn/" + Version + " (static map; +https://github.com/opencairn-org/cairn-core)"
 	}
 	return func(ctx context.Context, z, x, y int) (image.Image, error) {
 		r := strings.NewReplacer("{z}", strconv.Itoa(z), "{x}", strconv.Itoa(x), "{y}", strconv.Itoa(y))

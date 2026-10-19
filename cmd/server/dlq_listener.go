@@ -10,8 +10,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // startDLQListener subscribes to JetStream's MaxDeliveries advisory

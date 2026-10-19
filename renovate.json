@@ -46,7 +46,7 @@
     },
     {
       "description": "The build-base image floats on its major tag by design; downstream repos pull :1.",
-      "matchDepNames": ["ghcr.io/johnnycube/cairn-build-base"],
+      "matchDepNames": ["ghcr.io/opencairn-org/cairn-build-base"],
       "pinDigests": false
     }
   ]

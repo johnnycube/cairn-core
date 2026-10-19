@@ -1,9 +1,9 @@
 package protoconv
 
 import (
-	cairnv1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	workerv1 "github.com/johnnycube/cairn-core/gen/proto/cairn/worker/v1"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // ClimbCategoryFromProto maps the wire enum to the domain value.

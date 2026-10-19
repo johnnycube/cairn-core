@@ -18,12 +18,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
-	webui "github.com/johnnycube/cairn-core/internal/adapter/primary/web"
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/db"
-	"github.com/johnnycube/cairn-core/internal/port"
-	"github.com/johnnycube/cairn-core/internal/usecase/admin"
-	syncuc "github.com/johnnycube/cairn-core/internal/usecase/sync"
+	webui "github.com/opencairn-org/cairn-core/internal/adapter/primary/web"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/db"
+	"github.com/opencairn-org/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/usecase/admin"
+	syncuc "github.com/opencairn-org/cairn-core/internal/usecase/sync"
 )
 
 func newServeCmd() *cobra.Command {

@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/httpsig"
-	"github.com/johnnycube/cairn-core/internal/safehttp"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/httpsig"
+	"github.com/opencairn-org/cairn-core/internal/safehttp"
 )
 
 // federationClient is the SSRF-guarded client for all remote actor/inbox fetches.

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // ---------------------------------------------------------------------------

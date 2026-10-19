@@ -5,7 +5,7 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // activities_heatmap serves every GPS track the owner's activities have, in

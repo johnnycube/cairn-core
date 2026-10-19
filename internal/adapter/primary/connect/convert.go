@@ -7,8 +7,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // activityToProto converts a merged domain.Activity to its proto twin.

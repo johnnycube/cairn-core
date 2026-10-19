@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
-	"github.com/johnnycube/cairn-core/internal/safehttp"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/safehttp"
 )
 
 // DeliverNotifications fans freshly-created notifications out to a user's

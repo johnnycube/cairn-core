@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/usecase/auth"
+	"github.com/opencairn-org/cairn-core/internal/usecase/auth"
 )
 
 // Cookie names. SESSION is the long-lived bearer; LOGIN_FLOW carries

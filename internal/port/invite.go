@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // InviteRepo persists signup invites. Codes are stored only as a SHA-256 hash;

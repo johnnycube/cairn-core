@@ -5429,8 +5429,8 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\x0fListBestEfforts\x12 .cairn.v1.ListBestEffortsRequest\x1a!.cairn.v1.ListBestEffortsResponse\x12J\n" +
 	"\vListRecords\x12\x1c.cairn.v1.ListRecordsRequest\x1a\x1d.cairn.v1.ListRecordsResponse\x12k\n" +
 	"\x16CreateCustomBestEffort\x12'.cairn.v1.CreateCustomBestEffortRequest\x1a(.cairn.v1.CreateCustomBestEffortResponse\x12k\n" +
-	"\x16DeleteCustomBestEffort\x12'.cairn.v1.DeleteCustomBestEffortRequest\x1a(.cairn.v1.DeleteCustomBestEffortResponseB\x9b\x01\n" +
-	"\fcom.cairn.v1B\rActivityProtoP\x01Z;github.com/johnnycube/cairn-core/gen/proto/cairn/v1;cairnv1\xa2\x02\x03CXX\xaa\x02\bCairn.V1\xca\x02\bCairn\\V1\xe2\x02\x14Cairn\\V1\\GPBMetadata\xea\x02\tCairn::V1b\x06proto3"
+	"\x16DeleteCustomBestEffort\x12'.cairn.v1.DeleteCustomBestEffortRequest\x1a(.cairn.v1.DeleteCustomBestEffortResponseB\x9e\x01\n" +
+	"\fcom.cairn.v1B\rActivityProtoP\x01Z>github.com/opencairn-org/cairn-core/gen/proto/cairn/v1;cairnv1\xa2\x02\x03CXX\xaa\x02\bCairn.V1\xca\x02\bCairn\\V1\xe2\x02\x14Cairn\\V1\\GPBMetadata\xea\x02\tCairn::V1b\x06proto3"
 
 var (
 	file_cairn_v1_activity_proto_rawDescOnce sync.Once

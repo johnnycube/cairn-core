@@ -3,7 +3,7 @@ package port
 import (
 	"context"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // OIDC providers are configured via env (CAIRN_OIDC_*) and held in memory —

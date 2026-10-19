@@ -12,8 +12,8 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/db"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/db"
 )
 
 // newMigrateCmd builds the `cairn migrate` subtree. All subcommands share

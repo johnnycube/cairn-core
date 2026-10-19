@@ -640,8 +640,8 @@ const file_cairn_v1_common_proto_rawDesc = "" +
 	"\x14ERROR_CLASS_CONFLICT\x10\x04\x12\x1c\n" +
 	"\x18ERROR_CLASS_RATE_LIMITED\x10\x05\x12&\n" +
 	"\"ERROR_CLASS_DEPENDENCY_UNAVAILABLE\x10\x06\x12\x18\n" +
-	"\x14ERROR_CLASS_INTERNAL\x10\aB\x99\x01\n" +
-	"\fcom.cairn.v1B\vCommonProtoP\x01Z;github.com/johnnycube/cairn-core/gen/proto/cairn/v1;cairnv1\xa2\x02\x03CXX\xaa\x02\bCairn.V1\xca\x02\bCairn\\V1\xe2\x02\x14Cairn\\V1\\GPBMetadata\xea\x02\tCairn::V1b\x06proto3"
+	"\x14ERROR_CLASS_INTERNAL\x10\aB\x9c\x01\n" +
+	"\fcom.cairn.v1B\vCommonProtoP\x01Z>github.com/opencairn-org/cairn-core/gen/proto/cairn/v1;cairnv1\xa2\x02\x03CXX\xaa\x02\bCairn.V1\xca\x02\bCairn\\V1\xe2\x02\x14Cairn\\V1\\GPBMetadata\xea\x02\tCairn::V1b\x06proto3"
 
 var (
 	file_cairn_v1_common_proto_rawDescOnce sync.Once

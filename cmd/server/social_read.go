@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // social_read.go centralises the multi-user read-path: resolving a viewer's

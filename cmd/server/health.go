@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain/capability"
-	"github.com/johnnycube/cairn-core/internal/domain/health"
+	"github.com/opencairn-org/cairn-core/internal/domain/capability"
+	"github.com/opencairn-org/cairn-core/internal/domain/health"
 )
 
 // mountHealth serves merged daily health metrics (raw per-provider samples

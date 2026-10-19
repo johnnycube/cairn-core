@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // mountAnalysis powers the Analysis page: the daily training-load series
