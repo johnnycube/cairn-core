@@ -18,7 +18,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: migrate
-          image: ghcr.io/johnnycube/cairn-core:v0.2.0
+          image: ghcr.io/opencairn-org/cairn-core:v0.2.0
           args: ["migrate", "up"]
           envFrom:
             - configMapRef:

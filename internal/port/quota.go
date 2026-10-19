@@ -3,7 +3,7 @@ package port
 import (
 	"context"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // QuotaRepo persists per-user quota overrides (migration 37). A nil override

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 func testStore(t *testing.T) *BlobStore {

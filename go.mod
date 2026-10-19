@@ -1,4 +1,4 @@
-module github.com/johnnycube/cairn-core
+module github.com/opencairn-org/cairn-core
 
 // Go 1.26 is the current stable as of May 2026 (released Feb 2026).
 // Go 1.22 went EOL when 1.24 dropped; the support policy is "two most

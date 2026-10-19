@@ -9,9 +9,9 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
-	"github.com/johnnycube/cairn-core/internal/usecase/enrollment"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/usecase/enrollment"
 )
 
 // AuthCalloutSubscriber subscribes to NATS's auth-callout subject and

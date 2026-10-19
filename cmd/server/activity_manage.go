@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/usecase/besteffort"
-	"github.com/johnnycube/cairn-core/internal/usecase/segment"
-	"github.com/johnnycube/cairn-core/internal/usecase/trainingload"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/usecase/besteffort"
+	"github.com/opencairn-org/cairn-core/internal/usecase/segment"
+	"github.com/opencairn-org/cairn-core/internal/usecase/trainingload"
 )
 
 // fieldGroupLabels maps the merge engine's field-group keys to user-facing

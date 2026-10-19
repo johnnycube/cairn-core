@@ -16,7 +16,7 @@
 # docker/Dockerfile.core, the cairn-provider-strava repo's Dockerfile/CI, and
 # the CI `container:` blocks:
 #   docker build -f docker/Dockerfile.build-base \
-#     -t ghcr.io/johnnycube/cairn-build-base:1 .
+#     -t ghcr.io/opencairn-org/cairn-build-base:1 .
 #
 # Consumers:
 #   * docker/Dockerfile.core — `FROM ${BUILD_BASE}` build stage, runs `make

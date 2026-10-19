@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/johnnycube/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/config"
 )
 
 // instance_features tells the SPA which optional, instance-level features are

@@ -6,10 +6,10 @@ import (
 
 	connectrpc "connectrpc.com/connect/v2"
 
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	"github.com/johnnycube/cairn-core/gen/proto/cairn/v1/cairnv1connect"
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	"github.com/opencairn-org/cairn-core/gen/proto/cairn/v1/cairnv1connect"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // AdminServer implements cairnv1connect.AdminServiceHandler.

@@ -10,7 +10,7 @@ the network.
 ## Decision
 
 `api/proto/buf.gen.yaml` uses only `local:` plugins. `docker/Dockerfile.build-base` pins Go, Node,
-buf, protoc and every plugin, and is published as `ghcr.io/johnnycube/cairn-build-base:1`. CI
+buf, protoc and every plugin, and is published as `ghcr.io/opencairn-org/cairn-build-base:1`. CI
 (`make check`) and the release image build run inside it. The Go stubs in `gen/proto` are
 committed so `go mod tidy` works on a clean checkout (Renovate runs it); `make proto-check` fails
 when they drift. TypeScript stubs and OpenAPI output are regenerated, not committed.

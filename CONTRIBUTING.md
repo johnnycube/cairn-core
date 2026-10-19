@@ -32,7 +32,7 @@ Quick start:
 
 ```sh
 # Clone and bring up infra
-git clone https://github.com/johnnycube/cairn-core
+git clone https://github.com/opencairn-org/cairn-core
 cd cairn
 make dev-up        # docker compose -f docker-compose.dev.yml up -d
 
@@ -99,7 +99,7 @@ is "this saves more developer time than it will cost over five years".
 ## Pull request process
 
 1. Fork, branch off `main`, push your branch to your fork.
-2. Open a PR against `johnnycube/cairn-core:main`. Fill in the template.
+2. Open a PR against `opencairn-org/cairn-core:main`. Fill in the template.
 3. CI must pass (`make check`). Maintainers won't review red PRs.
 4. Address review feedback by amending or pushing follow-up commits.
    We squash on merge, so commit-history-grooming on your branch is

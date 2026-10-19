@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 var clubSlugRe = regexp.MustCompile(`[^a-z0-9]+`)

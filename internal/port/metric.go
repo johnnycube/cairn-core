@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // MetricRepo persists and reads `metrics` hypertable rows.

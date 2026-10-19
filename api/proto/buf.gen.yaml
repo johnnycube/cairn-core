@@ -5,7 +5,7 @@ managed:
     # Go modules will be generated relative to this path.
     # Must match the module declaration in /go.mod.
     - file_option: go_package_prefix
-      value: github.com/johnnycube/cairn-core/gen/proto
+      value: github.com/opencairn-org/cairn-core/gen/proto
 # All plugins are LOCAL (binaries on PATH) — no buf.build remote calls, so
 # `buf generate` runs fully offline and never hits BSR rate limits. The
 # toolchain that provides these binaries is docker/Dockerfile.build-base

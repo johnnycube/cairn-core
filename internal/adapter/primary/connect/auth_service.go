@@ -8,10 +8,10 @@ import (
 	connectrpc "connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
-	"github.com/johnnycube/cairn-core/gen/proto/cairn/v1/cairnv1connect"
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	"github.com/opencairn-org/cairn-core/gen/proto/cairn/v1/cairnv1connect"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // AuthServer implements cairnv1connect.AuthServiceHandler.

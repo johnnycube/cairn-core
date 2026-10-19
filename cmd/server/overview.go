@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // mountOverview powers the landing dashboard: lifetime totals, a per-sport

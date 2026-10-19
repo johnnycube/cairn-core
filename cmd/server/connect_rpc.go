@@ -7,8 +7,8 @@ import (
 	connectrpc "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 
-	"github.com/johnnycube/cairn-core/gen/proto/cairn/v1/cairnv1connect"
-	connectadapter "github.com/johnnycube/cairn-core/internal/adapter/primary/connect"
+	"github.com/opencairn-org/cairn-core/gen/proto/cairn/v1/cairnv1connect"
+	connectadapter "github.com/opencairn-org/cairn-core/internal/adapter/primary/connect"
 )
 
 // mountConnectRPC registers every cairn.v1.* Connect-RPC service the

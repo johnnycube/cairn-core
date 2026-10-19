@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ghcr.io/johnnycube/cairn-provider-garmin:v0.2.0
+          image: ghcr.io/opencairn-org/cairn-provider-garmin:v0.2.0
           env:
             # Provider + version + package are compiled into the binary (they
             # define the worker schema), so no version/package env here.

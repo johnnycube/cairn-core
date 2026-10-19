@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // homeFeedEntry is one feed row with its sort timestamp.

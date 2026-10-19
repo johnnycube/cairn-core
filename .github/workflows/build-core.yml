@@ -11,19 +11,19 @@ name: Build & push core image
 # Dockerfile's own `proto` stage (FROM build-base) regenerates it in-image — so
 # this workflow needs no setup-go / buf-setup / proto cache.
 #
-# Registry: ghcr.io/johnnycube/cairn-core
+# Registry: ghcr.io/opencairn-org/cairn-core
 # Auth: the built-in GITHUB_TOKEN (packages: write) — no extra secret needed.
-# Depends on the PUBLIC ghcr.io/johnnycube/cairn-build-base:1 package (published
+# Depends on the PUBLIC ghcr.io/opencairn-org/cairn-build-base:1 package (published
 # by build-base.yml); a public package pulls without credentials.
 #
 # Supply chain: pushed images carry BuildKit SLSA provenance + SBOM
 # attestations, are signed keyless with cosign (Fulcio cert bound to this
 # workflow's OIDC identity, logged in Rekor), and get a GitHub provenance
 # attestation (verifiable via `gh attestation verify`). Verify with:
-#   cosign verify ghcr.io/johnnycube/cairn-core:<tag> \
+#   cosign verify ghcr.io/opencairn-org/cairn-core:<tag> \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #     --certificate-identity-regexp \
-#       '^https://github.com/johnnycube/cairn-core/\.github/workflows/build-core\.yml@.*'
+#       '^https://github.com/opencairn-org/cairn-core/\.github/workflows/build-core\.yml@.*'
 #
 # Triggers (PRs are gated by check.yml and never reach the registry):
 #   - push to the default branch  → publishes  sha-<short>  (+ latest)
@@ -43,8 +43,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/johnnycube/cairn-core
-  BUILD_BASE: ghcr.io/johnnycube/cairn-build-base:1
+  IMAGE: ghcr.io/opencairn-org/cairn-core
+  BUILD_BASE: ghcr.io/opencairn-org/cairn-build-base:1
 
 jobs:
   # Gate: `make check` (check.yml) must be green before an image is built.

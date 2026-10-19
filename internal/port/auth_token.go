@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // ErrAuthTokenInvalid is returned by the Consume* methods when a token does not

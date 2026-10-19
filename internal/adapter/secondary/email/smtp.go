@@ -17,8 +17,8 @@ import (
 
 	gomail "github.com/wneessen/go-mail"
 
-	"github.com/johnnycube/cairn-core/internal/config"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // SMTPSender sends mail over SMTP, with optional STARTTLS + AUTH. For a plain

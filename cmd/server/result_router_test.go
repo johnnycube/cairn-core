@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	workerv1 "github.com/johnnycube/cairn-core/gen/proto/cairn/worker/v1"
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // fakeQueue records MarkFailedByExternalID calls; all other

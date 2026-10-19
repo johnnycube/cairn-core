@@ -21,7 +21,7 @@ package cairnv1connect
 import (
 	connect "connectrpc.com/connect/v2"
 	context "context"
-	v1 "github.com/johnnycube/cairn-core/gen/proto/cairn/v1"
+	v1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 	sync "sync"
 )
 

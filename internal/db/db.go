@@ -25,7 +25,7 @@ import (
 	"github.com/pressly/goose/v3/database"
 	pgxuuid "github.com/vgarvardt/pgx-google-uuid/v5"
 
-	"github.com/johnnycube/cairn-core/internal/db/migrations"
+	"github.com/opencairn-org/cairn-core/internal/db/migrations"
 )
 
 // Config holds connection and pool settings. All fields are populated from

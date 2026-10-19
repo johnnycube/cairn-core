@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // mountProfiles wires public athlete profiles + the owner's profile/visibility

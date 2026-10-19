@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/domain/capability"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain/capability"
 )
 
 // Sample is one health reading from one provider.

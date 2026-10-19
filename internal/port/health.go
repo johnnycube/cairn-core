@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/domain/capability"
-	"github.com/johnnycube/cairn-core/internal/domain/health"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain/capability"
+	"github.com/opencairn-org/cairn-core/internal/domain/health"
 )
 
 // HealthRepo persists raw per-provider health samples (HRV, Sleep, Weight, …).

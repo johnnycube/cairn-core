@@ -6,7 +6,7 @@
 #   make check               # lint, tests, coverage, audit, build, fleetlint
 #
 # Runtime prerequisites: Go (go.mod), Node (web/.nvmrc), Postgres 16+ with TimescaleDB + PostGIS.
-# CI runs `make check` inside ghcr.io/johnnycube/cairn-build-base, which carries the same toolchain.
+# CI runs `make check` inside ghcr.io/opencairn-org/cairn-build-base, which carries the same toolchain.
 SHELL := bash
 .SHELLFLAGS := -euo pipefail -c
 .ONESHELL:
@@ -116,7 +116,7 @@ cover: web-cover ## coverage gates: Go total (gen/ excluded) >= COVER_MIN (with 
 # go-licenses spots stdlib packages by GOROOT; pass the active toolchain's, not the one it was built with
 audit: web-audit ## vulnerabilities, licenses, tidy module graph, secrets
 	govulncheck $(PKGS)
-	GOROOT=$$($(GO) env GOROOT) go-licenses check $(PKGS) --ignore github.com/johnnycube/cairn-core --allowed_licenses=$(LICENSES)
+	GOROOT=$$($(GO) env GOROOT) go-licenses check $(PKGS) --ignore github.com/opencairn-org/cairn-core --allowed_licenses=$(LICENSES)
 	$(GO) mod tidy -diff
 	gitleaks git --no-banner --redact .
 
@@ -127,7 +127,7 @@ mutate: ## mutation testing of internal/domain (weekly in CI, not part of check)
 	gremlins unleash --threshold-efficacy $(MUTATION_MIN) ./internal/domain
 
 dist: ## the release image, locally (CI builds and pushes it in build-core.yml)
-	docker build -f docker/Dockerfile.core -t ghcr.io/johnnycube/cairn-core:dev .
+	docker build -f docker/Dockerfile.core -t ghcr.io/opencairn-org/cairn-core:dev .
 
 check-fast: ## before every commit (< 30 s)
 	golangci-lint fmt --diff

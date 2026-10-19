@@ -19,7 +19,7 @@
 
 # Shared toolchain image (Go + Node + buf + local proto plugins). Bump the tag
 # when docker/Dockerfile.build-base's pinned tool versions change.
-ARG BUILD_BASE=ghcr.io/johnnycube/cairn-build-base:1
+ARG BUILD_BASE=ghcr.io/opencairn-org/cairn-build-base:1
 
 # ---- stage 1: generate proto code (offline, pinned toolchain) --------------
 FROM ${BUILD_BASE} AS proto

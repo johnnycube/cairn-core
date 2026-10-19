@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/johnnycube/cairn-core/internal/auth"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/auth"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // seedUser inserts a throwaway user and returns its id, for FK-satisfying

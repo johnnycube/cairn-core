@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // Bus is the in-memory port.JobBus.

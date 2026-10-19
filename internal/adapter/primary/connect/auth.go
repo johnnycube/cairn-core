@@ -9,8 +9,8 @@ import (
 
 	connectrpc "connectrpc.com/connect/v2"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // connectErrNotAuthenticated is returned when no identity is in the context.

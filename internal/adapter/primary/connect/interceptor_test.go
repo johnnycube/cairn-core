@@ -7,7 +7,7 @@ import (
 
 	connectrpc "connectrpc.com/connect/v2"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 func callInterceptor(t *testing.T, ic connectrpc.ServerInterceptor, ctx context.Context, spec connectrpc.Spec) (bool, error) {

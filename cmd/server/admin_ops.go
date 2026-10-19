@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	natsadapter "github.com/johnnycube/cairn-core/internal/adapter/secondary/nats"
-	"github.com/johnnycube/cairn-core/internal/adapter/secondary/postgres"
-	"github.com/johnnycube/cairn-core/internal/domain"
+	natsadapter "github.com/opencairn-org/cairn-core/internal/adapter/secondary/nats"
+	"github.com/opencairn-org/cairn-core/internal/adapter/secondary/postgres"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // adminOpsHandlers holds the dependencies of the admin maintenance routes.

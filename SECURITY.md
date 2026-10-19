@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The latest release (the newest `v*` tag and its `ghcr.io/johnnycube/cairn-core` image). Older releases do not receive fixes.
+The latest release (the newest `v*` tag and its `ghcr.io/opencairn-org/cairn-core` image). Older releases do not receive fixes.
 
 ## Reporting a vulnerability
 

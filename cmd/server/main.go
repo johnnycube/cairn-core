@@ -28,7 +28,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/johnnycube/cairn-core/internal/config"
+	"github.com/opencairn-org/cairn-core/internal/config"
 )
 
 func main() {

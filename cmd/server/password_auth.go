@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
 // mountPasswordAuth registers the username/email + password sign-in

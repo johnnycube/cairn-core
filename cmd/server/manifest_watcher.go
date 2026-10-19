@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/johnnycube/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/port"
 )
 
 // startManifestWatcher launches a goroutine watching the

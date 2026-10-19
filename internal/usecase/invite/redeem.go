@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/port"
-	"github.com/johnnycube/cairn-core/internal/usecase/admin"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/port"
+	"github.com/opencairn-org/cairn-core/internal/usecase/admin"
 )
 
 // RedeemInvite turns a valid invite code into a new user account. The invite is

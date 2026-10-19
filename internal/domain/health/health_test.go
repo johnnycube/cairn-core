@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/johnnycube/cairn-core/internal/domain"
-	"github.com/johnnycube/cairn-core/internal/domain/capability"
+	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain/capability"
 )
 
 func f(v float64) *float64 { return &v }
