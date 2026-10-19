@@ -6,8 +6,18 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-10-19
+
 ### Added
 - `make proto-breaking`, part of `make check`: `buf breaking` against the previous release tag, so a breaking change to the proto contract fails before the tag.
+
+### Changed
+- The project moved to the `opencairn-org` GitHub organization. The image is
+  published as `ghcr.io/opencairn-org/cairn-core` (toolchain:
+  `ghcr.io/opencairn-org/cairn-build-base`); the `ghcr.io/johnnycube`
+  namespace keeps the tags published so far as a frozen mirror and receives
+  no new versions, so image pins and Renovate rules should move. The Go
+  module path is `github.com/opencairn-org/cairn-core`.
 
 ## [0.3.2] — 2026-10-15
 
@@ -352,6 +362,7 @@ workers ([cairn-provider-strava], [cairn-provider-garmin]).
 
 Initial development (internal pre-release iterations v0.1.0–v0.1.12).
 
+[0.3.3]: https://github.com/opencairn-org/cairn-core/releases/tag/v0.3.3
 [0.3.0]: https://github.com/johnnycube/cairn-core/releases/tag/v0.3.0
 [0.2.6]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.6
 [0.2.5]: https://github.com/johnnycube/cairn-core/releases/tag/v0.2.5
