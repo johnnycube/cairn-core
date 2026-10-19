@@ -32,7 +32,7 @@ CONTAINER       ?= $(shell command -v podman 2>/dev/null || command -v docker 2>
 LICENSES  ?= MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
 # Each pin carries a `# renovate:` comment so Renovate bumps it (customManagers in renovate.json).
 # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
-GOLANGCI_VERSION      ?= v2.14.0
+GOLANGCI_VERSION      ?= v2.15.0
 # renovate: datasource=go depName=golang.org/x/vuln
 GOVULNCHECK_VERSION   ?= v1.9.0
 # renovate: datasource=go depName=github.com/google/go-licenses/v2
