@@ -91,8 +91,6 @@
 	"gear_title": "Gear",
 	"gear_intro": "Your bikes and shoes. Gear is attached to activities from your connected providers, or by you; totals are computed from your activities.",
 	"gear_add": "Add gear",
-	"gear_cancel": "Cancel",
-	"gear_save": "Save",
 	"gear_edit": "Edit",
 	"gear_retire": "Retire",
 	"gear_unretire": "Bring back",
@@ -125,5 +123,16 @@
 	"gear_reset_auto": "Reset to automatic",
 	"gear_filter_label": "Gear",
 	"notification_gear_decision_label": "Gear needs a decision",
-	"notification_gear_decision_link": "→ Gear"
+	"notification_gear_decision_link": "→ Gear",
+	"save": "Save",
+	"cancel": "Cancel",
+	"filter_all": "All",
+	"gear_kind_bike": "Bike",
+	"gear_kind_shoe": "Shoes",
+	"gear_kind_other": "Other",
+	"gear_picker_none": "— no gear —",
+	"gear_retired_suffix": "(retired)",
+	"gear_confirm_delete": "Delete “{name}”? {count} activities keep no gear afterwards.",
+	"gear_confirm_merge": "Merge “{from}” into “{to}”? Its activities and provider records move over; this cannot be undone.",
+	"gear_sync_queued": "Gear sync queued — new gear shows up under Gear as the worker reports it."
 }

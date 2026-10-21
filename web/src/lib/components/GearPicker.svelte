@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { gearLabel, pickerOptions, type GearView } from '#lib/gear.js';
 
 	// Gear select for an activity of `type`: matching kind first, retired gear
@@ -12,6 +13,7 @@
 	}: { gear: GearView[]; type: string; value?: string; id?: string; disabled?: boolean } = $props();
 
 	const options = $derived(pickerOptions(gear, type, value));
+	const label = (g: GearView) => gearLabel(g) + (g.retired ? ` ${m.gear_retired_suffix()}` : '');
 </script>
 
 <select
@@ -20,14 +22,14 @@
 	{disabled}
 	class="mt-1 w-full rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm disabled:opacity-50"
 >
-	<option value="">— no gear —</option>
+	<option value="">{m.gear_picker_none()}</option>
 	{#each options.matching as g (g.id)}
-		<option value={g.id}>{gearLabel(g)}{g.retired ? ' (retired)' : ''}</option>
+		<option value={g.id}>{label(g)}</option>
 	{/each}
 	{#if options.others.length > 0}
 		<option disabled>──────</option>
 		{#each options.others as g (g.id)}
-			<option value={g.id}>{gearLabel(g)}{g.retired ? ' (retired)' : ''}</option>
+			<option value={g.id}>{label(g)}</option>
 		{/each}
 	{/if}
 </select>

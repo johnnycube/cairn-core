@@ -61,7 +61,7 @@
 					}}
 					class="{chip} {filter.type === '' ? chipOn : chipOff}"
 				>
-					All
+					{m.filter_all()}
 				</button>
 				{#each facets.types as f (f.value)}
 					<button
@@ -85,7 +85,7 @@
 					onclick={() => (filter.discipline = '')}
 					class="{chip} {filter.discipline === '' ? chipOn : chipOff}"
 				>
-					All
+					{m.filter_all()}
 				</button>
 				{#each facets.disciplines as f (f.value)}
 					<button
@@ -151,7 +151,7 @@
 					onclick={() => (filter.gearId = '')}
 					class="{chip} {filter.gearId === '' ? chipOn : chipOff}"
 				>
-					All
+					{m.filter_all()}
 				</button>
 				{#each gearChips as g (g.id)}
 					<button

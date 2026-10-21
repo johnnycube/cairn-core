@@ -6,7 +6,14 @@
 	import { enumValue } from '#lib/proto-helpers.js';
 	import { ACTIVITY_TYPES } from '#lib/activity-types.js';
 	import { formatDistance, formatDuration, formatDateOnly } from '#lib/format.js';
-	import { GEAR_KINDS, gearLabel, kindValue, type GearRefView, type GearView } from '#lib/gear.js';
+	import {
+		GEAR_KINDS,
+		gearKindLabel,
+		gearLabel,
+		kindValue,
+		type GearRefView,
+		type GearView
+	} from '#lib/gear.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -29,15 +36,6 @@
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
-	// Pending decisions: "later" only hides the card for this visit; the
-	// record stays pending on the server until a real decision.
-	let dismissed = $state<Record<string, boolean>>({});
-	let mapTarget = $state<Record<string, string>>({});
-	function refKey(r: GearRefView): string {
-		return `${r.provider}:${r.externalAccountId}:${r.externalId}`;
-	}
-	const openPending = $derived(data.pending.filter((r) => !dismissed[refKey(r)]));
-
 	async function run(fn: () => Promise<unknown>) {
 		busy = true;
 		error = null;
@@ -50,6 +48,13 @@
 			busy = false;
 		}
 	}
+
+	// ---- pending decisions: "later" only hides the card for this visit; the
+	// record stays pending on the server until a real decision.
+	let dismissed = $state<Record<string, boolean>>({});
+	let mapTarget = $state<Record<string, string>>({});
+	const refKey = (r: GearRefView) => `${r.provider}:${r.externalAccountId}:${r.externalId}`;
+	const openPending = $derived(data.pending.filter((r) => !dismissed[refKey(r)]));
 
 	function createFromRef(r: GearRefView) {
 		return run(() =>
@@ -72,72 +77,72 @@
 		);
 	}
 
-	// Create form.
-	let showCreate = $state(false);
-	let cKind = $state('bike');
-	let cName = $state('');
-	let cBrand = $state('');
-	let cModel = $state('');
-	let cPurchase = $state('');
-	let cNotes = $state('');
-	function createGear() {
+	// ---- one form for create and edit; editingId says which.
+	type GearForm = {
+		kind: string;
+		name: string;
+		brand: string;
+		model: string;
+		purchaseDate: string;
+		notes: string;
+	};
+	const emptyForm = (): GearForm => ({
+		kind: 'bike',
+		name: '',
+		brand: '',
+		model: '',
+		purchaseDate: '',
+		notes: ''
+	});
+	let form = $state<GearForm>(emptyForm());
+	let editingId = $state<string | null>(null); // '' = creating, null = closed
+
+	function openCreate() {
+		form = emptyForm();
+		editingId = editingId === '' ? null : '';
+	}
+	function openEdit(g: GearView) {
+		form = {
+			kind: g.kind,
+			name: g.name,
+			brand: g.brand,
+			model: g.model,
+			purchaseDate: g.purchaseDate,
+			notes: g.notes
+		};
+		editingId = g.id;
+	}
+	function closeForm() {
+		editingId = null;
+	}
+	function submitForm() {
+		const fields = {
+			kind: kindValue(form.kind),
+			name: form.name.trim(),
+			brand: form.brand.trim(),
+			model: form.model.trim(),
+			purchaseDate: form.purchaseDate,
+			notes: form.notes
+		};
 		return run(async () => {
-			await clients.gear.createGear({
-				kind: kindValue(cKind),
-				name: cName.trim(),
-				brand: cBrand.trim(),
-				model: cModel.trim(),
-				purchaseDate: cPurchase,
-				notes: cNotes
-			});
-			cName = cBrand = cModel = cPurchase = cNotes = '';
-			showCreate = false;
+			if (editingId) {
+				await clients.gear.updateGear({
+					id: editingId,
+					fieldMask: ['name', 'brand', 'model', 'notes', 'purchase_date', 'kind'],
+					...fields
+				});
+			} else {
+				await clients.gear.createGear(fields);
+			}
+			editingId = null;
 		});
 	}
 
-	// Inline edit of one gear at a time.
-	let editId = $state<string | null>(null);
-	let eKind = $state('bike');
-	let eName = $state('');
-	let eBrand = $state('');
-	let eModel = $state('');
-	let ePurchase = $state('');
-	let eNotes = $state('');
-	function startEdit(g: GearView) {
-		editId = g.id;
-		eKind = g.kind;
-		eName = g.name;
-		eBrand = g.brand;
-		eModel = g.model;
-		ePurchase = g.purchaseDate;
-		eNotes = g.notes;
-	}
-	function saveEdit(g: GearView) {
-		return run(async () => {
-			await clients.gear.updateGear({
-				id: g.id,
-				fieldMask: ['name', 'brand', 'model', 'notes', 'purchase_date', 'kind'],
-				name: eName.trim(),
-				brand: eBrand.trim(),
-				model: eModel.trim(),
-				notes: eNotes,
-				purchaseDate: ePurchase,
-				kind: kindValue(eKind)
-			});
-			editId = null;
-		});
-	}
 	function setRetired(g: GearView, retired: boolean) {
 		return run(() => clients.gear.updateGear({ id: g.id, fieldMask: ['retired'], retired }));
 	}
 	function remove(g: GearView) {
-		const n = g.activityCount;
-		if (
-			!confirm(
-				`Delete "${g.name}"? ${n} ${n === 1 ? 'activity keeps' : 'activities keep'} no gear afterwards.`
-			)
-		)
-			return;
+		if (!confirm(m.gear_confirm_delete({ name: g.name, count: g.activityCount }))) return;
 		return run(() => clients.gear.deleteGear({ id: g.id }));
 	}
 
@@ -146,12 +151,7 @@
 		const to = mergeInto[g.id];
 		if (!to) return;
 		const target = data.gear.find((x) => x.id === to);
-		if (
-			!confirm(
-				`Merge "${g.name}" into "${target?.name ?? to}"? Its activities and provider records move over; this cannot be undone.`
-			)
-		)
-			return;
+		if (!confirm(m.gear_confirm_merge({ from: g.name, to: target?.name ?? to }))) return;
 		return run(() => clients.gear.mergeGear({ fromId: g.id, toId: to }));
 	}
 
@@ -163,13 +163,79 @@
 		);
 	}
 
+	const optionLabel = (g: GearView) =>
+		gearLabel(g) + (g.retired ? ` ${m.gear_retired_suffix()}` : '');
+
 	const field = 'mt-1 w-full rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm';
+	const select = 'rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300';
 	const btn =
 		'rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-accent-500 hover:text-accent-300 disabled:opacity-50';
 	const btnPrimary =
 		'rounded border border-accent-500 bg-accent-500/20 px-2.5 py-1 text-xs text-accent-300 hover:bg-accent-500/30 disabled:opacity-50';
-	const kindLabel = (k: string) => GEAR_KINDS.find((x) => x.value === k)?.label ?? k;
+	const badge = 'rounded px-1.5 py-0.5 text-[11px] uppercase tracking-wide';
 </script>
+
+{#snippet gearForm()}
+	<form
+		class="space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5"
+		onsubmit={(e) => {
+			e.preventDefault();
+			submitForm();
+		}}
+	>
+		<div class="grid grid-cols-2 gap-4 max-md:grid-cols-1">
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="g-kind"
+					>{m.gear_field_kind()}</label
+				>
+				<select id="g-kind" bind:value={form.kind} class={field}>
+					{#each GEAR_KINDS as k (k)}<option value={k}>{gearKindLabel(k)}</option>{/each}
+				</select>
+			</div>
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="g-name"
+					>{m.gear_field_name()}</label
+				>
+				<input id="g-name" bind:value={form.name} required maxlength="200" class={field} />
+			</div>
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="g-brand"
+					>{m.gear_field_brand()}</label
+				>
+				<input id="g-brand" bind:value={form.brand} maxlength="200" class={field} />
+			</div>
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="g-model"
+					>{m.gear_field_model()}</label
+				>
+				<input id="g-model" bind:value={form.model} maxlength="200" class={field} />
+			</div>
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="g-purchase"
+					>{m.gear_field_purchase()}</label
+				>
+				<input
+					id="g-purchase"
+					type="date"
+					bind:value={form.purchaseDate}
+					class="{field} [color-scheme:dark]"
+				/>
+			</div>
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="g-notes"
+					>{m.gear_field_notes()}</label
+				>
+				<input id="g-notes" bind:value={form.notes} maxlength="10000" class={field} />
+			</div>
+		</div>
+		<div class="flex gap-2">
+			<button type="submit" disabled={busy || form.name.trim() === ''} class={btnPrimary}
+				>{m.save()}</button
+			>
+			<button type="button" class={btn} onclick={closeForm}>{m.cancel()}</button>
+		</div>
+	</form>
+{/snippet}
 
 <section class="space-y-8">
 	<header class="flex items-start justify-between gap-4 max-md:flex-wrap">
@@ -177,8 +243,8 @@
 			<h1 class="text-2xl font-semibold tracking-tight">{m.gear_title()}</h1>
 			<p class="mt-1 text-sm text-zinc-400">{m.gear_intro()}</p>
 		</div>
-		<button type="button" class={btnPrimary} onclick={() => (showCreate = !showCreate)}>
-			{showCreate ? m.gear_cancel() : m.gear_add()}
+		<button type="button" class={btnPrimary} onclick={openCreate}>
+			{editingId === '' ? m.cancel() : m.gear_add()}
 		</button>
 	</header>
 
@@ -197,19 +263,16 @@
 				{#each openPending as r (refKey(r))}
 					<li class="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
 						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<span
-								class="rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-zinc-300"
-								>{r.provider}</span
-							>
+							<span class="{badge} bg-zinc-800 text-zinc-300">{r.provider}</span>
 							<span class="font-medium">{r.providerName || r.externalId}</span>
-							<span class="text-zinc-500">· {kindLabel(r.kind)}</span>
+							<span class="text-zinc-500">· {gearKindLabel(r.kind)}</span>
 							{#if r.brand || r.model}<span class="text-zinc-500"
 									>· {[r.brand, r.model].filter(Boolean).join(' ')}</span
 								>{/if}
 							{#if r.providerDistanceM != null}<span class="text-zinc-500"
 									>· {formatDistance(r.providerDistanceM)}</span
 								>{/if}
-							{#if r.retired}<span class="text-zinc-500">· retired</span>{/if}
+							{#if r.retired}<span class="text-zinc-500">· {m.gear_retired_suffix()}</span>{/if}
 						</div>
 						<div class="mt-3 flex flex-wrap items-center gap-2">
 							<button
@@ -220,13 +283,10 @@
 							>
 								{m.gear_pending_create()}
 							</button>
-							<select
-								bind:value={mapTarget[refKey(r)]}
-								class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
-							>
+							<select bind:value={mapTarget[refKey(r)]} class={select}>
 								<option value="">{m.gear_pending_map_placeholder()}</option>
 								{#each data.gear as g (g.id)}
-									<option value={g.id}>{gearLabel(g)}{g.retired ? ' (retired)' : ''}</option>
+									<option value={g.id}>{optionLabel(g)}</option>
 								{/each}
 							</select>
 							<button
@@ -251,63 +311,8 @@
 		</div>
 	{/if}
 
-	{#if showCreate}
-		<form
-			class="space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5"
-			onsubmit={(e) => {
-				e.preventDefault();
-				createGear();
-			}}
-		>
-			<div class="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-				<div>
-					<label class="block text-xs uppercase tracking-wide text-zinc-500" for="c-kind"
-						>{m.gear_field_kind()}</label
-					>
-					<select id="c-kind" bind:value={cKind} class={field}>
-						{#each GEAR_KINDS as k (k.value)}<option value={k.value}>{k.label}</option>{/each}
-					</select>
-				</div>
-				<div>
-					<label class="block text-xs uppercase tracking-wide text-zinc-500" for="c-name"
-						>{m.gear_field_name()}</label
-					>
-					<input id="c-name" bind:value={cName} required class={field} />
-				</div>
-				<div>
-					<label class="block text-xs uppercase tracking-wide text-zinc-500" for="c-brand"
-						>{m.gear_field_brand()}</label
-					>
-					<input id="c-brand" bind:value={cBrand} class={field} />
-				</div>
-				<div>
-					<label class="block text-xs uppercase tracking-wide text-zinc-500" for="c-model"
-						>{m.gear_field_model()}</label
-					>
-					<input id="c-model" bind:value={cModel} class={field} />
-				</div>
-				<div>
-					<label class="block text-xs uppercase tracking-wide text-zinc-500" for="c-purchase"
-						>{m.gear_field_purchase()}</label
-					>
-					<input
-						id="c-purchase"
-						type="date"
-						bind:value={cPurchase}
-						class="{field} [color-scheme:dark]"
-					/>
-				</div>
-				<div>
-					<label class="block text-xs uppercase tracking-wide text-zinc-500" for="c-notes"
-						>{m.gear_field_notes()}</label
-					>
-					<input id="c-notes" bind:value={cNotes} class={field} />
-				</div>
-			</div>
-			<button type="submit" disabled={busy || cName.trim() === ''} class={btnPrimary}
-				>{m.gear_save()}</button
-			>
-		</form>
+	{#if editingId === ''}
+		{@render gearForm()}
 	{/if}
 
 	<div>
@@ -318,60 +323,26 @@
 			<ul class="mt-3 space-y-3">
 				{#each active as g (g.id)}
 					<li class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-						{#if editId === g.id}
-							<form
-								class="space-y-3"
-								onsubmit={(e) => {
-									e.preventDefault();
-									saveEdit(g);
-								}}
-							>
-								<div class="grid grid-cols-3 gap-3 max-md:grid-cols-1">
-									<select bind:value={eKind} class={field} aria-label={m.gear_field_kind()}>
-										{#each GEAR_KINDS as k (k.value)}<option value={k.value}>{k.label}</option
-											>{/each}
-									</select>
-									<input
-										bind:value={eName}
-										required
-										class={field}
-										placeholder={m.gear_field_name()}
-									/>
-									<input bind:value={eBrand} class={field} placeholder={m.gear_field_brand()} />
-									<input bind:value={eModel} class={field} placeholder={m.gear_field_model()} />
-									<input type="date" bind:value={ePurchase} class="{field} [color-scheme:dark]" />
-									<input bind:value={eNotes} class={field} placeholder={m.gear_field_notes()} />
-								</div>
-								<div class="flex gap-2">
-									<button type="submit" disabled={busy} class={btnPrimary}>{m.gear_save()}</button>
-									<button type="button" class={btn} onclick={() => (editId = null)}
-										>{m.gear_cancel()}</button
-									>
-								</div>
-							</form>
+						{#if editingId === g.id}
+							{@render gearForm()}
 						{:else}
 							<div class="flex items-start justify-between gap-4 max-md:flex-wrap">
 								<div class="min-w-0">
 									<div class="flex flex-wrap items-center gap-2">
-										<span
-											class="rounded bg-zinc-800 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-zinc-400"
-											>{kindLabel(g.kind)}</span
-										>
+										<span class="{badge} bg-zinc-800 text-zinc-400">{gearKindLabel(g.kind)}</span>
 										<span class="font-medium">{g.name}</span>
 										{#if g.brand || g.model}<span class="text-sm text-zinc-500"
 												>{[g.brand, g.model].filter(Boolean).join(' ')}</span
 											>{/if}
 										{#each g.refs as r (r.provider + r.externalId)}
 											<span
-												class="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-sky-300"
+												class="{badge} bg-sky-500/15 text-sky-300"
 												title={`${r.provider}: ${r.providerName || r.externalId}`}
 												>{r.provider}</span
 											>
 										{/each}
 										{#each defaultTypesByGear[g.id] ?? [] as t (t)}
-											<span
-												class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-emerald-300"
-											>
+											<span class="{badge} bg-emerald-500/15 text-emerald-300">
 												{m.gear_default_badge({ type: t })}
 											</span>
 										{/each}
@@ -391,7 +362,7 @@
 									{#if g.notes}<p class="mt-1 text-xs text-zinc-500">{g.notes}</p>{/if}
 								</div>
 								<div class="flex shrink-0 flex-wrap items-center gap-2">
-									<button type="button" class={btn} onclick={() => startEdit(g)}
+									<button type="button" class={btn} onclick={() => openEdit(g)}
 										>{m.gear_edit()}</button
 									>
 									<button
@@ -408,13 +379,10 @@
 							{#if data.gear.length > 1}
 								<div class="mt-3 flex items-center gap-2 text-xs text-zinc-500">
 									<span>{m.gear_merge_label()}</span>
-									<select
-										bind:value={mergeInto[g.id]}
-										class="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
-									>
+									<select bind:value={mergeInto[g.id]} class={select}>
 										<option value="">—</option>
 										{#each data.gear.filter((x) => x.id !== g.id) as x (x.id)}
-											<option value={x.id}>{gearLabel(x)}{x.retired ? ' (retired)' : ''}</option>
+											<option value={x.id}>{optionLabel(x)}</option>
 										{/each}
 									</select>
 									<button
@@ -446,7 +414,7 @@
 							value={defaultsByType[t] ?? ''}
 							disabled={busy}
 							onchange={(e) => setDefault(t, (e.currentTarget as HTMLSelectElement).value)}
-							class="w-48 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
+							class="w-48 {select}"
 						>
 							<option value="">—</option>
 							{#each active as g (g.id)}

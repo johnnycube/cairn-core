@@ -118,7 +118,6 @@
 				tags,
 				privacy: enumValue(Privacy, privacy),
 				gearId,
-				resetGear,
 				distanceM,
 				elevationGainM: elevationGain,
 				movingDurationS

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { refreshAll } from '$app/navigation';
+	import { m } from '#lib/paraglide/messages.js';
 	import { formatDate } from '#lib/format.js';
 
 	// When `connectionId` is set, only the account belonging to that connection
@@ -330,7 +331,7 @@
 		try {
 			const res = await fetch(`/api/accounts/${id}/sync-gear`, { method: 'POST' });
 			if (!res.ok) throw new Error(await errText(res));
-			notice = 'Gear sync queued — new gear shows up under Gear as the worker reports it.';
+			notice = m.gear_sync_queued();
 		} catch (e) {
 			error = (e as Error).message;
 		} finally {

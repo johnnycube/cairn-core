@@ -6,6 +6,7 @@ import {
 	type BestEffort,
 	ActivityType,
 	ActivitySourceStatus,
+	GearSetBy,
 	BestEffortMetric,
 	BestEffortWindowKind,
 	Discipline,
@@ -293,7 +294,7 @@ function activityToView(a: Activity): ActivityView {
 		startPlace: a.startPlace,
 		gearId: a.gearId,
 		gearName: a.gearName,
-		gearSetBy: a.gearSetBy || 'merge',
+		gearSetBy: enumName(GearSetBy, a.gearSetBy) || 'merge',
 		sources: a.sources.map((s) => ({
 			id: s.id,
 			provider: s.provider,

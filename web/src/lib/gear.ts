@@ -1,5 +1,6 @@
 import { GearKind, type Gear, type GearExternalRef } from '#lib/proto/cairn/v1/gear_pb.js';
 import { protoTimestampToISO } from '#lib/proto-helpers.js';
+import { m } from '#lib/paraglide/messages.js';
 
 // Gear helpers shared by the gear page, the pickers and the filter bar.
 // Mirrors domain.GearKindForActivityType: the picker suggests gear of the
@@ -7,11 +8,18 @@ import { protoTimestampToISO } from '#lib/proto-helpers.js';
 
 export type GearKindName = 'bike' | 'shoe' | 'other';
 
-export const GEAR_KINDS: { value: GearKindName; label: string }[] = [
-	{ value: 'bike', label: 'Bike' },
-	{ value: 'shoe', label: 'Shoes' },
-	{ value: 'other', label: 'Other' }
-];
+export const GEAR_KINDS: GearKindName[] = ['bike', 'shoe', 'other'];
+
+export function gearKindLabel(k: string): string {
+	switch (k) {
+		case 'bike':
+			return m.gear_kind_bike();
+		case 'shoe':
+			return m.gear_kind_shoe();
+		default:
+			return m.gear_kind_other();
+	}
+}
 
 export function kindForType(type: string): GearKindName {
 	switch (type) {

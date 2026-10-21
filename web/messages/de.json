@@ -91,8 +91,6 @@
 	"gear_title": "Ausrüstung",
 	"gear_intro": "Deine Räder und Schuhe. Ausrüstung wird Aktivitäten über deine verbundenen Anbieter oder von dir zugeordnet; die Summen werden aus deinen Aktivitäten berechnet.",
 	"gear_add": "Ausrüstung hinzufügen",
-	"gear_cancel": "Abbrechen",
-	"gear_save": "Speichern",
 	"gear_edit": "Bearbeiten",
 	"gear_retire": "Ausmustern",
 	"gear_unretire": "Reaktivieren",
@@ -125,5 +123,16 @@
 	"gear_reset_auto": "Auf automatisch zurücksetzen",
 	"gear_filter_label": "Ausrüstung",
 	"notification_gear_decision_label": "Ausrüstung braucht eine Entscheidung",
-	"notification_gear_decision_link": "→ Ausrüstung"
+	"notification_gear_decision_link": "→ Ausrüstung",
+	"save": "Speichern",
+	"cancel": "Abbrechen",
+	"filter_all": "Alle",
+	"gear_kind_bike": "Rad",
+	"gear_kind_shoe": "Schuhe",
+	"gear_kind_other": "Sonstiges",
+	"gear_picker_none": "— keine Ausrüstung —",
+	"gear_retired_suffix": "(ausgemustert)",
+	"gear_confirm_delete": "„{name}“ löschen? {count} Aktivitäten haben danach keine Ausrüstung mehr.",
+	"gear_confirm_merge": "„{from}“ in „{to}“ zusammenführen? Aktivitäten und Anbieter-Einträge wandern mit; das lässt sich nicht rückgängig machen.",
+	"gear_sync_queued": "Ausrüstungs-Sync eingereiht — neue Ausrüstung erscheint unter Ausrüstung, sobald der Worker sie meldet."
 }

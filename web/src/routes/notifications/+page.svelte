@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { goto, refreshAll } from '$app/navigation';
 	import { m } from '#lib/paraglide/messages.js';
+
+	// Types with their own label and deep link; the rest render their i18n key.
+	const typeMeta: Record<string, { label: string; href: string; link: string }> = {
+		sync_gear_decision_needed: {
+			label: m.notification_gear_decision_label(),
+			href: '/gear',
+			link: m.notification_gear_decision_link()
+		}
+	};
 	import { formatRelativeDate } from '#lib/format.js';
 	import { clients, isUnauthenticated } from '#lib/connect.js';
 	import type { PageData } from './$types';
@@ -120,9 +129,7 @@
 							</div>
 							<div class="mt-1 text-zinc-300">
 								<span class="font-mono text-xs text-zinc-400"
-									>{n.type === 'sync_gear_decision_needed'
-										? m.notification_gear_decision_label()
-										: n.titleI18nKey}</span
+									>{typeMeta[n.type]?.label ?? n.titleI18nKey}</span
 								>
 								{#if Object.keys(n.params).length > 0}
 									<details class="mt-1 text-xs text-zinc-500">
@@ -136,12 +143,13 @@
 									</details>
 								{/if}
 							</div>
-							{#if n.type === 'sync_gear_decision_needed'}
+							{#if typeMeta[n.type] !== undefined}
+								{@const meta = typeMeta[n.type] as { href: string; link: string }}
 								<a
-									href="/gear"
+									href={meta.href}
 									class="mt-2 inline-block text-xs text-accent-400 hover:text-accent-300"
 								>
-									{m.notification_gear_decision_link()}
+									{meta.link}
 								</a>
 							{/if}
 							{#if n.activityId}
