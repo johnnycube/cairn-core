@@ -15,7 +15,11 @@ All notable changes to Cairn are documented here. The format follows
   activities can be listed by gear (`gear_ids`, feed `?gear_id=`). Imported
   activities get their gear from the winning source's provider gear id
   (merge field group `gear`, pinnable); manual and uploaded activities get the
-  type default once. GEAR worker events upsert gear by provider ref;
+  type default once. GEAR worker events record provider gear by ref; a
+  record Cairn has not seen stays pending and raises a "gear needs a
+  decision" notification until the user creates gear from it
+  (`CreateGearFromRef`), maps it onto existing gear (`LinkGearRef`) or leaves
+  it (`ListPendingGearRefs`);
   `import_gear` jobs are published on connect, on `POST
   /api/accounts/{id}/sync-gear` and with every reconcile when a live worker
   declares the Gear data type. Admin `POST /api/admin/gear/rebuild-totals`.

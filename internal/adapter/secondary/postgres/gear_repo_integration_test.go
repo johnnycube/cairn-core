@@ -52,18 +52,38 @@ func TestGearRepo_Integration(t *testing.T) {
 		}
 	}
 
-	// Refs: unique per key, an upsert for the same key repoints.
+	// Refs: a pending record first (no gear), then mapped; an upsert for the
+	// same key repoints. The owner comes from the external account.
 	key := domain.GearRefKey{Provider: "strava", ExternalAccountID: acctID, ExternalID: "b1"}
-	ref := domain.GearExternalRef{GearID: other.ID, Provider: "strava", ExternalAccountID: acctID, ExternalID: "b1", ProviderName: "Canyon", Primary: true}
+	ref := domain.GearExternalRef{Provider: "strava", ExternalAccountID: acctID, ExternalID: "b1", ProviderName: "Canyon", Primary: true,
+		Kind: domain.GearKindBike, Brand: "Canyon", DefaultFor: []domain.ActivityType{domain.ActivityTypeRide}}
 	if err := gear.UpsertExternalRef(ctx, ref); err != nil {
-		t.Fatalf("UpsertExternalRef: %v", err)
+		t.Fatalf("UpsertExternalRef (pending): %v", err)
 	}
-	ref.GearID = bike.ID
+	if got, err := gear.GetExternalRef(ctx, key); err != nil || !got.Pending() || got.UserID != userID || got.Brand != "Canyon" || len(got.DefaultFor) != 1 {
+		t.Fatalf("pending ref = %+v / %v", got, err)
+	}
+	if pending, err := gear.ListPendingRefs(ctx, userID); err != nil || len(pending) != 1 {
+		t.Fatalf("ListPendingRefs = %d/%v", len(pending), err)
+	}
+	if resolved, err := gear.ResolveExternalRefs(ctx, []domain.GearRefKey{key}); err != nil || len(resolved) != 0 {
+		t.Fatalf("pending ref must not resolve: %v/%v", resolved, err)
+	}
+	otherID0 := other.ID
+	ref.GearID = &otherID0
+	if err := gear.UpsertExternalRef(ctx, ref); err != nil {
+		t.Fatalf("UpsertExternalRef (map): %v", err)
+	}
+	bikeID0 := bike.ID
+	ref.GearID = &bikeID0
 	if err := gear.UpsertExternalRef(ctx, ref); err != nil {
 		t.Fatalf("UpsertExternalRef (repoint): %v", err)
 	}
-	if got, err := gear.FindByExternalRef(ctx, key); err != nil || got != bike.ID {
-		t.Fatalf("FindByExternalRef = %v/%v", got, err)
+	if got, err := gear.GetExternalRef(ctx, key); err != nil || got.GearID == nil || *got.GearID != bike.ID {
+		t.Fatalf("GetExternalRef = %+v/%v", got, err)
+	}
+	if pending, _ := gear.ListPendingRefs(ctx, userID); len(pending) != 0 {
+		t.Fatalf("mapped ref listed as pending")
 	}
 	missing := domain.GearRefKey{Provider: "strava", ExternalAccountID: acctID, ExternalID: "nope"}
 	resolved, err := gear.ResolveExternalRefs(ctx, []domain.GearRefKey{key, missing})

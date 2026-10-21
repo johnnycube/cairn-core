@@ -46,6 +46,12 @@ const (
 	GearServiceMergeGearProcedure = "/cairn.v1.GearService/MergeGear"
 	// GearServiceLinkGearRefProcedure is the procedure name of the GearService's LinkGearRef RPC.
 	GearServiceLinkGearRefProcedure = "/cairn.v1.GearService/LinkGearRef"
+	// GearServiceListPendingGearRefsProcedure is the procedure name of the GearService's
+	// ListPendingGearRefs RPC.
+	GearServiceListPendingGearRefsProcedure = "/cairn.v1.GearService/ListPendingGearRefs"
+	// GearServiceCreateGearFromRefProcedure is the procedure name of the GearService's
+	// CreateGearFromRef RPC.
+	GearServiceCreateGearFromRefProcedure = "/cairn.v1.GearService/CreateGearFromRef"
 	// GearServiceSetGearDefaultProcedure is the procedure name of the GearService's SetGearDefault RPC.
 	GearServiceSetGearDefaultProcedure = "/cairn.v1.GearService/SetGearDefault"
 	// GearServiceClearGearDefaultProcedure is the procedure name of the GearService's ClearGearDefault
@@ -108,6 +114,20 @@ var (
 			Procedure:  GearServiceLinkGearRefProcedure,
 		}
 	})
+	gearServiceListPendingGearRefsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_gear_proto.Services().ByName("GearService").Methods().ByName("ListPendingGearRefs"),
+			Procedure:  GearServiceListPendingGearRefsProcedure,
+		}
+	})
+	gearServiceCreateGearFromRefSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_cairn_v1_gear_proto.Services().ByName("GearService").Methods().ByName("CreateGearFromRef"),
+			Procedure:  GearServiceCreateGearFromRefProcedure,
+		}
+	})
 	gearServiceSetGearDefaultSpec = sync.OnceValue(func() connect.Spec {
 		return connect.Spec{
 			StreamType: connect.StreamTypeUnary,
@@ -147,6 +167,8 @@ type GearServiceClient interface {
 	DeleteGear(context.Context, *v1.DeleteGearRequest) (*v1.DeleteGearResponse, error)
 	MergeGear(context.Context, *v1.MergeGearRequest) (*v1.MergeGearResponse, error)
 	LinkGearRef(context.Context, *v1.LinkGearRefRequest) (*v1.LinkGearRefResponse, error)
+	ListPendingGearRefs(context.Context, *v1.ListPendingGearRefsRequest) (*v1.ListPendingGearRefsResponse, error)
+	CreateGearFromRef(context.Context, *v1.CreateGearFromRefRequest) (*v1.CreateGearFromRefResponse, error)
 	SetGearDefault(context.Context, *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error)
 	ClearGearDefault(context.Context, *v1.ClearGearDefaultRequest) (*v1.ClearGearDefaultResponse, error)
 	ListGearDefaults(context.Context, *v1.ListGearDefaultsRequest) (*v1.ListGearDefaultsResponse, error)
@@ -168,6 +190,8 @@ type GearServiceHandler interface {
 	DeleteGear(context.Context, *v1.DeleteGearRequest) (*v1.DeleteGearResponse, error)
 	MergeGear(context.Context, *v1.MergeGearRequest) (*v1.MergeGearResponse, error)
 	LinkGearRef(context.Context, *v1.LinkGearRefRequest) (*v1.LinkGearRefResponse, error)
+	ListPendingGearRefs(context.Context, *v1.ListPendingGearRefsRequest) (*v1.ListPendingGearRefsResponse, error)
+	CreateGearFromRef(context.Context, *v1.CreateGearFromRefRequest) (*v1.CreateGearFromRefResponse, error)
 	SetGearDefault(context.Context, *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error)
 	ClearGearDefault(context.Context, *v1.ClearGearDefaultRequest) (*v1.ClearGearDefaultResponse, error)
 	ListGearDefaults(context.Context, *v1.ListGearDefaultsRequest) (*v1.ListGearDefaultsResponse, error)
@@ -185,6 +209,8 @@ func RegisterGearServiceHandler(server *connect.Server, svc GearServiceHandler) 
 		connect.Method{Spec: gearServiceDeleteGearSpec(), Handler: adapter.deleteGear},
 		connect.Method{Spec: gearServiceMergeGearSpec(), Handler: adapter.mergeGear},
 		connect.Method{Spec: gearServiceLinkGearRefSpec(), Handler: adapter.linkGearRef},
+		connect.Method{Spec: gearServiceListPendingGearRefsSpec(), Handler: adapter.listPendingGearRefs},
+		connect.Method{Spec: gearServiceCreateGearFromRefSpec(), Handler: adapter.createGearFromRef},
 		connect.Method{Spec: gearServiceSetGearDefaultSpec(), Handler: adapter.setGearDefault},
 		connect.Method{Spec: gearServiceClearGearDefaultSpec(), Handler: adapter.clearGearDefault},
 		connect.Method{Spec: gearServiceListGearDefaultsSpec(), Handler: adapter.listGearDefaults},
@@ -221,6 +247,14 @@ func (UnimplementedGearServiceHandler) MergeGear(context.Context, *v1.MergeGearR
 
 func (UnimplementedGearServiceHandler) LinkGearRef(context.Context, *v1.LinkGearRefRequest) (*v1.LinkGearRefResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.GearService.LinkGearRef is not implemented")
+}
+
+func (UnimplementedGearServiceHandler) ListPendingGearRefs(context.Context, *v1.ListPendingGearRefsRequest) (*v1.ListPendingGearRefsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.GearService.ListPendingGearRefs is not implemented")
+}
+
+func (UnimplementedGearServiceHandler) CreateGearFromRef(context.Context, *v1.CreateGearFromRefRequest) (*v1.CreateGearFromRefResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.GearService.CreateGearFromRef is not implemented")
 }
 
 func (UnimplementedGearServiceHandler) SetGearDefault(context.Context, *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error) {
@@ -294,6 +328,22 @@ func (c *gearServiceClient) MergeGear(ctx context.Context, req *v1.MergeGearRequ
 func (c *gearServiceClient) LinkGearRef(ctx context.Context, req *v1.LinkGearRefRequest) (*v1.LinkGearRefResponse, error) {
 	var res v1.LinkGearRefResponse
 	if err := c.client.CallUnary(ctx, gearServiceLinkGearRefSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *gearServiceClient) ListPendingGearRefs(ctx context.Context, req *v1.ListPendingGearRefsRequest) (*v1.ListPendingGearRefsResponse, error) {
+	var res v1.ListPendingGearRefsResponse
+	if err := c.client.CallUnary(ctx, gearServiceListPendingGearRefsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *gearServiceClient) CreateGearFromRef(ctx context.Context, req *v1.CreateGearFromRefRequest) (*v1.CreateGearFromRefResponse, error) {
+	var res v1.CreateGearFromRefResponse
+	if err := c.client.CallUnary(ctx, gearServiceCreateGearFromRefSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -411,6 +461,30 @@ func (h gearServiceHandler) linkGearRef(ctx context.Context, _ connect.Spec, str
 		return err
 	}
 	res, err := h.svc.LinkGearRef(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h gearServiceHandler) listPendingGearRefs(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListPendingGearRefsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListPendingGearRefs(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h gearServiceHandler) createGearFromRef(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateGearFromRefRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateGearFromRef(ctx, &req)
 	if err != nil {
 		return err
 	}

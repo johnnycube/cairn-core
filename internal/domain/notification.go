@@ -66,6 +66,7 @@ const (
 	NotificationTypeActivityReimported           NotificationType = 4
 	NotificationTypeWorkerOffline                NotificationType = 5
 	NotificationTypeExternalAccountRefreshFailed NotificationType = 6
+	NotificationTypeGearDecisionNeeded           NotificationType = 7
 )
 
 // String returns a stable lowercased identifier for log / wire use.
@@ -84,6 +85,8 @@ func (t NotificationType) String() string {
 		return "worker_offline"
 	case NotificationTypeExternalAccountRefreshFailed:
 		return "external_account_refresh_failed"
+	case NotificationTypeGearDecisionNeeded:
+		return "gear_decision_needed"
 	default:
 		return "unspecified"
 	}

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -119,42 +120,111 @@ func (r *GearRepo) Delete(ctx context.Context, id domain.GearID) error {
 	return nil
 }
 
+// gearRefImportJSON is the on-disk shape of gear_external_refs.provider_import:
+// the parts of the provider's description not held in their own columns.
+type gearRefImportJSON struct {
+	Kind        string   `json:"kind,omitempty"`
+	Brand       string   `json:"brand,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Retired     bool     `json:"retired,omitempty"`
+	DefaultFor  []string `json:"default_for,omitempty"`
+}
+
+func encodeGearRefImport(ref domain.GearExternalRef) ([]byte, error) {
+	w := gearRefImportJSON{Kind: string(ref.Kind), Brand: ref.Brand, Model: ref.Model, Description: ref.Description, Retired: ref.Retired}
+	for _, t := range ref.DefaultFor {
+		w.DefaultFor = append(w.DefaultFor, string(t))
+	}
+	return json.Marshal(w)
+}
+
+func decodeGearRefImport(b []byte, ref *domain.GearExternalRef) error {
+	if len(b) == 0 {
+		return nil
+	}
+	var w gearRefImportJSON
+	if err := json.Unmarshal(b, &w); err != nil {
+		return fmt.Errorf("unmarshal gear ref import: %w", err)
+	}
+	ref.Kind, ref.Brand, ref.Model, ref.Description, ref.Retired = domain.GearKind(w.Kind), w.Brand, w.Model, w.Description, w.Retired
+	for _, t := range w.DefaultFor {
+		ref.DefaultFor = append(ref.DefaultFor, domain.ActivityType(t))
+	}
+	return nil
+}
+
 func (r *GearRepo) UpsertExternalRef(ctx context.Context, ref domain.GearExternalRef) error {
 	db := dbtx(ctx, r.pool)
 	seen := ref.LastSeenAt
 	if seen.IsZero() {
 		seen = time.Now().UTC()
 	}
-	_, err := db.Exec(ctx,
+	var gearParam any
+	if ref.GearID != nil {
+		gearParam = ref.GearID.UUID()
+	}
+	imp, err := encodeGearRefImport(ref)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(ctx,
 		`INSERT INTO gear_external_refs
-		   (gear_id, provider, external_account_id, external_id, provider_name, provider_distance_m, is_primary, last_seen_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		   (gear_id, provider, external_account_id, external_id, provider_name, provider_distance_m, is_primary, provider_import, last_seen_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (provider, external_account_id, external_id) DO UPDATE SET
 		   gear_id = EXCLUDED.gear_id, provider_name = EXCLUDED.provider_name,
 		   provider_distance_m = EXCLUDED.provider_distance_m, is_primary = EXCLUDED.is_primary,
-		   last_seen_at = EXCLUDED.last_seen_at`,
-		ref.GearID.UUID(), ref.Provider, ref.ExternalAccountID.UUID(), ref.ExternalID,
-		ref.ProviderName, ref.ProviderDistanceM, ref.Primary, seen)
+		   provider_import = EXCLUDED.provider_import, last_seen_at = EXCLUDED.last_seen_at`,
+		gearParam, ref.Provider, ref.ExternalAccountID.UUID(), ref.ExternalID,
+		ref.ProviderName, ref.ProviderDistanceM, ref.Primary, imp, seen)
 	if err != nil {
 		return fmt.Errorf("upsert gear ref: %w", err)
 	}
 	return nil
 }
 
-func (r *GearRepo) FindByExternalRef(ctx context.Context, key domain.GearRefKey) (domain.GearID, error) {
+const gearRefColumns = `
+	r.gear_id, a.user_id, r.provider, r.external_account_id, r.external_id, r.provider_name,
+	r.provider_distance_m, r.is_primary, r.provider_import, r.last_seen_at`
+
+const gearRefFrom = ` FROM gear_external_refs r JOIN external_accounts a ON a.id = r.external_account_id`
+
+func (r *GearRepo) GetExternalRef(ctx context.Context, key domain.GearRefKey) (domain.GearExternalRef, error) {
 	db := dbtx(ctx, r.pool)
-	var id uuid.UUID
-	err := db.QueryRow(ctx,
-		`SELECT gear_id FROM gear_external_refs
-		  WHERE provider = $1 AND external_account_id = $2 AND external_id = $3`,
-		key.Provider, key.ExternalAccountID.UUID(), key.ExternalID).Scan(&id)
+	row := db.QueryRow(ctx,
+		`SELECT `+gearRefColumns+gearRefFrom+`
+		  WHERE r.provider = $1 AND r.external_account_id = $2 AND r.external_id = $3`,
+		key.Provider, key.ExternalAccountID.UUID(), key.ExternalID)
+	ref, err := scanGearRef(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.GearID{}, fmt.Errorf("gear ref %s/%s: %w", key.Provider, key.ExternalID, domain.ErrNotFound)
+		return domain.GearExternalRef{}, fmt.Errorf("gear ref %s/%s: %w", key.Provider, key.ExternalID, domain.ErrNotFound)
 	}
 	if err != nil {
-		return domain.GearID{}, fmt.Errorf("find gear ref: %w", err)
+		return domain.GearExternalRef{}, fmt.Errorf("get gear ref: %w", err)
 	}
-	return domain.GearID(id), nil
+	return ref, nil
+}
+
+func (r *GearRepo) ListPendingRefs(ctx context.Context, userID domain.UserID) ([]domain.GearExternalRef, error) {
+	db := dbtx(ctx, r.pool)
+	rows, err := db.Query(ctx,
+		`SELECT `+gearRefColumns+gearRefFrom+`
+		  WHERE a.user_id = $1 AND r.gear_id IS NULL
+		  ORDER BY r.last_seen_at DESC, r.provider, r.external_id`, userID.UUID())
+	if err != nil {
+		return nil, fmt.Errorf("list pending gear refs: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.GearExternalRef
+	for rows.Next() {
+		ref, err := scanGearRef(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan gear ref: %w", err)
+		}
+		out = append(out, ref)
+	}
+	return out, rows.Err()
 }
 
 func (r *GearRepo) ResolveExternalRefs(ctx context.Context, keys []domain.GearRefKey) (map[domain.GearRefKey]domain.GearID, error) {
@@ -173,7 +243,8 @@ func (r *GearRepo) ResolveExternalRefs(ctx context.Context, keys []domain.GearRe
 		`SELECT r.provider, r.external_account_id, r.external_id, r.gear_id
 		   FROM gear_external_refs r
 		   JOIN unnest($1::text[], $2::uuid[], $3::text[]) AS k(provider, account_id, external_id)
-		     ON r.provider = k.provider AND r.external_account_id = k.account_id AND r.external_id = k.external_id`,
+		     ON r.provider = k.provider AND r.external_account_id = k.account_id AND r.external_id = k.external_id
+		  WHERE r.gear_id IS NOT NULL`,
 		providers, accounts, externals)
 	if err != nil {
 		return nil, fmt.Errorf("resolve gear refs: %w", err)
@@ -354,26 +425,44 @@ func (r *GearRepo) listRefs(ctx context.Context, ids []domain.GearID) (map[domai
 	}
 	db := dbtx(ctx, r.pool)
 	rows, err := db.Query(ctx,
-		`SELECT gear_id, provider, external_account_id, external_id, provider_name,
-		        provider_distance_m, is_primary, last_seen_at
-		   FROM gear_external_refs WHERE gear_id = ANY($1)
-		  ORDER BY provider, external_id`, raw)
+		`SELECT `+gearRefColumns+gearRefFrom+`
+		  WHERE r.gear_id = ANY($1)
+		  ORDER BY r.provider, r.external_id`, raw)
 	if err != nil {
 		return nil, fmt.Errorf("list gear refs: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var ref domain.GearExternalRef
-		var gid, acct uuid.UUID
-		if err := rows.Scan(&gid, &ref.Provider, &acct, &ref.ExternalID, &ref.ProviderName,
-			&ref.ProviderDistanceM, &ref.Primary, &ref.LastSeenAt); err != nil {
+		ref, err := scanGearRef(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan gear ref: %w", err)
 		}
-		ref.GearID = domain.GearID(gid)
-		ref.ExternalAccountID = domain.ExternalAccountID(acct)
-		out[ref.GearID] = append(out[ref.GearID], ref)
+		out[*ref.GearID] = append(out[*ref.GearID], ref)
 	}
 	return out, rows.Err()
+}
+
+func scanGearRef(row rowScanner) (domain.GearExternalRef, error) {
+	var (
+		ref         domain.GearExternalRef
+		gid         *uuid.UUID
+		userID, acc uuid.UUID
+		imp         []byte
+	)
+	if err := row.Scan(&gid, &userID, &ref.Provider, &acc, &ref.ExternalID, &ref.ProviderName,
+		&ref.ProviderDistanceM, &ref.Primary, &imp, &ref.LastSeenAt); err != nil {
+		return domain.GearExternalRef{}, err
+	}
+	if gid != nil {
+		g := domain.GearID(*gid)
+		ref.GearID = &g
+	}
+	ref.UserID = domain.UserID(userID)
+	ref.ExternalAccountID = domain.ExternalAccountID(acc)
+	if err := decodeGearRefImport(imp, &ref); err != nil {
+		return domain.GearExternalRef{}, err
+	}
+	return ref, nil
 }
 
 func scanGear(row rowScanner) (domain.Gear, error) {

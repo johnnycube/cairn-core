@@ -206,12 +206,12 @@ func (m *memGearRepo) UpsertExternalRef(_ context.Context, r domain.GearExternal
 	m.refs[r.Key()] = r
 	return nil
 }
-func (m *memGearRepo) FindByExternalRef(_ context.Context, k domain.GearRefKey) (domain.GearID, error) {
+func (m *memGearRepo) GetExternalRef(_ context.Context, k domain.GearRefKey) (domain.GearExternalRef, error) {
 	r, ok := m.refs[k]
 	if !ok {
-		return domain.GearID{}, domain.ErrNotFound
+		return domain.GearExternalRef{}, domain.ErrNotFound
 	}
-	return r.GearID, nil
+	return r, nil
 }
 func (m *memGearRepo) GetDefault(context.Context, domain.UserID, domain.ActivityType) (domain.GearID, error) {
 	return domain.GearID{}, domain.ErrNotFound
@@ -238,12 +238,13 @@ func TestProcessWorkerEvent_GearUpsertsByRef(t *testing.T) {
 			t.Fatalf("gear event: %v", err)
 		}
 	}
-	if len(repo.gear) != 1 || len(repo.refs) != 1 {
+	// Unknown provider gear is recorded as a pending ref, never as gear.
+	if len(repo.gear) != 0 || len(repo.refs) != 1 {
 		t.Fatalf("gear=%d refs=%d", len(repo.gear), len(repo.refs))
 	}
-	for _, g := range repo.gear {
-		if g.Name != "Canyon" || g.Kind != domain.GearKindBike || g.UserID.String() != user {
-			t.Fatalf("gear = %+v", g)
+	for _, r := range repo.refs {
+		if !r.Pending() || r.ProviderName != "Canyon" || r.Kind != domain.GearKindBike || r.UserID.String() != user {
+			t.Fatalf("ref = %+v", r)
 		}
 	}
 

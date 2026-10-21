@@ -139,6 +139,7 @@ type App struct {
 	DeliverNotifications     *notification.DeliverNotifications
 	NotifyAccountNeedsReauth *notification.NotifyAccountNeedsReauth
 	NotifyWorkerOffline      *notification.NotifyWorkerOffline
+	NotifyGearDecision       *notification.NotifyGearDecision
 	ComputeStartPlace        *geocodeuc.ComputeStartPlace
 	CreateUser               *admin.CreateUser
 	BootstrapAdmin           *admin.BootstrapAdmin
@@ -417,6 +418,14 @@ func wireAppNotifications(app *App, pool *pgxpool.Pool, cfg *config.Config, secr
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
+	app.NotifyGearDecision = notification.NewNotifyGearDecision(
+		app.Notifications,
+		app.Tx,
+		app.DeliverNotifications,
+		nil, // default time.Now
+		nil, // default uuid.NewV7
+	)
+	app.Gear.SetNotifier(app.NotifyGearDecision.Execute)
 	return nil
 }
 

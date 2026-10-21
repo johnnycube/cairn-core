@@ -184,19 +184,47 @@ func (s *GearServer) LinkGearRef(ctx context.Context, req *v1.LinkGearRefRequest
 	if err != nil {
 		return nil, err
 	}
-	acct, err := uuid.Parse(req.GetExternalAccountId())
-	if err != nil || req.GetProvider() == "" || req.GetExternalId() == "" {
-		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, "provider, external_account_id and external_id are required")
+	key, err := gearRefKeyFromParts(req.GetProvider(), req.GetExternalAccountId(), req.GetExternalId())
+	if err != nil {
+		return nil, err
 	}
-	g, err := s.Gear.LinkRef(ctx, userID, id, domain.GearRefKey{
-		Provider:          req.GetProvider(),
-		ExternalAccountID: domain.ExternalAccountID(acct),
-		ExternalID:        req.GetExternalId(),
-	})
+	g, err := s.Gear.LinkRef(ctx, userID, id, key)
 	if err != nil {
 		return nil, gearErr(err)
 	}
 	return &v1.LinkGearRefResponse{Gear: gearToProto(g)}, nil
+}
+
+func (s *GearServer) ListPendingGearRefs(ctx context.Context, _ *v1.ListPendingGearRefsRequest) (*v1.ListPendingGearRefsResponse, error) {
+	userID, err := userIDFromHandlerCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	refs, err := s.Gear.ListPending(ctx, userID)
+	if err != nil {
+		return nil, connectError(connectrpc.CodeInternal, fmt.Errorf("list pending gear refs: %w", err))
+	}
+	out := &v1.ListPendingGearRefsResponse{Refs: make([]*v1.GearExternalRef, 0, len(refs))}
+	for _, r := range refs {
+		out.Refs = append(out.Refs, gearRefToProto(r))
+	}
+	return out, nil
+}
+
+func (s *GearServer) CreateGearFromRef(ctx context.Context, req *v1.CreateGearFromRefRequest) (*v1.CreateGearFromRefResponse, error) {
+	userID, err := userIDFromHandlerCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key, err := gearRefKeyFromParts(req.GetProvider(), req.GetExternalAccountId(), req.GetExternalId())
+	if err != nil {
+		return nil, err
+	}
+	g, err := s.Gear.CreateFromRef(ctx, userID, key)
+	if err != nil {
+		return nil, gearErr(err)
+	}
+	return &v1.CreateGearFromRefResponse{Gear: gearToProto(g)}, nil
 }
 
 func (s *GearServer) SetGearDefault(ctx context.Context, req *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error) {
@@ -286,6 +314,15 @@ func gearIDFromString(raw string) (domain.GearID, error) {
 	return domain.GearID(id), nil
 }
 
+// gearRefKeyFromParts validates the three parts of a provider ref key.
+func gearRefKeyFromParts(provider, account, externalID string) (domain.GearRefKey, error) {
+	acct, err := uuid.Parse(account)
+	if err != nil || provider == "" || externalID == "" {
+		return domain.GearRefKey{}, connectrpc.NewError(connectrpc.CodeInvalidArgument, "provider, external_account_id and external_id are required")
+	}
+	return domain.GearRefKey{Provider: provider, ExternalAccountID: domain.ExternalAccountID(acct), ExternalID: externalID}, nil
+}
+
 // purchaseDateFromString parses an ISO date; empty clears it.
 func purchaseDateFromString(raw string) (*time.Time, error) {
 	if raw == "" {
@@ -307,6 +344,8 @@ func gearErr(err error) error {
 	case errors.Is(err, domain.ErrGearMissingName), errors.Is(err, domain.ErrGearInvalidKind),
 		errors.Is(err, domain.ErrGearSelfMerge), errors.Is(err, domain.ErrActivityInvalidType):
 		return connectError(connectrpc.CodeInvalidArgument, err)
+	case errors.Is(err, domain.ErrGearRefMapped):
+		return connectError(connectrpc.CodeFailedPrecondition, err)
 	}
 	return connectError(connectrpc.CodeInternal, err)
 }
@@ -333,15 +372,31 @@ func gearToProto(g domain.Gear) *v1.Gear {
 		out.RetiredAt = timestamppb.New(*g.RetiredAt)
 	}
 	for _, r := range g.ExternalRefs {
-		out.ExternalRefs = append(out.ExternalRefs, &v1.GearExternalRef{
-			Provider:          r.Provider,
-			ExternalAccountId: r.ExternalAccountID.String(),
-			ExternalId:        r.ExternalID,
-			ProviderName:      r.ProviderName,
-			ProviderDistanceM: r.ProviderDistanceM,
-			Primary:           r.Primary,
-			LastSeenAt:        timestamppb.New(r.LastSeenAt),
-		})
+		out.ExternalRefs = append(out.ExternalRefs, gearRefToProto(r))
+	}
+	return out
+}
+
+func gearRefToProto(r domain.GearExternalRef) *v1.GearExternalRef {
+	out := &v1.GearExternalRef{
+		Provider:          r.Provider,
+		ExternalAccountId: r.ExternalAccountID.String(),
+		ExternalId:        r.ExternalID,
+		ProviderName:      r.ProviderName,
+		ProviderDistanceM: r.ProviderDistanceM,
+		Primary:           r.Primary,
+		LastSeenAt:        timestamppb.New(r.LastSeenAt),
+		Kind:              protoconv.GearKindToProto(r.Kind),
+		Brand:             r.Brand,
+		Model:             r.Model,
+		Description:       r.Description,
+		Retired:           r.Retired,
+	}
+	if r.GearID != nil {
+		out.GearId = r.GearID.String()
+	}
+	for _, t := range r.DefaultFor {
+		out.DefaultFor = append(out.DefaultFor, activityTypeToProto(t))
 	}
 	return out
 }

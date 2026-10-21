@@ -67,6 +67,8 @@ var (
 	ErrGearSameUser = errors.New("gear: merge requires both records to belong to the same user")
 	// ErrGearSelfMerge is returned by MergeGear when from and to are the same record.
 	ErrGearSelfMerge = errors.New("gear: cannot merge a record into itself")
+	// ErrGearRefMapped is returned when a decision is made on a provider record that already maps to gear.
+	ErrGearRefMapped = errors.New("gear: provider record is already mapped")
 )
 
 // Segment invariants — checked by Segment.Validate.

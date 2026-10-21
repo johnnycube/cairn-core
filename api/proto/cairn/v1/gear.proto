@@ -45,8 +45,10 @@ message Gear {
   google.protobuf.Timestamp updated_at = 15;
 }
 
-// GearExternalRef links a gear record to the provider's record of it. One
-// physical bike known to two providers has two refs on one Gear.
+// GearExternalRef is a provider's gear record. Mapped onto a Gear it is an
+// alias of it (one physical bike known to two providers has two refs on one
+// Gear); with no gear_id it is PENDING: the user has to decide whether it is
+// new gear (CreateGearFromRef), an alias (LinkGearRef), or leave it.
 message GearExternalRef {
   string provider = 1;
   string external_account_id = 2;
@@ -58,6 +60,15 @@ message GearExternalRef {
   // The provider's default for this kind.
   bool primary = 6;
   google.protobuf.Timestamp last_seen_at = 7;
+  // The gear this record maps onto; empty while pending.
+  string gear_id = 8;
+  // The provider's description, kept for the decision.
+  GearKind kind = 9;
+  string brand = 10;
+  string model = 11;
+  string description = 12;
+  bool retired = 13;
+  repeated ActivityType default_for = 14;
 }
 
 // GearDefault is the user's default gear for an activity type, applied once
@@ -157,6 +168,23 @@ message LinkGearRefResponse {
   Gear gear = 1;
 }
 
+// ListPendingGearRefs lists the provider records awaiting the user's decision.
+message ListPendingGearRefsRequest {}
+message ListPendingGearRefsResponse {
+  repeated GearExternalRef refs = 1;
+}
+
+// CreateGearFromRef decides "this is new gear": creates gear from the
+// provider's description and maps the record onto it.
+message CreateGearFromRefRequest {
+  string provider = 1;
+  string external_account_id = 2;
+  string external_id = 3;
+}
+message CreateGearFromRefResponse {
+  Gear gear = 1;
+}
+
 // SyncGear asks the provider worker for the account's full gear list.
 message SyncGearRequest {
   string external_account_id = 1;
@@ -173,6 +201,8 @@ service GearService {
   rpc DeleteGear(DeleteGearRequest) returns (DeleteGearResponse);
   rpc MergeGear(MergeGearRequest) returns (MergeGearResponse);
   rpc LinkGearRef(LinkGearRefRequest) returns (LinkGearRefResponse);
+  rpc ListPendingGearRefs(ListPendingGearRefsRequest) returns (ListPendingGearRefsResponse);
+  rpc CreateGearFromRef(CreateGearFromRefRequest) returns (CreateGearFromRefResponse);
   rpc SetGearDefault(SetGearDefaultRequest) returns (SetGearDefaultResponse);
   rpc ClearGearDefault(ClearGearDefaultRequest) returns (ClearGearDefaultResponse);
   rpc ListGearDefaults(ListGearDefaultsRequest) returns (ListGearDefaultsResponse);

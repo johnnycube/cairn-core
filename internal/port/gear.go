@@ -22,13 +22,16 @@ type GearRepo interface {
 	// and defaults cascade. ErrNotFound when absent.
 	Delete(ctx context.Context, id domain.GearID) error
 
-	// UpsertExternalRef creates or refreshes a provider ref. The ref's key is
-	// unique: an upsert for an existing key updates its gear_id and fields.
+	// UpsertExternalRef creates or refreshes a provider ref (pending or
+	// mapped). The ref's key is unique: an upsert for an existing key updates
+	// its mapping and description.
 	UpsertExternalRef(ctx context.Context, ref domain.GearExternalRef) error
-	// FindByExternalRef returns the gear id a provider ref resolves to.
-	FindByExternalRef(ctx context.Context, key domain.GearRefKey) (domain.GearID, error)
-	// ResolveExternalRefs resolves many keys at once; absent keys are missing
-	// from the result.
+	// GetExternalRef returns a provider ref with its owner. ErrNotFound when absent.
+	GetExternalRef(ctx context.Context, key domain.GearRefKey) (domain.GearExternalRef, error)
+	// ListPendingRefs returns the user's provider records awaiting a decision.
+	ListPendingRefs(ctx context.Context, userID domain.UserID) ([]domain.GearExternalRef, error)
+	// ResolveExternalRefs resolves many keys to their mapped gear at once;
+	// absent and pending keys are missing from the result.
 	ResolveExternalRefs(ctx context.Context, keys []domain.GearRefKey) (map[domain.GearRefKey]domain.GearID, error)
 
 	// GetDefault returns the user's default gear for an activity type.

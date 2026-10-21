@@ -38,7 +38,7 @@ func (m *memGear) Get(_ context.Context, id domain.GearID) (domain.Gear, error) 
 	}
 	g.ExternalRefs = nil
 	for _, r := range m.refs {
-		if r.GearID == id {
+		if r.GearID != nil && *r.GearID == id {
 			g.ExternalRefs = append(g.ExternalRefs, r)
 		}
 	}
@@ -59,7 +59,7 @@ func (m *memGear) Delete(_ context.Context, id domain.GearID) error {
 	}
 	delete(m.gear, id)
 	for k, r := range m.refs {
-		if r.GearID == id {
+		if r.GearID != nil && *r.GearID == id {
 			delete(m.refs, k)
 		}
 	}
@@ -71,12 +71,22 @@ func (m *memGear) UpsertExternalRef(_ context.Context, ref domain.GearExternalRe
 	return nil
 }
 
-func (m *memGear) FindByExternalRef(_ context.Context, key domain.GearRefKey) (domain.GearID, error) {
+func (m *memGear) GetExternalRef(_ context.Context, key domain.GearRefKey) (domain.GearExternalRef, error) {
 	r, ok := m.refs[key]
 	if !ok {
-		return domain.GearID{}, domain.ErrNotFound
+		return domain.GearExternalRef{}, domain.ErrNotFound
 	}
-	return r.GearID, nil
+	return r, nil
+}
+
+func (m *memGear) ListPendingRefs(_ context.Context, userID domain.UserID) ([]domain.GearExternalRef, error) {
+	var out []domain.GearExternalRef
+	for _, r := range m.refs {
+		if r.Pending() && r.UserID == userID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (m *memGear) GetDefault(_ context.Context, userID domain.UserID, t domain.ActivityType) (domain.GearID, error) {
@@ -97,8 +107,9 @@ func (m *memGear) SetDefault(_ context.Context, d domain.GearDefault) error {
 
 func (m *memGear) Repoint(_ context.Context, from, to domain.GearID) error {
 	for k, r := range m.refs {
-		if r.GearID == from {
-			r.GearID = to
+		if r.GearID != nil && *r.GearID == from {
+			to := to
+			r.GearID = &to
 			m.refs[k] = r
 		}
 	}
@@ -130,62 +141,102 @@ func newTestService(repo *memGear) *Service {
 	return NewService(repo, fakeTx{}, func() time.Time { return t0 }, uuid.New)
 }
 
-func TestImportFromProvider_CreatesThenRefreshes(t *testing.T) {
+// importAndDecide records a provider gear and immediately decides "new gear".
+func importAndDecide(t *testing.T, svc *Service, user domain.UserID, key domain.GearRefKey, in domain.GearImport) domain.GearID {
+	t.Helper()
+	if _, err := svc.ImportFromProvider(context.Background(), user, key, in); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	g, err := svc.CreateFromRef(context.Background(), user, key)
+	if err != nil {
+		t.Fatalf("create from ref: %v", err)
+	}
+	return g.ID
+}
+
+func TestImportFromProvider_PendingUntilDecided(t *testing.T) {
 	repo := newMemGear()
 	svc := newTestService(repo)
 	user := domain.UserID(uuid.New())
 	key := domain.GearRefKey{Provider: "strava", ExternalAccountID: domain.ExternalAccountID(uuid.New()), ExternalID: "b123"}
 	km := 1500.0
-
-	id, err := svc.ImportFromProvider(context.Background(), user, key, domain.GearImport{
-		Kind: domain.GearKindBike, Name: "Canyon", Brand: "Canyon", Model: "Grail", Primary: true, DistanceM: &km,
+	var notified []domain.GearExternalRef
+	svc.SetNotifier(func(_ context.Context, ref domain.GearExternalRef) error {
+		notified = append(notified, ref)
+		return nil
 	})
+
+	in := domain.GearImport{Kind: domain.GearKindBike, Name: "Canyon", Brand: "Canyon", Model: "Grail", Primary: true, DistanceM: &km}
+	ref, err := svc.ImportFromProvider(context.Background(), user, key, in)
 	if err != nil {
 		t.Fatalf("import: %v", err)
 	}
-	g, _ := repo.Get(context.Background(), id)
-	if g.Name != "Canyon" || g.Kind != domain.GearKindBike || len(g.ExternalRefs) != 1 || !g.ExternalRefs[0].Primary {
+	if !ref.Pending() || len(repo.gear) != 0 {
+		t.Fatalf("unknown provider gear must stay pending, got ref=%+v gear=%d", ref, len(repo.gear))
+	}
+	if len(notified) != 1 || notified[0].ProviderName != "Canyon" || notified[0].UserID != user {
+		t.Fatalf("decision notification = %+v", notified)
+	}
+	// Re-sent with the next activity: refreshed, no second notification.
+	if _, err := svc.ImportFromProvider(context.Background(), user, key, in); err != nil {
+		t.Fatal(err)
+	}
+	if len(notified) != 1 {
+		t.Fatalf("re-import notified again: %d", len(notified))
+	}
+	if pending, _ := svc.ListPending(context.Background(), user); len(pending) != 1 {
+		t.Fatalf("pending = %d", len(pending))
+	}
+	if _, err := repo.GetDefault(context.Background(), user, domain.ActivityTypeRide); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("defaults must not be seeded before a decision: %v", err)
+	}
+
+	// Decision: create gear from the record.
+	g, err := svc.CreateFromRef(context.Background(), user, key)
+	if err != nil {
+		t.Fatalf("create from ref: %v", err)
+	}
+	if g.Name != "Canyon" || g.Kind != domain.GearKindBike || g.Brand != "Canyon" || len(g.ExternalRefs) != 1 || !g.ExternalRefs[0].Primary {
 		t.Fatalf("created gear = %+v", g)
 	}
-	// Primary bike seeds the ride default when none exists.
-	if d, err := repo.GetDefault(context.Background(), user, domain.ActivityTypeRide); err != nil || d != id {
+	if d, err := repo.GetDefault(context.Background(), user, domain.ActivityTypeRide); err != nil || d != g.ID {
 		t.Fatalf("ride default = %v/%v", d, err)
+	}
+	if pending, _ := svc.ListPending(context.Background(), user); len(pending) != 0 {
+		t.Fatalf("still pending after decision")
+	}
+	if _, err := svc.CreateFromRef(context.Background(), user, key); !errors.Is(err, domain.ErrGearRefMapped) {
+		t.Fatalf("second decision: %v", err)
 	}
 
 	// User renames; the provider re-sends with its own name and a retirement.
 	g.Name = "Gravel bike"
 	_ = repo.Save(context.Background(), g)
-	id2, err := svc.ImportFromProvider(context.Background(), user, key, domain.GearImport{
-		Kind: domain.GearKindBike, Name: "Canyon", Retired: true,
-	})
-	if err != nil || id2 != id {
-		t.Fatalf("re-import: %v / %v", id2, err)
+	if _, err := svc.ImportFromProvider(context.Background(), user, key, domain.GearImport{Kind: domain.GearKindBike, Name: "Canyon", Retired: true}); err != nil {
+		t.Fatalf("re-import: %v", err)
 	}
-	g, _ = repo.Get(context.Background(), id)
+	g, _ = repo.Get(context.Background(), g.ID)
 	if g.Name != "Gravel bike" {
 		t.Errorf("user name clobbered: %q", g.Name)
 	}
 	if !g.Retired || g.RetiredAt == nil {
 		t.Errorf("provider retirement not followed: %+v", g)
 	}
-	if g.ExternalRefs[0].ProviderName != "Canyon" {
-		t.Errorf("ref provider name not refreshed: %+v", g.ExternalRefs[0])
-	}
 	if len(repo.gear) != 1 {
 		t.Errorf("duplicate gear created: %d", len(repo.gear))
 	}
 }
 
-func TestImportFromProvider_DefaultNotOverwritten(t *testing.T) {
+func TestDecisions_DefaultNotOverwritten(t *testing.T) {
 	repo := newMemGear()
 	svc := newTestService(repo)
 	user := domain.UserID(uuid.New())
 	acct := domain.ExternalAccountID(uuid.New())
 
-	first, _ := svc.ImportFromProvider(context.Background(), user,
+	first := importAndDecide(t, svc, user,
 		domain.GearRefKey{Provider: "garmin", ExternalAccountID: acct, ExternalID: "1"},
 		domain.GearImport{Kind: domain.GearKindShoe, Name: "Pegasus", DefaultFor: []domain.ActivityType{domain.ActivityTypeRun, domain.ActivityTypeWalk}})
-	_, _ = svc.ImportFromProvider(context.Background(), user,
+	importAndDecide(t, svc, user,
 		domain.GearRefKey{Provider: "garmin", ExternalAccountID: acct, ExternalID: "2"},
 		domain.GearImport{Kind: domain.GearKindShoe, Name: "Vaporfly", Primary: true})
 
@@ -205,9 +256,12 @@ func TestImportFromProvider_OtherUsersRefRejected(t *testing.T) {
 	if _, err := svc.ImportFromProvider(context.Background(), owner, key, domain.GearImport{Name: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.ImportFromProvider(context.Background(), domain.UserID(uuid.New()), key, domain.GearImport{Name: "x"})
-	if !errors.Is(err, ErrNotOwner) {
+	other := domain.UserID(uuid.New())
+	if _, err := svc.ImportFromProvider(context.Background(), other, key, domain.GearImport{Name: "x"}); !errors.Is(err, ErrNotOwner) {
 		t.Fatalf("expected ErrNotOwner, got %v", err)
+	}
+	if _, err := svc.CreateFromRef(context.Background(), other, key); !errors.Is(err, ErrNotOwner) {
+		t.Fatalf("foreign decision: %v", err)
 	}
 }
 
@@ -217,10 +271,10 @@ func TestMerge(t *testing.T) {
 	user := domain.UserID(uuid.New())
 	acctS := domain.ExternalAccountID(uuid.New())
 	acctG := domain.ExternalAccountID(uuid.New())
-	strava, _ := svc.ImportFromProvider(context.Background(), user,
+	strava := importAndDecide(t, svc, user,
 		domain.GearRefKey{Provider: "strava", ExternalAccountID: acctS, ExternalID: "b1"},
 		domain.GearImport{Kind: domain.GearKindBike, Name: "Canyon", Primary: true})
-	garmin, _ := svc.ImportFromProvider(context.Background(), user,
+	garmin := importAndDecide(t, svc, user,
 		domain.GearRefKey{Provider: "garmin", ExternalAccountID: acctG, ExternalID: "77"},
 		domain.GearImport{Kind: domain.GearKindBike, Name: "Canyon Grail"})
 
@@ -257,7 +311,10 @@ func TestLinkRef_MovesRefAndRederives(t *testing.T) {
 	key := domain.GearRefKey{Provider: "garmin", ExternalAccountID: acct, ExternalID: "77"}
 
 	golden, _ := svc.Create(context.Background(), user, CreateInput{Kind: domain.GearKindBike, Name: "Bike A"})
-	imported, _ := svc.ImportFromProvider(context.Background(), user, key, domain.GearImport{Kind: domain.GearKindBike, Name: "Bike B"})
+	// Pending record from Garmin: the user decides it is an alias of Bike A.
+	if _, err := svc.ImportFromProvider(context.Background(), user, key, domain.GearImport{Kind: domain.GearKindBike, Name: "Bike B", Primary: true}); err != nil {
+		t.Fatal(err)
+	}
 	act := domain.ActivityID(uuid.New())
 	repo.activitiesByRef = map[domain.GearRefKey][]domain.ActivityID{key: {act}}
 	var recomputed []domain.ActivityID
@@ -273,11 +330,17 @@ func TestLinkRef_MovesRefAndRederives(t *testing.T) {
 	if len(g.ExternalRefs) != 1 || g.ExternalRefs[0].ExternalID != "77" || g.ExternalRefs[0].ProviderName != "Bike B" {
 		t.Fatalf("ref not moved with its fields: %+v", g.ExternalRefs)
 	}
-	if got, _ := repo.FindByExternalRef(context.Background(), key); got != golden.ID {
-		t.Fatalf("lookup still resolves to %v", got)
+	if got, _ := repo.GetExternalRef(context.Background(), key); got.GearID == nil || *got.GearID != golden.ID {
+		t.Fatalf("lookup still resolves to %v", got.GearID)
 	}
-	if im, _ := repo.Get(context.Background(), imported); len(im.ExternalRefs) != 0 {
-		t.Fatalf("imported gear kept the ref")
+	if len(repo.gear) != 1 {
+		t.Fatalf("mapping created gear: %d", len(repo.gear))
+	}
+	if d, _ := repo.GetDefault(context.Background(), user, domain.ActivityTypeRide); d != golden.ID {
+		t.Fatalf("primary flag did not seed the ride default on mapping: %v", d)
+	}
+	if pending, _ := svc.ListPending(context.Background(), user); len(pending) != 0 {
+		t.Fatalf("mapped ref still pending")
 	}
 	if len(recomputed) != 1 || recomputed[0] != act {
 		t.Fatalf("recomputed = %v", recomputed)

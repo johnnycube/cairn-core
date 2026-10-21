@@ -24,13 +24,21 @@ type Service struct {
 	now   func() time.Time
 	newID func() uuid.UUID
 	// recompute re-derives one activity after a ref mapping changed. Nil
-	// until SetRecompute; LinkRef then only moves the ref.
+	// until SetRecompute; decisions then only move the ref.
 	recompute func(ctx context.Context, id domain.ActivityID) error
+	// notify tells the user a provider record awaits a decision. Nil until
+	// SetNotifier; pending refs are then only listed.
+	notify func(ctx context.Context, ref domain.GearExternalRef) error
 }
 
-// SetRecompute installs the activity re-derivation LinkRef uses.
+// SetRecompute installs the activity re-derivation the mapping decisions use.
 func (s *Service) SetRecompute(fn func(ctx context.Context, id domain.ActivityID) error) {
 	s.recompute = fn
+}
+
+// SetNotifier installs the "decision needed" notification for new pending refs.
+func (s *Service) SetNotifier(fn func(ctx context.Context, ref domain.GearExternalRef) error) {
+	s.notify = fn
 }
 
 // NewService wires the use cases. now and newID default to time.Now and
@@ -168,45 +176,25 @@ func (s *Service) Merge(ctx context.Context, userID domain.UserID, from, to doma
 	return s.gear.Get(ctx, to)
 }
 
-// LinkRef maps a provider gear record onto gear the user chose: the golden
-// record. The ref must already be known (imported) and belong to the user.
-// Activities whose gear the merge derived from that record are re-derived,
-// so they move with the mapping; user-set activities stay as they are.
+// LinkRef decides "this is an alias": maps a provider gear record, pending
+// or already mapped elsewhere, onto gear the user chose. Activities whose
+// gear the merge derived from that record are re-derived, so they move with
+// the mapping; user-set activities stay as they are.
 func (s *Service) LinkRef(ctx context.Context, userID domain.UserID, id domain.GearID, key domain.GearRefKey) (domain.Gear, error) {
 	if _, err := s.Get(ctx, userID, id); err != nil {
 		return domain.Gear{}, err
 	}
-	currentID, err := s.gear.FindByExternalRef(ctx, key)
+	ref, err := s.ownedRef(ctx, userID, key)
 	if err != nil {
 		return domain.Gear{}, err
 	}
-	current, err := s.Get(ctx, userID, currentID)
+	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		return s.mapRef(ctx, userID, ref, id)
+	})
 	if err != nil {
-		return domain.Gear{}, err
-	}
-	if currentID != id {
-		if err := s.gear.UpsertExternalRef(ctx, movedRef(current, key, id)); err != nil {
-			return domain.Gear{}, err
-		}
-	}
-	if err := s.rederiveForRef(ctx, key); err != nil {
-		return domain.Gear{}, err
-	}
-	if err := s.gear.RecomputeTotalsForUser(ctx, userID); err != nil {
-		return domain.Gear{}, err
+		return domain.Gear{}, fmt.Errorf("link gear ref %s/%s: %w", key.Provider, key.ExternalID, err)
 	}
 	return s.gear.Get(ctx, id)
-}
-
-// movedRef returns from's ref for key with its gear id replaced.
-func movedRef(from domain.Gear, key domain.GearRefKey, to domain.GearID) domain.GearExternalRef {
-	for _, r := range from.ExternalRefs {
-		if r.Key() == key {
-			r.GearID = to
-			return r
-		}
-	}
-	return domain.GearExternalRef{GearID: to, Provider: key.Provider, ExternalAccountID: key.ExternalAccountID, ExternalID: key.ExternalID}
 }
 
 // rederiveForRef recomputes the merge-assigned activities that took their
@@ -248,69 +236,120 @@ func (s *Service) ListDefaults(ctx context.Context, userID domain.UserID) ([]dom
 	return s.gear.ListDefaults(ctx, userID)
 }
 
-// ImportFromProvider upserts a provider's gear record. A new ref creates
-// gear from the provider's description; an existing ref only refreshes the
-// ref itself and follows a provider-side retirement (user edits to name,
-// brand and model are never clobbered). Provider defaults seed the user's
-// per-type defaults only where none is set.
-func (s *Service) ImportFromProvider(ctx context.Context, userID domain.UserID, key domain.GearRefKey, in domain.GearImport) (domain.GearID, error) {
-	var out domain.GearID
+// ImportFromProvider records a provider's gear record. The domain gear is
+// the golden record, so a record Cairn has not seen becomes a PENDING ref
+// and the user is told to decide (create gear from it, map it onto existing
+// gear, or leave it). A mapped ref only refreshes its description and
+// follows a provider-side retirement; user edits to the gear itself are
+// never clobbered. Returns the ref as stored.
+func (s *Service) ImportFromProvider(ctx context.Context, userID domain.UserID, key domain.GearRefKey, in domain.GearImport) (domain.GearExternalRef, error) {
+	var (
+		out        domain.GearExternalRef
+		newPending bool
+	)
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		id, err := s.findOrCreateImported(ctx, userID, key, in)
-		if err != nil {
+		ref, err := s.gear.GetExternalRef(ctx, key)
+		switch {
+		case errors.Is(err, domain.ErrNotFound):
+			ref = domain.GearExternalRef{UserID: userID, Provider: key.Provider, ExternalAccountID: key.ExternalAccountID, ExternalID: key.ExternalID}
+			newPending = true
+		case err != nil:
 			return err
+		case ref.UserID != userID:
+			return ErrNotOwner
 		}
-		if err := s.gear.UpsertExternalRef(ctx, domain.GearExternalRef{
-			GearID:            id,
-			Provider:          key.Provider,
-			ExternalAccountID: key.ExternalAccountID,
-			ExternalID:        key.ExternalID,
-			ProviderName:      in.Name,
-			ProviderDistanceM: in.DistanceM,
-			Primary:           in.Primary,
-			LastSeenAt:        s.now(),
-		}); err != nil {
-			return err
-		}
-		if !in.Retired {
-			if err := s.seedDefaults(ctx, userID, id, in); err != nil {
+		ref.Describe(in, s.now())
+		if ref.GearID != nil && in.Retired {
+			if err := s.retireFromProvider(ctx, *ref.GearID); err != nil {
 				return err
 			}
 		}
-		out = id
+		if err := s.gear.UpsertExternalRef(ctx, ref); err != nil {
+			return err
+		}
+		out = ref
 		return nil
 	})
 	if err != nil {
-		return domain.GearID{}, fmt.Errorf("import gear %s/%s: %w", key.Provider, key.ExternalID, err)
+		return domain.GearExternalRef{}, fmt.Errorf("import gear %s/%s: %w", key.Provider, key.ExternalID, err)
+	}
+	if newPending && s.notify != nil {
+		if err := s.notify(ctx, out); err != nil {
+			return out, fmt.Errorf("notify gear decision: %w", err)
+		}
 	}
 	return out, nil
 }
 
-// findOrCreateImported resolves the ref to existing gear (following a
-// provider-side retirement) or creates gear from the import.
-func (s *Service) findOrCreateImported(ctx context.Context, userID domain.UserID, key domain.GearRefKey, in domain.GearImport) (domain.GearID, error) {
-	id, err := s.gear.FindByExternalRef(ctx, key)
-	if errors.Is(err, domain.ErrNotFound) {
-		return s.createFromImport(ctx, userID, key, in)
-	}
-	if err != nil {
-		return domain.GearID{}, err
-	}
+// retireFromProvider follows a provider-side retirement onto the mapped gear.
+func (s *Service) retireFromProvider(ctx context.Context, id domain.GearID) error {
 	g, err := s.gear.Get(ctx, id)
+	if err != nil || g.Retired {
+		return err
+	}
+	now := s.now()
+	g.Retired, g.RetiredAt = true, &now
+	return s.gear.Save(ctx, g)
+}
+
+// ListPending returns the user's provider records awaiting a decision.
+func (s *Service) ListPending(ctx context.Context, userID domain.UserID) ([]domain.GearExternalRef, error) {
+	return s.gear.ListPendingRefs(ctx, userID)
+}
+
+// CreateFromRef decides "this is new gear": creates gear from the provider's
+// description, maps the ref onto it, seeds defaults, re-derives the
+// activities that reference the record and refreshes totals.
+func (s *Service) CreateFromRef(ctx context.Context, userID domain.UserID, key domain.GearRefKey) (domain.Gear, error) {
+	ref, err := s.ownedRef(ctx, userID, key)
 	if err != nil {
-		return domain.GearID{}, err
+		return domain.Gear{}, err
 	}
-	if g.UserID != userID {
-		return domain.GearID{}, ErrNotOwner
+	if !ref.Pending() {
+		return domain.Gear{}, domain.ErrGearRefMapped
 	}
-	if in.Retired && !g.Retired {
-		now := s.now()
-		g.Retired, g.RetiredAt = true, &now
-		if err := s.gear.Save(ctx, g); err != nil {
-			return domain.GearID{}, err
+	var id domain.GearID
+	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		var err error
+		if id, err = s.createFromImport(ctx, userID, key, ref.Import()); err != nil {
+			return err
+		}
+		return s.mapRef(ctx, userID, ref, id)
+	})
+	if err != nil {
+		return domain.Gear{}, fmt.Errorf("create gear from %s/%s: %w", key.Provider, key.ExternalID, err)
+	}
+	return s.gear.Get(ctx, id)
+}
+
+// ownedRef loads a provider ref and checks it belongs to the user.
+func (s *Service) ownedRef(ctx context.Context, userID domain.UserID, key domain.GearRefKey) (domain.GearExternalRef, error) {
+	ref, err := s.gear.GetExternalRef(ctx, key)
+	if err != nil {
+		return domain.GearExternalRef{}, err
+	}
+	if ref.UserID != userID {
+		return domain.GearExternalRef{}, ErrNotOwner
+	}
+	return ref, nil
+}
+
+// mapRef points the ref at gear, seeds the provider's defaults where the
+// user has none, re-derives the record's activities and refreshes totals.
+func (s *Service) mapRef(ctx context.Context, userID domain.UserID, ref domain.GearExternalRef, id domain.GearID) error {
+	ref.GearID = &id
+	if err := s.gear.UpsertExternalRef(ctx, ref); err != nil {
+		return err
+	}
+	if !ref.Retired {
+		if err := s.seedDefaults(ctx, userID, id, ref.Import()); err != nil {
+			return err
 		}
 	}
-	return id, nil
+	if err := s.rederiveForRef(ctx, ref.Key()); err != nil {
+		return err
+	}
+	return s.gear.RecomputeTotalsForUser(ctx, userID)
 }
 
 func (s *Service) createFromImport(ctx context.Context, userID domain.UserID, key domain.GearRefKey, in domain.GearImport) (domain.GearID, error) {
