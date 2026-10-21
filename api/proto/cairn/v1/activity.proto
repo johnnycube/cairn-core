@@ -335,6 +335,13 @@ message ActivitySourcePayload {
   // Free-form provider data the Core does not interpret. Persisted for
   // audit and surfaced in the activity-source detail view.
   map<string, string> extra = 18;
+
+  // The provider's id of the gear used on this activity, matching
+  // ImportedGear.ref.external_id on the same account. MAY reference gear
+  // the Core has not seen yet; it is resolved when the gear arrives.
+  string gear_external_id = 22;
+  // Provider display name of that gear, a hint until the gear is imported.
+  string gear_name = 23;
 }
 
 message ActivityLap {

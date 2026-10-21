@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package cairn.v1;
+
+// GearKind classifies gear coarsely so pickers can filter by activity
+// type. Bike-like activities map to BIKE, foot activities to SHOE,
+// everything else to OTHER. Finer classification (components, skis,
+// boards) is deferred; see docs/gear-v0.4.0.md.
+enum GearKind {
+  GEAR_KIND_UNSPECIFIED = 0;
+  GEAR_KIND_BIKE = 1;
+  GEAR_KIND_SHOE = 2;
+  GEAR_KIND_OTHER = 3;
+}

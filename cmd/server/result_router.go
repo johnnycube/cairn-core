@@ -61,11 +61,15 @@ func startResultRouter(
 	})
 }
 
+// resultUnmarshal tolerates fields this core does not know, so a newer
+// worker's additive contract changes never fail every import on an older core.
+var resultUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
+
 // routeJobResult decodes the typed JobResult and processes its events in
 // order. Extracted so it's unit-testable independent of the NATS glue.
 func routeJobResult(ctx context.Context, app *App, log *slog.Logger, msg port.Message) error {
 	var jr workerv1.JobResult
-	if err := protojson.Unmarshal(msg.Body, &jr); err != nil {
+	if err := resultUnmarshal.Unmarshal(msg.Body, &jr); err != nil {
 		log.Warn("decode JobResult failed", "subject", msg.Subject, "error", err)
 		return &port.TerminalError{Reason: "bad_payload", Cause: err}
 	}
@@ -106,7 +110,7 @@ func routeClaimCheckedResult(ctx context.Context, app *App, log *slog.Logger, su
 		return fmt.Errorf("fetch claim-checked payload %s: %w", ref.GetBlobId(), err)
 	}
 	var full workerv1.JobResult
-	if err := protojson.Unmarshal(data, &full); err != nil {
+	if err := resultUnmarshal.Unmarshal(data, &full); err != nil {
 		log.Warn("decode claim-checked JobResult failed", "subject", subject, "blob_id", ref.GetBlobId(), "error", err)
 		return &port.TerminalError{Reason: "bad_payload", Cause: err}
 	}

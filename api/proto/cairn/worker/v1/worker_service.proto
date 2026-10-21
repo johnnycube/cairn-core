@@ -59,6 +59,7 @@ import "google/protobuf/timestamp.proto";
 // directly — imported activities, segments, efforts, and records are
 // first-class cairn.v1 entities, just carried over the worker boundary.
 import "cairn/v1/activity.proto";
+import "cairn/v1/gear.proto";
 import "cairn/v1/segment.proto";
 
 // ----------------------------------------------------------------------------
@@ -219,6 +220,7 @@ enum WorkerEventType {
   WORKER_EVENT_TYPE_SEGMENT_EFFORT = 3;
   WORKER_EVENT_TYPE_RECORD = 4;
   WORKER_EVENT_TYPE_METRIC = 5;
+  WORKER_EVENT_TYPE_GEAR = 6;
 }
 
 enum AuthMethod {
@@ -347,6 +349,11 @@ enum JobType {
   // Refresh OAuth tokens via the provider's token endpoint. Initiated by
   // the Core when current tokens are near expiry.
   JOB_TYPE_REFRESH_OAUTH_TOKEN = 10;
+
+  // Import the account's full gear list (bikes, shoes), retired included.
+  // Workers whose manifest declares the Gear data type MUST consume
+  // cairn.jobs.import_gear.<provider>. Payload: ImportGearPayload.
+  JOB_TYPE_IMPORT_GEAR = 11;
 }
 
 // ----------------------------------------------------------------------------
@@ -419,6 +426,7 @@ message Job {
     ImportMetricsPayload import_metrics = 15;
     RegisterWebhookPayload register_webhook = 16;
     UnregisterWebhookPayload unregister_webhook = 17;
+    ImportGearPayload import_gear = 18;
   }
 
   // When the job was scheduled (for latency tracking).
@@ -687,6 +695,9 @@ message ImportMetricsPayload {
   repeated string metric_keys = 2;
 }
 
+// JOB_TYPE_IMPORT_GEAR — no parameters: the list is small, always fetch all.
+message ImportGearPayload {}
+
 // ----------------------------------------------------------------------------
 // Job results — the typed, multi-event data path.
 //
@@ -774,6 +785,7 @@ message WorkerEvent {
     ImportedSegmentEffort segment_effort = 4;
     ImportedRecord record = 5;
     ImportedMetric metric = 6;
+    ImportedGear gear = 7;
   }
 }
 
@@ -888,6 +900,32 @@ message ImportedMetric {
   // One of value_numeric / value_json must be set.
   optional double value_numeric = 4;
   string value_json = 5;
+}
+
+// A piece of gear as the provider knows it. Any JobResult MAY carry GEAR
+// events; they precede the activity that references them (like segments).
+// The Core upserts by (external_account_id, external_id). Gear is optional
+// data: a worker MUST NOT fail or delay an activity import because the
+// gear lookup failed.
+message ImportedGear {
+  ExternalRef ref = 1;
+  GearImport payload = 2;
+}
+
+message GearImport {
+  cairn.v1.GearKind kind = 1;
+  string name = 2;
+  string brand = 3;
+  string model = 4;
+  string description = 5;
+  bool retired = 6;
+  // The provider's default for this kind (Strava "primary").
+  bool primary = 7;
+  // Provider-reported odometer, kept for audit; the Core computes its own totals.
+  optional double distance_m = 8;
+  // Activity types this gear is the provider's default for (Garmin has
+  // per-type defaults). Workers map native type names to ActivityType.
+  repeated cairn.v1.ActivityType default_for = 9;
 }
 
 // Provider webhook event kinds a worker subscribes to / forwards.

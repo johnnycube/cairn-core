@@ -224,6 +224,7 @@ accounts: {
           "cairn.results.backfill.strava",
           "cairn.results.reconcile.strava.*",   # account-suffixed
           "cairn.results.import_metrics.strava",
+          "cairn.results.import_gear.strava",
           "cairn.jobs.fetch_source.strava",     # reconcile/webhook sub-jobs
           "cairn.workers.strava-fetcher.>",
           "cairn.tokens.strava.fetch",          # ← ".strava" hard-coded
@@ -237,6 +238,7 @@ accounts: {
           "cairn.jobs.backfill.strava",
           "cairn.jobs.reconcile.strava",
           "cairn.jobs.import_metrics.strava",
+          "cairn.jobs.import_gear.strava",
           "cairn.cmd.worker.strava-fetcher.>",
           "cairn.discover.strava",
           "_INBOX.>"                            # for request/reply

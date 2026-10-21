@@ -88,6 +88,7 @@ const (
 	WorkerEventType_WORKER_EVENT_TYPE_SEGMENT_EFFORT WorkerEventType = 3
 	WorkerEventType_WORKER_EVENT_TYPE_RECORD         WorkerEventType = 4
 	WorkerEventType_WORKER_EVENT_TYPE_METRIC         WorkerEventType = 5
+	WorkerEventType_WORKER_EVENT_TYPE_GEAR           WorkerEventType = 6
 )
 
 // Enum value maps for WorkerEventType.
@@ -99,6 +100,7 @@ var (
 		3: "WORKER_EVENT_TYPE_SEGMENT_EFFORT",
 		4: "WORKER_EVENT_TYPE_RECORD",
 		5: "WORKER_EVENT_TYPE_METRIC",
+		6: "WORKER_EVENT_TYPE_GEAR",
 	}
 	WorkerEventType_value = map[string]int32{
 		"WORKER_EVENT_TYPE_UNSPECIFIED":    0,
@@ -107,6 +109,7 @@ var (
 		"WORKER_EVENT_TYPE_SEGMENT_EFFORT": 3,
 		"WORKER_EVENT_TYPE_RECORD":         4,
 		"WORKER_EVENT_TYPE_METRIC":         5,
+		"WORKER_EVENT_TYPE_GEAR":           6,
 	}
 )
 
@@ -302,6 +305,10 @@ const (
 	// Refresh OAuth tokens via the provider's token endpoint. Initiated by
 	// the Core when current tokens are near expiry.
 	JobType_JOB_TYPE_REFRESH_OAUTH_TOKEN JobType = 10
+	// Import the account's full gear list (bikes, shoes), retired included.
+	// Workers whose manifest declares the Gear data type MUST consume
+	// cairn.jobs.import_gear.<provider>. Payload: ImportGearPayload.
+	JobType_JOB_TYPE_IMPORT_GEAR JobType = 11
 )
 
 // Enum value maps for JobType.
@@ -318,6 +325,7 @@ var (
 		8:  "JOB_TYPE_UNREGISTER_WEBHOOK",
 		9:  "JOB_TYPE_VALIDATE_CREDENTIALS",
 		10: "JOB_TYPE_REFRESH_OAUTH_TOKEN",
+		11: "JOB_TYPE_IMPORT_GEAR",
 	}
 	JobType_value = map[string]int32{
 		"JOB_TYPE_UNSPECIFIED":          0,
@@ -331,6 +339,7 @@ var (
 		"JOB_TYPE_UNREGISTER_WEBHOOK":   8,
 		"JOB_TYPE_VALIDATE_CREDENTIALS": 9,
 		"JOB_TYPE_REFRESH_OAUTH_TOKEN":  10,
+		"JOB_TYPE_IMPORT_GEAR":          11,
 	}
 )
 
@@ -1594,6 +1603,7 @@ type Job struct {
 	//	*Job_ImportMetrics
 	//	*Job_RegisterWebhook
 	//	*Job_UnregisterWebhook
+	//	*Job_ImportGear
 	Payload isJob_Payload `protobuf_oneof:"payload"`
 	// When the job was scheduled (for latency tracking).
 	ScheduledAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=scheduled_at,json=scheduledAt,proto3" json:"scheduled_at,omitempty"`
@@ -1750,6 +1760,15 @@ func (x *Job) GetUnregisterWebhook() *UnregisterWebhookPayload {
 	return nil
 }
 
+func (x *Job) GetImportGear() *ImportGearPayload {
+	if x != nil {
+		if x, ok := x.Payload.(*Job_ImportGear); ok {
+			return x.ImportGear
+		}
+	}
+	return nil
+}
+
 func (x *Job) GetScheduledAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ScheduledAt
@@ -1810,6 +1829,10 @@ type Job_UnregisterWebhook struct {
 	UnregisterWebhook *UnregisterWebhookPayload `protobuf:"bytes,17,opt,name=unregister_webhook,json=unregisterWebhook,proto3,oneof"`
 }
 
+type Job_ImportGear struct {
+	ImportGear *ImportGearPayload `protobuf:"bytes,18,opt,name=import_gear,json=importGear,proto3,oneof"`
+}
+
 func (*Job_ImportActivities) isJob_Payload() {}
 
 func (*Job_ReimportActivity) isJob_Payload() {}
@@ -1823,6 +1846,8 @@ func (*Job_ImportMetrics) isJob_Payload() {}
 func (*Job_RegisterWebhook) isJob_Payload() {}
 
 func (*Job_UnregisterWebhook) isJob_Payload() {}
+
+func (*Job_ImportGear) isJob_Payload() {}
 
 type JobAck struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -3080,6 +3105,43 @@ func (x *ImportMetricsPayload) GetMetricKeys() []string {
 	return nil
 }
 
+// JOB_TYPE_IMPORT_GEAR — no parameters: the list is small, always fetch all.
+type ImportGearPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportGearPayload) Reset() {
+	*x = ImportGearPayload{}
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportGearPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportGearPayload) ProtoMessage() {}
+
+func (x *ImportGearPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportGearPayload.ProtoReflect.Descriptor instead.
+func (*ImportGearPayload) Descriptor() ([]byte, []int) {
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{30}
+}
+
 // ExternalRef ties an imported entity to its provider origin. The Core
 // dedups on (provider, external_id) scoped to external_account_id.
 type ExternalRef struct {
@@ -3098,7 +3160,7 @@ type ExternalRef struct {
 
 func (x *ExternalRef) Reset() {
 	*x = ExternalRef{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[30]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3110,7 +3172,7 @@ func (x *ExternalRef) String() string {
 func (*ExternalRef) ProtoMessage() {}
 
 func (x *ExternalRef) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[30]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3123,7 +3185,7 @@ func (x *ExternalRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalRef.ProtoReflect.Descriptor instead.
 func (*ExternalRef) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{30}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ExternalRef) GetUserId() string {
@@ -3197,7 +3259,7 @@ type JobResult struct {
 
 func (x *JobResult) Reset() {
 	*x = JobResult{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[31]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3209,7 +3271,7 @@ func (x *JobResult) String() string {
 func (*JobResult) ProtoMessage() {}
 
 func (x *JobResult) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[31]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3222,7 +3284,7 @@ func (x *JobResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobResult.ProtoReflect.Descriptor instead.
 func (*JobResult) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{31}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *JobResult) GetEvents() []*WorkerEvent {
@@ -3303,7 +3365,7 @@ type PayloadRef struct {
 
 func (x *PayloadRef) Reset() {
 	*x = PayloadRef{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[32]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3315,7 +3377,7 @@ func (x *PayloadRef) String() string {
 func (*PayloadRef) ProtoMessage() {}
 
 func (x *PayloadRef) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[32]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3328,7 +3390,7 @@ func (x *PayloadRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PayloadRef.ProtoReflect.Descriptor instead.
 func (*PayloadRef) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{32}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PayloadRef) GetBlobId() string {
@@ -3370,6 +3432,7 @@ type WorkerEvent struct {
 	//	*WorkerEvent_SegmentEffort
 	//	*WorkerEvent_Record
 	//	*WorkerEvent_Metric
+	//	*WorkerEvent_Gear
 	Entity        isWorkerEvent_Entity `protobuf_oneof:"entity"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3377,7 +3440,7 @@ type WorkerEvent struct {
 
 func (x *WorkerEvent) Reset() {
 	*x = WorkerEvent{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[33]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3389,7 +3452,7 @@ func (x *WorkerEvent) String() string {
 func (*WorkerEvent) ProtoMessage() {}
 
 func (x *WorkerEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[33]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3402,7 +3465,7 @@ func (x *WorkerEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerEvent.ProtoReflect.Descriptor instead.
 func (*WorkerEvent) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{33}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *WorkerEvent) GetType() WorkerEventType {
@@ -3464,6 +3527,15 @@ func (x *WorkerEvent) GetMetric() *ImportedMetric {
 	return nil
 }
 
+func (x *WorkerEvent) GetGear() *ImportedGear {
+	if x != nil {
+		if x, ok := x.Entity.(*WorkerEvent_Gear); ok {
+			return x.Gear
+		}
+	}
+	return nil
+}
+
 type isWorkerEvent_Entity interface {
 	isWorkerEvent_Entity()
 }
@@ -3488,6 +3560,10 @@ type WorkerEvent_Metric struct {
 	Metric *ImportedMetric `protobuf:"bytes,6,opt,name=metric,proto3,oneof"`
 }
 
+type WorkerEvent_Gear struct {
+	Gear *ImportedGear `protobuf:"bytes,7,opt,name=gear,proto3,oneof"`
+}
+
 func (*WorkerEvent_Activity) isWorkerEvent_Entity() {}
 
 func (*WorkerEvent_Segment) isWorkerEvent_Entity() {}
@@ -3497,6 +3573,8 @@ func (*WorkerEvent_SegmentEffort) isWorkerEvent_Entity() {}
 func (*WorkerEvent_Record) isWorkerEvent_Entity() {}
 
 func (*WorkerEvent_Metric) isWorkerEvent_Entity() {}
+
+func (*WorkerEvent_Gear) isWorkerEvent_Entity() {}
 
 // An imported activity: the canonical per-source payload, its raw-blob
 // reference, and the (column-oriented) stream — the time-series that is the
@@ -3523,7 +3601,7 @@ type ImportedActivity struct {
 
 func (x *ImportedActivity) Reset() {
 	*x = ImportedActivity{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[34]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3535,7 +3613,7 @@ func (x *ImportedActivity) String() string {
 func (*ImportedActivity) ProtoMessage() {}
 
 func (x *ImportedActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[34]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3548,7 +3626,7 @@ func (x *ImportedActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportedActivity.ProtoReflect.Descriptor instead.
 func (*ImportedActivity) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{34}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ImportedActivity) GetRef() *ExternalRef {
@@ -3616,7 +3694,7 @@ type Attachment struct {
 
 func (x *Attachment) Reset() {
 	*x = Attachment{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[35]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3628,7 +3706,7 @@ func (x *Attachment) String() string {
 func (*Attachment) ProtoMessage() {}
 
 func (x *Attachment) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[35]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3641,7 +3719,7 @@ func (x *Attachment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Attachment.ProtoReflect.Descriptor instead.
 func (*Attachment) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{35}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Attachment) GetBlobId() string {
@@ -3698,7 +3776,7 @@ type ImportedSegment struct {
 
 func (x *ImportedSegment) Reset() {
 	*x = ImportedSegment{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[36]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3710,7 +3788,7 @@ func (x *ImportedSegment) String() string {
 func (*ImportedSegment) ProtoMessage() {}
 
 func (x *ImportedSegment) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[36]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3723,7 +3801,7 @@ func (x *ImportedSegment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportedSegment.ProtoReflect.Descriptor instead.
 func (*ImportedSegment) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{36}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ImportedSegment) GetRef() *ExternalRef {
@@ -3762,7 +3840,7 @@ type SegmentImport struct {
 
 func (x *SegmentImport) Reset() {
 	*x = SegmentImport{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[37]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3774,7 +3852,7 @@ func (x *SegmentImport) String() string {
 func (*SegmentImport) ProtoMessage() {}
 
 func (x *SegmentImport) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[37]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3787,7 +3865,7 @@ func (x *SegmentImport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SegmentImport.ProtoReflect.Descriptor instead.
 func (*SegmentImport) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{37}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SegmentImport) GetName() string {
@@ -3889,7 +3967,7 @@ type ImportedSegmentEffort struct {
 
 func (x *ImportedSegmentEffort) Reset() {
 	*x = ImportedSegmentEffort{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[38]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3901,7 +3979,7 @@ func (x *ImportedSegmentEffort) String() string {
 func (*ImportedSegmentEffort) ProtoMessage() {}
 
 func (x *ImportedSegmentEffort) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[38]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3914,7 +3992,7 @@ func (x *ImportedSegmentEffort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportedSegmentEffort.ProtoReflect.Descriptor instead.
 func (*ImportedSegmentEffort) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{38}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ImportedSegmentEffort) GetRef() *ExternalRef {
@@ -3964,7 +4042,7 @@ type SegmentEffortImport struct {
 
 func (x *SegmentEffortImport) Reset() {
 	*x = SegmentEffortImport{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[39]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3976,7 +4054,7 @@ func (x *SegmentEffortImport) String() string {
 func (*SegmentEffortImport) ProtoMessage() {}
 
 func (x *SegmentEffortImport) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[39]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3989,7 +4067,7 @@ func (x *SegmentEffortImport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SegmentEffortImport.ProtoReflect.Descriptor instead.
 func (*SegmentEffortImport) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{39}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *SegmentEffortImport) GetStartTime() *timestamppb.Timestamp {
@@ -4077,7 +4155,7 @@ type ImportedRecord struct {
 
 func (x *ImportedRecord) Reset() {
 	*x = ImportedRecord{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[40]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4089,7 +4167,7 @@ func (x *ImportedRecord) String() string {
 func (*ImportedRecord) ProtoMessage() {}
 
 func (x *ImportedRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[40]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4102,7 +4180,7 @@ func (x *ImportedRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportedRecord.ProtoReflect.Descriptor instead.
 func (*ImportedRecord) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{40}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ImportedRecord) GetRef() *ExternalRef {
@@ -4147,7 +4225,7 @@ type RecordImport struct {
 
 func (x *RecordImport) Reset() {
 	*x = RecordImport{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[41]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4159,7 +4237,7 @@ func (x *RecordImport) String() string {
 func (*RecordImport) ProtoMessage() {}
 
 func (x *RecordImport) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[41]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4172,7 +4250,7 @@ func (x *RecordImport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordImport.ProtoReflect.Descriptor instead.
 func (*RecordImport) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{41}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *RecordImport) GetMetric() v1.BestEffortMetric {
@@ -4252,7 +4330,7 @@ type ImportedMetric struct {
 
 func (x *ImportedMetric) Reset() {
 	*x = ImportedMetric{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[42]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4264,7 +4342,7 @@ func (x *ImportedMetric) String() string {
 func (*ImportedMetric) ProtoMessage() {}
 
 func (x *ImportedMetric) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[42]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4277,7 +4355,7 @@ func (x *ImportedMetric) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportedMetric.ProtoReflect.Descriptor instead.
 func (*ImportedMetric) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{42}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ImportedMetric) GetRef() *ExternalRef {
@@ -4315,6 +4393,175 @@ func (x *ImportedMetric) GetValueJson() string {
 	return ""
 }
 
+// A piece of gear as the provider knows it. Any JobResult MAY carry GEAR
+// events; they precede the activity that references them (like segments).
+// The Core upserts by (external_account_id, external_id). Gear is optional
+// data: a worker MUST NOT fail or delay an activity import because the
+// gear lookup failed.
+type ImportedGear struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *ExternalRef           `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Payload       *GearImport            `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportedGear) Reset() {
+	*x = ImportedGear{}
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportedGear) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportedGear) ProtoMessage() {}
+
+func (x *ImportedGear) ProtoReflect() protoreflect.Message {
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportedGear.ProtoReflect.Descriptor instead.
+func (*ImportedGear) Descriptor() ([]byte, []int) {
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ImportedGear) GetRef() *ExternalRef {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
+func (x *ImportedGear) GetPayload() *GearImport {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+type GearImport struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Kind        v1.GearKind            `protobuf:"varint,1,opt,name=kind,proto3,enum=cairn.v1.GearKind" json:"kind,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Brand       string                 `protobuf:"bytes,3,opt,name=brand,proto3" json:"brand,omitempty"`
+	Model       string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	Description string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Retired     bool                   `protobuf:"varint,6,opt,name=retired,proto3" json:"retired,omitempty"`
+	// The provider's default for this kind (Strava "primary").
+	Primary bool `protobuf:"varint,7,opt,name=primary,proto3" json:"primary,omitempty"`
+	// Provider-reported odometer, kept for audit; the Core computes its own totals.
+	DistanceM *float64 `protobuf:"fixed64,8,opt,name=distance_m,json=distanceM,proto3,oneof" json:"distance_m,omitempty"`
+	// Activity types this gear is the provider's default for (Garmin has
+	// per-type defaults). Workers map native type names to ActivityType.
+	DefaultFor    []v1.ActivityType `protobuf:"varint,9,rep,packed,name=default_for,json=defaultFor,proto3,enum=cairn.v1.ActivityType" json:"default_for,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GearImport) Reset() {
+	*x = GearImport{}
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GearImport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GearImport) ProtoMessage() {}
+
+func (x *GearImport) ProtoReflect() protoreflect.Message {
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GearImport.ProtoReflect.Descriptor instead.
+func (*GearImport) Descriptor() ([]byte, []int) {
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *GearImport) GetKind() v1.GearKind {
+	if x != nil {
+		return x.Kind
+	}
+	return v1.GearKind(0)
+}
+
+func (x *GearImport) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *GearImport) GetBrand() string {
+	if x != nil {
+		return x.Brand
+	}
+	return ""
+}
+
+func (x *GearImport) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *GearImport) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *GearImport) GetRetired() bool {
+	if x != nil {
+		return x.Retired
+	}
+	return false
+}
+
+func (x *GearImport) GetPrimary() bool {
+	if x != nil {
+		return x.Primary
+	}
+	return false
+}
+
+func (x *GearImport) GetDistanceM() float64 {
+	if x != nil && x.DistanceM != nil {
+		return *x.DistanceM
+	}
+	return 0
+}
+
+func (x *GearImport) GetDefaultFor() []v1.ActivityType {
+	if x != nil {
+		return x.DefaultFor
+	}
+	return nil
+}
+
 // JOB_TYPE_REGISTER_WEBHOOK
 type RegisterWebhookPayload struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -4330,7 +4577,7 @@ type RegisterWebhookPayload struct {
 
 func (x *RegisterWebhookPayload) Reset() {
 	*x = RegisterWebhookPayload{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[43]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4342,7 +4589,7 @@ func (x *RegisterWebhookPayload) String() string {
 func (*RegisterWebhookPayload) ProtoMessage() {}
 
 func (x *RegisterWebhookPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[43]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4355,7 +4602,7 @@ func (x *RegisterWebhookPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterWebhookPayload.ProtoReflect.Descriptor instead.
 func (*RegisterWebhookPayload) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{43}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *RegisterWebhookPayload) GetCallbackUrl() string {
@@ -4383,7 +4630,7 @@ type RegisterWebhookResult struct {
 
 func (x *RegisterWebhookResult) Reset() {
 	*x = RegisterWebhookResult{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[44]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4395,7 +4642,7 @@ func (x *RegisterWebhookResult) String() string {
 func (*RegisterWebhookResult) ProtoMessage() {}
 
 func (x *RegisterWebhookResult) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[44]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4408,7 +4655,7 @@ func (x *RegisterWebhookResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterWebhookResult.ProtoReflect.Descriptor instead.
 func (*RegisterWebhookResult) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{44}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *RegisterWebhookResult) GetSubscriptionId() string {
@@ -4428,7 +4675,7 @@ type UnregisterWebhookPayload struct {
 
 func (x *UnregisterWebhookPayload) Reset() {
 	*x = UnregisterWebhookPayload{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[45]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4440,7 +4687,7 @@ func (x *UnregisterWebhookPayload) String() string {
 func (*UnregisterWebhookPayload) ProtoMessage() {}
 
 func (x *UnregisterWebhookPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[45]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4453,7 +4700,7 @@ func (x *UnregisterWebhookPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterWebhookPayload.ProtoReflect.Descriptor instead.
 func (*UnregisterWebhookPayload) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{45}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *UnregisterWebhookPayload) GetSubscriptionId() string {
@@ -4475,7 +4722,7 @@ type ValidateCredentialsResult struct {
 
 func (x *ValidateCredentialsResult) Reset() {
 	*x = ValidateCredentialsResult{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[46]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4487,7 +4734,7 @@ func (x *ValidateCredentialsResult) String() string {
 func (*ValidateCredentialsResult) ProtoMessage() {}
 
 func (x *ValidateCredentialsResult) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[46]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4500,7 +4747,7 @@ func (x *ValidateCredentialsResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateCredentialsResult.ProtoReflect.Descriptor instead.
 func (*ValidateCredentialsResult) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{46}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ValidateCredentialsResult) GetValid() bool {
@@ -4531,7 +4778,7 @@ type RefreshOAuthTokenResult struct {
 
 func (x *RefreshOAuthTokenResult) Reset() {
 	*x = RefreshOAuthTokenResult{}
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[47]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4543,7 +4790,7 @@ func (x *RefreshOAuthTokenResult) String() string {
 func (*RefreshOAuthTokenResult) ProtoMessage() {}
 
 func (x *RefreshOAuthTokenResult) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[47]
+	mi := &file_cairn_worker_v1_worker_service_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4556,7 +4803,7 @@ func (x *RefreshOAuthTokenResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshOAuthTokenResult.ProtoReflect.Descriptor instead.
 func (*RefreshOAuthTokenResult) Descriptor() ([]byte, []int) {
-	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{47}
+	return file_cairn_worker_v1_worker_service_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *RefreshOAuthTokenResult) GetAccessToken() string {
@@ -4584,7 +4831,7 @@ var File_cairn_worker_v1_worker_service_proto protoreflect.FileDescriptor
 
 const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\n" +
-	"$cairn/worker/v1/worker_service.proto\x12\x0fcairn.worker.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17cairn/v1/activity.proto\x1a\x16cairn/v1/segment.proto\"\x98\x01\n" +
+	"$cairn/worker/v1/worker_service.proto\x12\x0fcairn.worker.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17cairn/v1/activity.proto\x1a\x13cairn/v1/gear.proto\x1a\x16cairn/v1/segment.proto\"\x98\x01\n" +
 	"\x0fRegisterRequest\x12\x1d\n" +
 	"\n" +
 	"auth_token\x18\x01 \x01(\tR\tauthToken\x12;\n" +
@@ -4665,7 +4912,7 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\ametrics\x18\x03 \x03(\v2*.cairn.worker.v1.WorkerHealth.MetricsEntryR\ametrics\x1a:\n" +
 	"\fMetricsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xfa\a\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xc1\b\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x18.cairn.worker.v1.JobTypeR\x04type\x12\x1a\n" +
@@ -4679,7 +4926,9 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\x0fimport_segments\x18\x0e \x01(\v2&.cairn.worker.v1.ImportSegmentsPayloadH\x00R\x0eimportSegments\x12N\n" +
 	"\x0eimport_metrics\x18\x0f \x01(\v2%.cairn.worker.v1.ImportMetricsPayloadH\x00R\rimportMetrics\x12T\n" +
 	"\x10register_webhook\x18\x10 \x01(\v2'.cairn.worker.v1.RegisterWebhookPayloadH\x00R\x0fregisterWebhook\x12Z\n" +
-	"\x12unregister_webhook\x18\x11 \x01(\v2).cairn.worker.v1.UnregisterWebhookPayloadH\x00R\x11unregisterWebhook\x12=\n" +
+	"\x12unregister_webhook\x18\x11 \x01(\v2).cairn.worker.v1.UnregisterWebhookPayloadH\x00R\x11unregisterWebhook\x12E\n" +
+	"\vimport_gear\x18\x12 \x01(\v2\".cairn.worker.v1.ImportGearPayloadH\x00R\n" +
+	"importGear\x12=\n" +
 	"\fscheduled_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\vscheduledAt\x126\n" +
 	"\bdeadline\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12\x18\n" +
 	"\aattempt\x18\n" +
@@ -4794,7 +5043,8 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\x14ImportMetricsPayload\x120\n" +
 	"\x05since\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x12\x1f\n" +
 	"\vmetric_keys\x18\x02 \x03(\tR\n" +
-	"metricKeys\"\x93\x01\n" +
+	"metricKeys\"\x13\n" +
+	"\x11ImportGearPayload\"\x93\x01\n" +
 	"\vExternalRef\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12.\n" +
@@ -4821,14 +5071,15 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\n" +
 	"size_bytes\x18\x02 \x01(\x03R\tsizeBytes\x12!\n" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12%\n" +
-	"\x0econtent_sha256\x18\x04 \x01(\tR\rcontentSha256\"\x93\x03\n" +
+	"\x0econtent_sha256\x18\x04 \x01(\tR\rcontentSha256\"\xc8\x03\n" +
 	"\vWorkerEvent\x124\n" +
 	"\x04type\x18\x01 \x01(\x0e2 .cairn.worker.v1.WorkerEventTypeR\x04type\x12?\n" +
 	"\bactivity\x18\x02 \x01(\v2!.cairn.worker.v1.ImportedActivityH\x00R\bactivity\x12<\n" +
 	"\asegment\x18\x03 \x01(\v2 .cairn.worker.v1.ImportedSegmentH\x00R\asegment\x12O\n" +
 	"\x0esegment_effort\x18\x04 \x01(\v2&.cairn.worker.v1.ImportedSegmentEffortH\x00R\rsegmentEffort\x129\n" +
 	"\x06record\x18\x05 \x01(\v2\x1f.cairn.worker.v1.ImportedRecordH\x00R\x06record\x129\n" +
-	"\x06metric\x18\x06 \x01(\v2\x1f.cairn.worker.v1.ImportedMetricH\x00R\x06metricB\b\n" +
+	"\x06metric\x18\x06 \x01(\v2\x1f.cairn.worker.v1.ImportedMetricH\x00R\x06metric\x123\n" +
+	"\x04gear\x18\a \x01(\v2\x1d.cairn.worker.v1.ImportedGearH\x00R\x04gearB\b\n" +
 	"\x06entity\"\xde\x02\n" +
 	"\x10ImportedActivity\x12.\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1c.cairn.worker.v1.ExternalRefR\x03ref\x12\x1e\n" +
@@ -4916,7 +5167,24 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\rvalue_numeric\x18\x04 \x01(\x01H\x00R\fvalueNumeric\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"value_json\x18\x05 \x01(\tR\tvalueJsonB\x10\n" +
-	"\x0e_value_numeric\"\x7f\n" +
+	"\x0e_value_numeric\"u\n" +
+	"\fImportedGear\x12.\n" +
+	"\x03ref\x18\x01 \x01(\v2\x1c.cairn.worker.v1.ExternalRefR\x03ref\x125\n" +
+	"\apayload\x18\x02 \x01(\v2\x1b.cairn.worker.v1.GearImportR\apayload\"\xb6\x02\n" +
+	"\n" +
+	"GearImport\x12&\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x12.cairn.v1.GearKindR\x04kind\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05brand\x18\x03 \x01(\tR\x05brand\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x18\n" +
+	"\aretired\x18\x06 \x01(\bR\aretired\x12\x18\n" +
+	"\aprimary\x18\a \x01(\bR\aprimary\x12\"\n" +
+	"\n" +
+	"distance_m\x18\b \x01(\x01H\x00R\tdistanceM\x88\x01\x01\x127\n" +
+	"\vdefault_for\x18\t \x03(\x0e2\x16.cairn.v1.ActivityTypeR\n" +
+	"defaultForB\r\n" +
+	"\v_distance_m\"\x7f\n" +
 	"\x16RegisterWebhookPayload\x12!\n" +
 	"\fcallback_url\x18\x01 \x01(\tR\vcallbackUrl\x12B\n" +
 	"\vevent_types\x18\x02 \x03(\x0e2!.cairn.worker.v1.WebhookEventTypeR\n" +
@@ -4931,14 +5199,15 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\x17RefreshOAuthTokenResult\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\x12Q\n" +
-	"\x17access_token_expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x14accessTokenExpiresAt*\xd5\x01\n" +
+	"\x17access_token_expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x14accessTokenExpiresAt*\xf1\x01\n" +
 	"\x0fWorkerEventType\x12!\n" +
 	"\x1dWORKER_EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aWORKER_EVENT_TYPE_ACTIVITY\x10\x01\x12\x1d\n" +
 	"\x19WORKER_EVENT_TYPE_SEGMENT\x10\x02\x12$\n" +
 	" WORKER_EVENT_TYPE_SEGMENT_EFFORT\x10\x03\x12\x1c\n" +
 	"\x18WORKER_EVENT_TYPE_RECORD\x10\x04\x12\x1c\n" +
-	"\x18WORKER_EVENT_TYPE_METRIC\x10\x05*\x9f\x01\n" +
+	"\x18WORKER_EVENT_TYPE_METRIC\x10\x05\x12\x1a\n" +
+	"\x16WORKER_EVENT_TYPE_GEAR\x10\x06*\x9f\x01\n" +
 	"\n" +
 	"AuthMethod\x12\x1b\n" +
 	"\x17AUTH_METHOD_UNSPECIFIED\x10\x00\x12\x14\n" +
@@ -4956,7 +5225,7 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\x0fFIELD_TYPE_BOOL\x10\x05\x12\x15\n" +
 	"\x11FIELD_TYPE_SELECT\x10\x06\x12\x1b\n" +
 	"\x17FIELD_TYPE_MULTI_SELECT\x10\a\x12\x13\n" +
-	"\x0fFIELD_TYPE_DATE\x10\b*\xe2\x02\n" +
+	"\x0fFIELD_TYPE_DATE\x10\b*\xfc\x02\n" +
 	"\aJobType\x12\x18\n" +
 	"\x14JOB_TYPE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aJOB_TYPE_IMPORT_ACTIVITIES\x10\x01\x12\x1e\n" +
@@ -4969,7 +5238,8 @@ const file_cairn_worker_v1_worker_service_proto_rawDesc = "" +
 	"\x1bJOB_TYPE_UNREGISTER_WEBHOOK\x10\b\x12!\n" +
 	"\x1dJOB_TYPE_VALIDATE_CREDENTIALS\x10\t\x12 \n" +
 	"\x1cJOB_TYPE_REFRESH_OAUTH_TOKEN\x10\n" +
-	"*\x97\x01\n" +
+	"\x12\x18\n" +
+	"\x14JOB_TYPE_IMPORT_GEAR\x10\v*\x97\x01\n" +
 	"\x11ReportInstruction\x12\"\n" +
 	"\x1eREPORT_INSTRUCTION_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17REPORT_INSTRUCTION_NONE\x10\x01\x12\x1a\n" +
@@ -5015,7 +5285,7 @@ func file_cairn_worker_v1_worker_service_proto_rawDescGZIP() []byte {
 }
 
 var file_cairn_worker_v1_worker_service_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_cairn_worker_v1_worker_service_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_cairn_worker_v1_worker_service_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_cairn_worker_v1_worker_service_proto_goTypes = []any{
 	(WorkerEventType)(0),                // 0: cairn.worker.v1.WorkerEventType
 	(AuthMethod)(0),                     // 1: cairn.worker.v1.AuthMethod
@@ -5055,37 +5325,41 @@ var file_cairn_worker_v1_worker_service_proto_goTypes = []any{
 	(*LocalReparsePayload)(nil),         // 35: cairn.worker.v1.LocalReparsePayload
 	(*ImportSegmentsPayload)(nil),       // 36: cairn.worker.v1.ImportSegmentsPayload
 	(*ImportMetricsPayload)(nil),        // 37: cairn.worker.v1.ImportMetricsPayload
-	(*ExternalRef)(nil),                 // 38: cairn.worker.v1.ExternalRef
-	(*JobResult)(nil),                   // 39: cairn.worker.v1.JobResult
-	(*PayloadRef)(nil),                  // 40: cairn.worker.v1.PayloadRef
-	(*WorkerEvent)(nil),                 // 41: cairn.worker.v1.WorkerEvent
-	(*ImportedActivity)(nil),            // 42: cairn.worker.v1.ImportedActivity
-	(*Attachment)(nil),                  // 43: cairn.worker.v1.Attachment
-	(*ImportedSegment)(nil),             // 44: cairn.worker.v1.ImportedSegment
-	(*SegmentImport)(nil),               // 45: cairn.worker.v1.SegmentImport
-	(*ImportedSegmentEffort)(nil),       // 46: cairn.worker.v1.ImportedSegmentEffort
-	(*SegmentEffortImport)(nil),         // 47: cairn.worker.v1.SegmentEffortImport
-	(*ImportedRecord)(nil),              // 48: cairn.worker.v1.ImportedRecord
-	(*RecordImport)(nil),                // 49: cairn.worker.v1.RecordImport
-	(*ImportedMetric)(nil),              // 50: cairn.worker.v1.ImportedMetric
-	(*RegisterWebhookPayload)(nil),      // 51: cairn.worker.v1.RegisterWebhookPayload
-	(*RegisterWebhookResult)(nil),       // 52: cairn.worker.v1.RegisterWebhookResult
-	(*UnregisterWebhookPayload)(nil),    // 53: cairn.worker.v1.UnregisterWebhookPayload
-	(*ValidateCredentialsResult)(nil),   // 54: cairn.worker.v1.ValidateCredentialsResult
-	(*RefreshOAuthTokenResult)(nil),     // 55: cairn.worker.v1.RefreshOAuthTokenResult
-	nil,                                 // 56: cairn.worker.v1.ProviderManifest.CapabilitiesEntry
-	nil,                                 // 57: cairn.worker.v1.WorkerHealth.MetricsEntry
-	nil,                                 // 58: cairn.worker.v1.EphemeralCredentials.CustomEntry
-	nil,                                 // 59: cairn.worker.v1.EphemeralCredentials.ConfigEntry
-	nil,                                 // 60: cairn.worker.v1.WorkerError.MetadataEntry
-	nil,                                 // 61: cairn.worker.v1.PresignBlobUploadResponse.RequiredHeadersEntry
-	(*timestamppb.Timestamp)(nil),       // 62: google.protobuf.Timestamp
-	(*v1.ActivitySourcePayload)(nil),    // 63: cairn.v1.ActivitySourcePayload
-	(*v1.ActivityStream)(nil),           // 64: cairn.v1.ActivityStream
-	(v1.ActivityType)(0),                // 65: cairn.v1.ActivityType
-	(v1.ClimbCategory)(0),               // 66: cairn.v1.ClimbCategory
-	(*durationpb.Duration)(nil),         // 67: google.protobuf.Duration
-	(v1.BestEffortMetric)(0),            // 68: cairn.v1.BestEffortMetric
+	(*ImportGearPayload)(nil),           // 38: cairn.worker.v1.ImportGearPayload
+	(*ExternalRef)(nil),                 // 39: cairn.worker.v1.ExternalRef
+	(*JobResult)(nil),                   // 40: cairn.worker.v1.JobResult
+	(*PayloadRef)(nil),                  // 41: cairn.worker.v1.PayloadRef
+	(*WorkerEvent)(nil),                 // 42: cairn.worker.v1.WorkerEvent
+	(*ImportedActivity)(nil),            // 43: cairn.worker.v1.ImportedActivity
+	(*Attachment)(nil),                  // 44: cairn.worker.v1.Attachment
+	(*ImportedSegment)(nil),             // 45: cairn.worker.v1.ImportedSegment
+	(*SegmentImport)(nil),               // 46: cairn.worker.v1.SegmentImport
+	(*ImportedSegmentEffort)(nil),       // 47: cairn.worker.v1.ImportedSegmentEffort
+	(*SegmentEffortImport)(nil),         // 48: cairn.worker.v1.SegmentEffortImport
+	(*ImportedRecord)(nil),              // 49: cairn.worker.v1.ImportedRecord
+	(*RecordImport)(nil),                // 50: cairn.worker.v1.RecordImport
+	(*ImportedMetric)(nil),              // 51: cairn.worker.v1.ImportedMetric
+	(*ImportedGear)(nil),                // 52: cairn.worker.v1.ImportedGear
+	(*GearImport)(nil),                  // 53: cairn.worker.v1.GearImport
+	(*RegisterWebhookPayload)(nil),      // 54: cairn.worker.v1.RegisterWebhookPayload
+	(*RegisterWebhookResult)(nil),       // 55: cairn.worker.v1.RegisterWebhookResult
+	(*UnregisterWebhookPayload)(nil),    // 56: cairn.worker.v1.UnregisterWebhookPayload
+	(*ValidateCredentialsResult)(nil),   // 57: cairn.worker.v1.ValidateCredentialsResult
+	(*RefreshOAuthTokenResult)(nil),     // 58: cairn.worker.v1.RefreshOAuthTokenResult
+	nil,                                 // 59: cairn.worker.v1.ProviderManifest.CapabilitiesEntry
+	nil,                                 // 60: cairn.worker.v1.WorkerHealth.MetricsEntry
+	nil,                                 // 61: cairn.worker.v1.EphemeralCredentials.CustomEntry
+	nil,                                 // 62: cairn.worker.v1.EphemeralCredentials.ConfigEntry
+	nil,                                 // 63: cairn.worker.v1.WorkerError.MetadataEntry
+	nil,                                 // 64: cairn.worker.v1.PresignBlobUploadResponse.RequiredHeadersEntry
+	(*timestamppb.Timestamp)(nil),       // 65: google.protobuf.Timestamp
+	(*v1.ActivitySourcePayload)(nil),    // 66: cairn.v1.ActivitySourcePayload
+	(*v1.ActivityStream)(nil),           // 67: cairn.v1.ActivityStream
+	(v1.ActivityType)(0),                // 68: cairn.v1.ActivityType
+	(v1.ClimbCategory)(0),               // 69: cairn.v1.ClimbCategory
+	(*durationpb.Duration)(nil),         // 70: google.protobuf.Duration
+	(v1.BestEffortMetric)(0),            // 71: cairn.v1.BestEffortMetric
+	(v1.GearKind)(0),                    // 72: cairn.v1.GearKind
 }
 var file_cairn_worker_v1_worker_service_proto_depIdxs = []int32{
 	10, // 0: cairn.worker.v1.RegisterRequest.manifest:type_name -> cairn.worker.v1.WorkerManifest
@@ -5095,10 +5369,10 @@ var file_cairn_worker_v1_worker_service_proto_depIdxs = []int32{
 	13, // 4: cairn.worker.v1.ProviderManifest.oauth:type_name -> cairn.worker.v1.OAuthConfig
 	3,  // 5: cairn.worker.v1.ProviderManifest.supported_jobs:type_name -> cairn.worker.v1.JobType
 	0,  // 6: cairn.worker.v1.ProviderManifest.producible_events:type_name -> cairn.worker.v1.WorkerEventType
-	56, // 7: cairn.worker.v1.ProviderManifest.capabilities:type_name -> cairn.worker.v1.ProviderManifest.CapabilitiesEntry
+	59, // 7: cairn.worker.v1.ProviderManifest.capabilities:type_name -> cairn.worker.v1.ProviderManifest.CapabilitiesEntry
 	2,  // 8: cairn.worker.v1.ConfigField.type:type_name -> cairn.worker.v1.FieldType
 	19, // 9: cairn.worker.v1.HeartbeatRequest.health:type_name -> cairn.worker.v1.WorkerHealth
-	57, // 10: cairn.worker.v1.WorkerHealth.metrics:type_name -> cairn.worker.v1.WorkerHealth.MetricsEntry
+	60, // 10: cairn.worker.v1.WorkerHealth.metrics:type_name -> cairn.worker.v1.WorkerHealth.MetricsEntry
 	3,  // 11: cairn.worker.v1.Job.type:type_name -> cairn.worker.v1.JobType
 	22, // 12: cairn.worker.v1.Job.credentials:type_name -> cairn.worker.v1.EphemeralCredentials
 	33, // 13: cairn.worker.v1.Job.import_activities:type_name -> cairn.worker.v1.ImportActivitiesPayload
@@ -5106,74 +5380,80 @@ var file_cairn_worker_v1_worker_service_proto_depIdxs = []int32{
 	35, // 15: cairn.worker.v1.Job.local_reparse:type_name -> cairn.worker.v1.LocalReparsePayload
 	36, // 16: cairn.worker.v1.Job.import_segments:type_name -> cairn.worker.v1.ImportSegmentsPayload
 	37, // 17: cairn.worker.v1.Job.import_metrics:type_name -> cairn.worker.v1.ImportMetricsPayload
-	51, // 18: cairn.worker.v1.Job.register_webhook:type_name -> cairn.worker.v1.RegisterWebhookPayload
-	53, // 19: cairn.worker.v1.Job.unregister_webhook:type_name -> cairn.worker.v1.UnregisterWebhookPayload
-	62, // 20: cairn.worker.v1.Job.scheduled_at:type_name -> google.protobuf.Timestamp
-	62, // 21: cairn.worker.v1.Job.deadline:type_name -> google.protobuf.Timestamp
-	1,  // 22: cairn.worker.v1.EphemeralCredentials.method:type_name -> cairn.worker.v1.AuthMethod
-	62, // 23: cairn.worker.v1.EphemeralCredentials.access_token_expires_at:type_name -> google.protobuf.Timestamp
-	58, // 24: cairn.worker.v1.EphemeralCredentials.custom:type_name -> cairn.worker.v1.EphemeralCredentials.CustomEntry
-	59, // 25: cairn.worker.v1.EphemeralCredentials.config:type_name -> cairn.worker.v1.EphemeralCredentials.ConfigEntry
-	5,  // 26: cairn.worker.v1.ReportRequest.status:type_name -> cairn.worker.v1.JobStatus
-	39, // 27: cairn.worker.v1.ReportRequest.job_result:type_name -> cairn.worker.v1.JobResult
-	54, // 28: cairn.worker.v1.ReportRequest.validate_credentials:type_name -> cairn.worker.v1.ValidateCredentialsResult
-	55, // 29: cairn.worker.v1.ReportRequest.refresh_oauth_token:type_name -> cairn.worker.v1.RefreshOAuthTokenResult
-	52, // 30: cairn.worker.v1.ReportRequest.register_webhook:type_name -> cairn.worker.v1.RegisterWebhookResult
-	25, // 31: cairn.worker.v1.ReportRequest.error:type_name -> cairn.worker.v1.WorkerError
-	26, // 32: cairn.worker.v1.ReportRequest.rate_limit:type_name -> cairn.worker.v1.RateLimitSnapshot
-	4,  // 33: cairn.worker.v1.ReportResponse.instruction:type_name -> cairn.worker.v1.ReportInstruction
-	6,  // 34: cairn.worker.v1.WorkerError.class:type_name -> cairn.worker.v1.ErrorClass
-	62, // 35: cairn.worker.v1.WorkerError.retry_after:type_name -> google.protobuf.Timestamp
-	60, // 36: cairn.worker.v1.WorkerError.metadata:type_name -> cairn.worker.v1.WorkerError.MetadataEntry
-	62, // 37: cairn.worker.v1.RateLimitSnapshot.short_reset_at:type_name -> google.protobuf.Timestamp
-	62, // 38: cairn.worker.v1.RateLimitSnapshot.long_reset_at:type_name -> google.protobuf.Timestamp
-	22, // 39: cairn.worker.v1.RefreshCredentialsResponse.credentials:type_name -> cairn.worker.v1.EphemeralCredentials
-	61, // 40: cairn.worker.v1.PresignBlobUploadResponse.required_headers:type_name -> cairn.worker.v1.PresignBlobUploadResponse.RequiredHeadersEntry
-	62, // 41: cairn.worker.v1.PresignBlobUploadResponse.expires_at:type_name -> google.protobuf.Timestamp
-	62, // 42: cairn.worker.v1.PresignBlobDownloadResponse.expires_at:type_name -> google.protobuf.Timestamp
-	62, // 43: cairn.worker.v1.ImportActivitiesPayload.since:type_name -> google.protobuf.Timestamp
-	62, // 44: cairn.worker.v1.ImportActivitiesPayload.until:type_name -> google.protobuf.Timestamp
-	62, // 45: cairn.worker.v1.ImportSegmentsPayload.since:type_name -> google.protobuf.Timestamp
-	62, // 46: cairn.worker.v1.ImportMetricsPayload.since:type_name -> google.protobuf.Timestamp
-	41, // 47: cairn.worker.v1.JobResult.events:type_name -> cairn.worker.v1.WorkerEvent
-	62, // 48: cairn.worker.v1.JobResult.new_watermark:type_name -> google.protobuf.Timestamp
-	40, // 49: cairn.worker.v1.JobResult.payload_ref:type_name -> cairn.worker.v1.PayloadRef
-	25, // 50: cairn.worker.v1.JobResult.error:type_name -> cairn.worker.v1.WorkerError
-	38, // 51: cairn.worker.v1.JobResult.failed_ref:type_name -> cairn.worker.v1.ExternalRef
-	0,  // 52: cairn.worker.v1.WorkerEvent.type:type_name -> cairn.worker.v1.WorkerEventType
-	42, // 53: cairn.worker.v1.WorkerEvent.activity:type_name -> cairn.worker.v1.ImportedActivity
-	44, // 54: cairn.worker.v1.WorkerEvent.segment:type_name -> cairn.worker.v1.ImportedSegment
-	46, // 55: cairn.worker.v1.WorkerEvent.segment_effort:type_name -> cairn.worker.v1.ImportedSegmentEffort
-	48, // 56: cairn.worker.v1.WorkerEvent.record:type_name -> cairn.worker.v1.ImportedRecord
-	50, // 57: cairn.worker.v1.WorkerEvent.metric:type_name -> cairn.worker.v1.ImportedMetric
-	38, // 58: cairn.worker.v1.ImportedActivity.ref:type_name -> cairn.worker.v1.ExternalRef
-	63, // 59: cairn.worker.v1.ImportedActivity.payload:type_name -> cairn.v1.ActivitySourcePayload
-	64, // 60: cairn.worker.v1.ImportedActivity.stream:type_name -> cairn.v1.ActivityStream
-	43, // 61: cairn.worker.v1.ImportedActivity.attachments:type_name -> cairn.worker.v1.Attachment
-	38, // 62: cairn.worker.v1.ImportedSegment.ref:type_name -> cairn.worker.v1.ExternalRef
-	45, // 63: cairn.worker.v1.ImportedSegment.payload:type_name -> cairn.worker.v1.SegmentImport
-	65, // 64: cairn.worker.v1.SegmentImport.activity_type:type_name -> cairn.v1.ActivityType
-	66, // 65: cairn.worker.v1.SegmentImport.climb_category:type_name -> cairn.v1.ClimbCategory
-	38, // 66: cairn.worker.v1.ImportedSegmentEffort.ref:type_name -> cairn.worker.v1.ExternalRef
-	47, // 67: cairn.worker.v1.ImportedSegmentEffort.payload:type_name -> cairn.worker.v1.SegmentEffortImport
-	62, // 68: cairn.worker.v1.SegmentEffortImport.start_time:type_name -> google.protobuf.Timestamp
-	67, // 69: cairn.worker.v1.SegmentEffortImport.elapsed:type_name -> google.protobuf.Duration
-	67, // 70: cairn.worker.v1.SegmentEffortImport.moving:type_name -> google.protobuf.Duration
-	38, // 71: cairn.worker.v1.ImportedRecord.ref:type_name -> cairn.worker.v1.ExternalRef
-	49, // 72: cairn.worker.v1.ImportedRecord.payload:type_name -> cairn.worker.v1.RecordImport
-	68, // 73: cairn.worker.v1.RecordImport.metric:type_name -> cairn.v1.BestEffortMetric
-	67, // 74: cairn.worker.v1.RecordImport.duration:type_name -> google.protobuf.Duration
-	38, // 75: cairn.worker.v1.ImportedMetric.ref:type_name -> cairn.worker.v1.ExternalRef
-	62, // 76: cairn.worker.v1.ImportedMetric.ts:type_name -> google.protobuf.Timestamp
-	7,  // 77: cairn.worker.v1.RegisterWebhookPayload.event_types:type_name -> cairn.worker.v1.WebhookEventType
-	62, // 78: cairn.worker.v1.ValidateCredentialsResult.access_token_expires_at:type_name -> google.protobuf.Timestamp
-	62, // 79: cairn.worker.v1.RefreshOAuthTokenResult.access_token_expires_at:type_name -> google.protobuf.Timestamp
-	12, // 80: cairn.worker.v1.ProviderManifest.CapabilitiesEntry.value:type_name -> cairn.worker.v1.DataTypeCapability
-	81, // [81:81] is the sub-list for method output_type
-	81, // [81:81] is the sub-list for method input_type
-	81, // [81:81] is the sub-list for extension type_name
-	81, // [81:81] is the sub-list for extension extendee
-	0,  // [0:81] is the sub-list for field type_name
+	54, // 18: cairn.worker.v1.Job.register_webhook:type_name -> cairn.worker.v1.RegisterWebhookPayload
+	56, // 19: cairn.worker.v1.Job.unregister_webhook:type_name -> cairn.worker.v1.UnregisterWebhookPayload
+	38, // 20: cairn.worker.v1.Job.import_gear:type_name -> cairn.worker.v1.ImportGearPayload
+	65, // 21: cairn.worker.v1.Job.scheduled_at:type_name -> google.protobuf.Timestamp
+	65, // 22: cairn.worker.v1.Job.deadline:type_name -> google.protobuf.Timestamp
+	1,  // 23: cairn.worker.v1.EphemeralCredentials.method:type_name -> cairn.worker.v1.AuthMethod
+	65, // 24: cairn.worker.v1.EphemeralCredentials.access_token_expires_at:type_name -> google.protobuf.Timestamp
+	61, // 25: cairn.worker.v1.EphemeralCredentials.custom:type_name -> cairn.worker.v1.EphemeralCredentials.CustomEntry
+	62, // 26: cairn.worker.v1.EphemeralCredentials.config:type_name -> cairn.worker.v1.EphemeralCredentials.ConfigEntry
+	5,  // 27: cairn.worker.v1.ReportRequest.status:type_name -> cairn.worker.v1.JobStatus
+	40, // 28: cairn.worker.v1.ReportRequest.job_result:type_name -> cairn.worker.v1.JobResult
+	57, // 29: cairn.worker.v1.ReportRequest.validate_credentials:type_name -> cairn.worker.v1.ValidateCredentialsResult
+	58, // 30: cairn.worker.v1.ReportRequest.refresh_oauth_token:type_name -> cairn.worker.v1.RefreshOAuthTokenResult
+	55, // 31: cairn.worker.v1.ReportRequest.register_webhook:type_name -> cairn.worker.v1.RegisterWebhookResult
+	25, // 32: cairn.worker.v1.ReportRequest.error:type_name -> cairn.worker.v1.WorkerError
+	26, // 33: cairn.worker.v1.ReportRequest.rate_limit:type_name -> cairn.worker.v1.RateLimitSnapshot
+	4,  // 34: cairn.worker.v1.ReportResponse.instruction:type_name -> cairn.worker.v1.ReportInstruction
+	6,  // 35: cairn.worker.v1.WorkerError.class:type_name -> cairn.worker.v1.ErrorClass
+	65, // 36: cairn.worker.v1.WorkerError.retry_after:type_name -> google.protobuf.Timestamp
+	63, // 37: cairn.worker.v1.WorkerError.metadata:type_name -> cairn.worker.v1.WorkerError.MetadataEntry
+	65, // 38: cairn.worker.v1.RateLimitSnapshot.short_reset_at:type_name -> google.protobuf.Timestamp
+	65, // 39: cairn.worker.v1.RateLimitSnapshot.long_reset_at:type_name -> google.protobuf.Timestamp
+	22, // 40: cairn.worker.v1.RefreshCredentialsResponse.credentials:type_name -> cairn.worker.v1.EphemeralCredentials
+	64, // 41: cairn.worker.v1.PresignBlobUploadResponse.required_headers:type_name -> cairn.worker.v1.PresignBlobUploadResponse.RequiredHeadersEntry
+	65, // 42: cairn.worker.v1.PresignBlobUploadResponse.expires_at:type_name -> google.protobuf.Timestamp
+	65, // 43: cairn.worker.v1.PresignBlobDownloadResponse.expires_at:type_name -> google.protobuf.Timestamp
+	65, // 44: cairn.worker.v1.ImportActivitiesPayload.since:type_name -> google.protobuf.Timestamp
+	65, // 45: cairn.worker.v1.ImportActivitiesPayload.until:type_name -> google.protobuf.Timestamp
+	65, // 46: cairn.worker.v1.ImportSegmentsPayload.since:type_name -> google.protobuf.Timestamp
+	65, // 47: cairn.worker.v1.ImportMetricsPayload.since:type_name -> google.protobuf.Timestamp
+	42, // 48: cairn.worker.v1.JobResult.events:type_name -> cairn.worker.v1.WorkerEvent
+	65, // 49: cairn.worker.v1.JobResult.new_watermark:type_name -> google.protobuf.Timestamp
+	41, // 50: cairn.worker.v1.JobResult.payload_ref:type_name -> cairn.worker.v1.PayloadRef
+	25, // 51: cairn.worker.v1.JobResult.error:type_name -> cairn.worker.v1.WorkerError
+	39, // 52: cairn.worker.v1.JobResult.failed_ref:type_name -> cairn.worker.v1.ExternalRef
+	0,  // 53: cairn.worker.v1.WorkerEvent.type:type_name -> cairn.worker.v1.WorkerEventType
+	43, // 54: cairn.worker.v1.WorkerEvent.activity:type_name -> cairn.worker.v1.ImportedActivity
+	45, // 55: cairn.worker.v1.WorkerEvent.segment:type_name -> cairn.worker.v1.ImportedSegment
+	47, // 56: cairn.worker.v1.WorkerEvent.segment_effort:type_name -> cairn.worker.v1.ImportedSegmentEffort
+	49, // 57: cairn.worker.v1.WorkerEvent.record:type_name -> cairn.worker.v1.ImportedRecord
+	51, // 58: cairn.worker.v1.WorkerEvent.metric:type_name -> cairn.worker.v1.ImportedMetric
+	52, // 59: cairn.worker.v1.WorkerEvent.gear:type_name -> cairn.worker.v1.ImportedGear
+	39, // 60: cairn.worker.v1.ImportedActivity.ref:type_name -> cairn.worker.v1.ExternalRef
+	66, // 61: cairn.worker.v1.ImportedActivity.payload:type_name -> cairn.v1.ActivitySourcePayload
+	67, // 62: cairn.worker.v1.ImportedActivity.stream:type_name -> cairn.v1.ActivityStream
+	44, // 63: cairn.worker.v1.ImportedActivity.attachments:type_name -> cairn.worker.v1.Attachment
+	39, // 64: cairn.worker.v1.ImportedSegment.ref:type_name -> cairn.worker.v1.ExternalRef
+	46, // 65: cairn.worker.v1.ImportedSegment.payload:type_name -> cairn.worker.v1.SegmentImport
+	68, // 66: cairn.worker.v1.SegmentImport.activity_type:type_name -> cairn.v1.ActivityType
+	69, // 67: cairn.worker.v1.SegmentImport.climb_category:type_name -> cairn.v1.ClimbCategory
+	39, // 68: cairn.worker.v1.ImportedSegmentEffort.ref:type_name -> cairn.worker.v1.ExternalRef
+	48, // 69: cairn.worker.v1.ImportedSegmentEffort.payload:type_name -> cairn.worker.v1.SegmentEffortImport
+	65, // 70: cairn.worker.v1.SegmentEffortImport.start_time:type_name -> google.protobuf.Timestamp
+	70, // 71: cairn.worker.v1.SegmentEffortImport.elapsed:type_name -> google.protobuf.Duration
+	70, // 72: cairn.worker.v1.SegmentEffortImport.moving:type_name -> google.protobuf.Duration
+	39, // 73: cairn.worker.v1.ImportedRecord.ref:type_name -> cairn.worker.v1.ExternalRef
+	50, // 74: cairn.worker.v1.ImportedRecord.payload:type_name -> cairn.worker.v1.RecordImport
+	71, // 75: cairn.worker.v1.RecordImport.metric:type_name -> cairn.v1.BestEffortMetric
+	70, // 76: cairn.worker.v1.RecordImport.duration:type_name -> google.protobuf.Duration
+	39, // 77: cairn.worker.v1.ImportedMetric.ref:type_name -> cairn.worker.v1.ExternalRef
+	65, // 78: cairn.worker.v1.ImportedMetric.ts:type_name -> google.protobuf.Timestamp
+	39, // 79: cairn.worker.v1.ImportedGear.ref:type_name -> cairn.worker.v1.ExternalRef
+	53, // 80: cairn.worker.v1.ImportedGear.payload:type_name -> cairn.worker.v1.GearImport
+	72, // 81: cairn.worker.v1.GearImport.kind:type_name -> cairn.v1.GearKind
+	68, // 82: cairn.worker.v1.GearImport.default_for:type_name -> cairn.v1.ActivityType
+	7,  // 83: cairn.worker.v1.RegisterWebhookPayload.event_types:type_name -> cairn.worker.v1.WebhookEventType
+	65, // 84: cairn.worker.v1.ValidateCredentialsResult.access_token_expires_at:type_name -> google.protobuf.Timestamp
+	65, // 85: cairn.worker.v1.RefreshOAuthTokenResult.access_token_expires_at:type_name -> google.protobuf.Timestamp
+	12, // 86: cairn.worker.v1.ProviderManifest.CapabilitiesEntry.value:type_name -> cairn.worker.v1.DataTypeCapability
+	87, // [87:87] is the sub-list for method output_type
+	87, // [87:87] is the sub-list for method input_type
+	87, // [87:87] is the sub-list for extension type_name
+	87, // [87:87] is the sub-list for extension extendee
+	0,  // [0:87] is the sub-list for field type_name
 }
 
 func init() { file_cairn_worker_v1_worker_service_proto_init() }
@@ -5189,6 +5469,7 @@ func file_cairn_worker_v1_worker_service_proto_init() {
 		(*Job_ImportMetrics)(nil),
 		(*Job_RegisterWebhook)(nil),
 		(*Job_UnregisterWebhook)(nil),
+		(*Job_ImportGear)(nil),
 	}
 	file_cairn_worker_v1_worker_service_proto_msgTypes[15].OneofWrappers = []any{
 		(*ReportRequest_JobResult)(nil),
@@ -5196,27 +5477,29 @@ func file_cairn_worker_v1_worker_service_proto_init() {
 		(*ReportRequest_RefreshOauthToken)(nil),
 		(*ReportRequest_RegisterWebhook)(nil),
 	}
-	file_cairn_worker_v1_worker_service_proto_msgTypes[33].OneofWrappers = []any{
+	file_cairn_worker_v1_worker_service_proto_msgTypes[34].OneofWrappers = []any{
 		(*WorkerEvent_Activity)(nil),
 		(*WorkerEvent_Segment)(nil),
 		(*WorkerEvent_SegmentEffort)(nil),
 		(*WorkerEvent_Record)(nil),
 		(*WorkerEvent_Metric)(nil),
+		(*WorkerEvent_Gear)(nil),
 	}
-	file_cairn_worker_v1_worker_service_proto_msgTypes[37].OneofWrappers = []any{}
-	file_cairn_worker_v1_worker_service_proto_msgTypes[39].OneofWrappers = []any{}
-	file_cairn_worker_v1_worker_service_proto_msgTypes[41].OneofWrappers = []any{
+	file_cairn_worker_v1_worker_service_proto_msgTypes[38].OneofWrappers = []any{}
+	file_cairn_worker_v1_worker_service_proto_msgTypes[40].OneofWrappers = []any{}
+	file_cairn_worker_v1_worker_service_proto_msgTypes[42].OneofWrappers = []any{
 		(*RecordImport_Duration)(nil),
 		(*RecordImport_DistanceM)(nil),
 	}
-	file_cairn_worker_v1_worker_service_proto_msgTypes[42].OneofWrappers = []any{}
+	file_cairn_worker_v1_worker_service_proto_msgTypes[43].OneofWrappers = []any{}
+	file_cairn_worker_v1_worker_service_proto_msgTypes[45].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cairn_worker_v1_worker_service_proto_rawDesc), len(file_cairn_worker_v1_worker_service_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   54,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

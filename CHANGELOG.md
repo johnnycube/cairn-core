@@ -6,6 +6,19 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Worker contract (additive): `WORKER_EVENT_TYPE_GEAR` / `ImportedGear`
+  events, the `import_gear` job (`cairn.jobs.import_gear.<provider>`, in the
+  standard worker permission template and the conformance harness `--gear`
+  flag), `cairn.v1.GearKind`, and `gear_external_id` / `gear_name` on
+  `ActivitySourcePayload`. Groundwork for gear in 0.4.0; the Core does not
+  act on these yet.
+
+### Changed
+- Job results are decoded with unknown fields ignored, so a worker on a
+  newer additive contract no longer fails every import on an older Core.
+  Upgrade order from here on: Core before workers.
+
 ## [0.3.3] — 2026-10-19
 
 ### Added

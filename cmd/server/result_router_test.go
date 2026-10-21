@@ -169,3 +169,17 @@ func TestIsDeterministicDBError(t *testing.T) {
 		t.Error("non-pg errors must stay transient")
 	}
 }
+
+func TestRouteJobResult_IgnoresUnknownFields(t *testing.T) {
+	q := &fakeQueue{}
+	app := &App{ImportQueue: q}
+	// A worker on a newer additive contract: a field this core does not know.
+	body := []byte(`{"workerName":"strava-fetcher","futureField":{"x":1}}`)
+	err := routeJobResult(context.Background(), app, testLogger(), port.Message{
+		Subject: "cairn.results.fetch_source.strava",
+		Body:    body,
+	})
+	if err != nil {
+		t.Fatalf("unknown field must be ignored, got %v", err)
+	}
+}

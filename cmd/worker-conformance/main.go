@@ -39,6 +39,7 @@ func main() {
 		provider   = flag.String("provider", "", "provider name (e.g. garmin, strava)")
 		workerName = flag.String("worker-name", "", "worker routing name (default <provider>-fetcher)")
 		metrics    = flag.Bool("metrics", false, "worker declares METRIC events (requires import_metrics consumer)")
+		gear       = flag.Bool("gear", false, "worker declares the Gear data type (requires import_gear consumer)")
 		parseBlob  = flag.Bool("parse-blob", true, "worker archives raw blobs (requires parse_blob consumer)")
 		active     = flag.Bool("active", false, "publish a synthetic reconcile job and await its result")
 		accountID  = flag.String("account-id", "", "existing external-account id for --active (worker needs its credentials)")
@@ -66,7 +67,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	required := conformanceRequiredSubjects(*provider, *parseBlob, *metrics)
+	required := conformanceRequiredSubjects(*provider, *parseBlob, *metrics, *gear)
 
 	var checks []check
 	checks = append(checks, check{"presence heartbeat", checkPresence(js, *workerName)})
@@ -86,7 +87,7 @@ func main() {
 }
 
 // conformanceRequiredSubjects lists the job subjects the worker must consume.
-func conformanceRequiredSubjects(provider string, parseBlob, metrics bool) []string {
+func conformanceRequiredSubjects(provider string, parseBlob, metrics, gear bool) []string {
 	required := []string{
 		"cairn.jobs.fetch_source." + provider,
 		"cairn.jobs.reconcile." + provider,
@@ -96,6 +97,9 @@ func conformanceRequiredSubjects(provider string, parseBlob, metrics bool) []str
 	}
 	if metrics {
 		required = append(required, "cairn.jobs.import_metrics."+provider)
+	}
+	if gear {
+		required = append(required, "cairn.jobs.import_gear."+provider)
 	}
 	return required
 }
