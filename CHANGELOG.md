@@ -6,6 +6,13 @@ All notable changes to Cairn are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-21
+
+Upgrade order: Core before the workers (job results now ignore unknown
+fields, so a 0.4.0 worker on a 0.3.x Core would fail every import). Gear on
+already imported Strava activities appears after a reparse of their sources;
+Garmin activities need a reimport.
+
 ### Added
 - Gear (docs/gear-v0.4.0.md): user-managed bikes and shoes with provider
   refs, per-type defaults and derived totals. `GearService` (list, get,
