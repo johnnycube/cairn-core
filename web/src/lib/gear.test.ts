@@ -57,3 +57,83 @@ describe('gearLabel', () => {
 		expect(gearLabel({ name: 'Pegasus', brand: '', model: '' })).toBe('Pegasus');
 	});
 });
+
+import { create } from '@bufbuild/protobuf';
+import { TimestampSchema } from '@bufbuild/protobuf/wkt';
+import { GearExternalRefSchema, GearKind, GearSchema } from '#lib/proto/cairn/v1/gear_pb.js';
+import { ActivityType } from '#lib/proto/cairn/v1/activity_pb.js';
+import { gearToView, kindName, kindValue, refToView } from './gear';
+
+describe('kind conversions', () => {
+	it('round-trips the three kinds and maps unknown to other', () => {
+		for (const k of ['bike', 'shoe', 'other'] as const) {
+			expect(kindName(kindValue(k))).toBe(k);
+		}
+		expect(kindValue('wheel')).toBe(GearKind.OTHER);
+		expect(kindName(GearKind.UNSPECIFIED)).toBe('other');
+	});
+});
+
+describe('gearToView', () => {
+	it('maps the wire message, bigint totals and the optional retired_at', () => {
+		const ref = create(GearExternalRefSchema, {
+			provider: 'strava',
+			externalAccountId: 'acct',
+			externalId: 'b1',
+			providerName: 'Canyon',
+			primary: true,
+			gearId: 'g1',
+			kind: GearKind.BIKE,
+			defaultFor: [ActivityType.RIDE],
+			lastSeenAt: create(TimestampSchema, { seconds: 1_700_000_000n })
+		});
+		const g = create(GearSchema, {
+			id: 'g1',
+			kind: GearKind.BIKE,
+			name: 'Gravel',
+			brand: 'Canyon',
+			model: 'Grail',
+			purchaseDate: '2024-03-01',
+			retired: true,
+			retiredAt: create(TimestampSchema, { seconds: 1_700_000_000n }),
+			totalDistanceM: 1500,
+			totalMovingS: 3600n,
+			activityCount: 2n,
+			externalRefs: [ref]
+		});
+		const v = gearToView(g);
+		expect(v).toMatchObject({
+			id: 'g1',
+			kind: 'bike',
+			name: 'Gravel',
+			retired: true,
+			retiredAt: '2023-11-14T22:13:20.000Z',
+			totalMovingS: 3600,
+			activityCount: 2
+		});
+		expect(v.refs[0]).toMatchObject({
+			provider: 'strava',
+			providerName: 'Canyon',
+			providerDistanceM: null,
+			primary: true,
+			gearId: 'g1',
+			kind: 'bike',
+			lastSeenAt: '2023-11-14T22:13:20.000Z'
+		});
+	});
+
+	it('leaves retired_at empty and keeps a provider odometer', () => {
+		const v = gearToView(create(GearSchema, { id: 'x', name: 'Shoe', kind: GearKind.SHOE }));
+		expect(v.retiredAt).toBe('');
+		expect(v.refs).toEqual([]);
+		const r = refToView(
+			create(GearExternalRefSchema, {
+				provider: 'garmin',
+				externalId: '7',
+				providerDistanceM: 12.5
+			})
+		);
+		expect(r.providerDistanceM).toBe(12.5);
+		expect(r.gearId).toBe('');
+	});
+});
