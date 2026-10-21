@@ -9,7 +9,8 @@ All notable changes to Cairn are documented here. The format follows
 ### Added
 - Gear (docs/gear-v0.4.0.md): user-managed bikes and shoes with provider
   refs, per-type defaults and derived totals. `GearService` (list, get,
-  create, update, delete, merge, defaults, sync); `UpdateActivity` takes
+  create, update, delete, merge, link a provider record onto chosen gear,
+  defaults, sync); `UpdateActivity` takes
   `gear_id` / `reset_gear`; `Activity` carries `gear_set_by` and `gear_name`;
   activities can be listed by gear (`gear_ids`, feed `?gear_id=`). Imported
   activities get their gear from the winning source's provider gear id

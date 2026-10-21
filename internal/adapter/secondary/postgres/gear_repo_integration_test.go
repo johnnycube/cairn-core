@@ -109,6 +109,32 @@ func TestGearRepo_Integration(t *testing.T) {
 		t.Fatalf("gear filter: n=%d len=%d err=%v", n, len(list), err)
 	}
 
+	// Activities to re-derive after a ref mapping change: merge-assigned
+	// ones with a live source carrying the provider gear id.
+	a2 := seedGearActivity(t, ctx, activities, userID, &bikeID, 1000, 100)
+	userSet, _ := activities.GetActivity(ctx, a2)
+	userSet.GearSetBy = domain.GearSetByUser
+	if err := activities.SaveActivity(ctx, userSet); err != nil {
+		t.Fatal(err)
+	}
+	for _, aid := range []domain.ActivityID{a1, a2} {
+		src := domain.ActivitySource{
+			ID: domain.SourceID(uuid.New()), ActivityID: aid, UserID: userID, Provider: "strava",
+			ExternalAccountID: &acctID, ExternalID: "act-" + aid.String()[:8],
+			Parsed: domain.ActivitySourcePayload{
+				Type: domain.ActivityTypeRide, StartTime: time.Date(2026, 3, 1, 8, 0, 0, 0, time.UTC),
+				Timezone: "UTC", ElapsedDuration: time.Hour, GearExternalID: "b1",
+			},
+			Status: domain.SourceStatusActive, ReimportStatus: domain.ReimportStatusCurrent, ImportedAt: time.Now(),
+		}
+		if err := activities.SaveSource(ctx, src); err != nil {
+			t.Fatalf("SaveSource: %v", err)
+		}
+	}
+	if ids, err := gear.ListActivityIDsForRef(ctx, key); err != nil || len(ids) != 1 || ids[0] != a1 {
+		t.Fatalf("ListActivityIDsForRef = %v/%v (want only merge-set %s)", ids, err, a1)
+	}
+
 	// Repoint + delete = merge; the default and the activities follow.
 	if err := gear.Repoint(ctx, other.ID, bike.ID); err != nil {
 		t.Fatalf("Repoint: %v", err)

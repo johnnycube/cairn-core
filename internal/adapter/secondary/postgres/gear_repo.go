@@ -250,6 +250,32 @@ func (r *GearRepo) ListDefaults(ctx context.Context, userID domain.UserID) ([]do
 	return out, rows.Err()
 }
 
+func (r *GearRepo) ListActivityIDsForRef(ctx context.Context, key domain.GearRefKey) ([]domain.ActivityID, error) {
+	db := dbtx(ctx, r.pool)
+	rows, err := db.Query(ctx,
+		`SELECT DISTINCT a.id
+		   FROM activities a
+		   JOIN activity_sources s ON s.activity_id = a.id
+		  WHERE s.provider = $1 AND s.external_account_id = $2
+		    AND s.parsed->>'gear_external_id' = $3
+		    AND s.status != 'detached'
+		    AND a.deleted_at IS NULL AND a.gear_set_by = 'merge'`,
+		key.Provider, key.ExternalAccountID.UUID(), key.ExternalID)
+	if err != nil {
+		return nil, fmt.Errorf("list activities for gear ref: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.ActivityID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, domain.ActivityID(id))
+	}
+	return out, rows.Err()
+}
+
 // Repoint moves refs, defaults and activity attachments from one gear to
 // another. Callers run it inside a transaction with the Delete of `from`.
 func (r *GearRepo) Repoint(ctx context.Context, from, to domain.GearID) error {

@@ -175,6 +175,30 @@ func (s *GearServer) MergeGear(ctx context.Context, req *v1.MergeGearRequest) (*
 	return &v1.MergeGearResponse{Gear: gearToProto(g)}, nil
 }
 
+func (s *GearServer) LinkGearRef(ctx context.Context, req *v1.LinkGearRefRequest) (*v1.LinkGearRefResponse, error) {
+	userID, err := userIDFromHandlerCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := gearIDFromString(req.GetGearId())
+	if err != nil {
+		return nil, err
+	}
+	acct, err := uuid.Parse(req.GetExternalAccountId())
+	if err != nil || req.GetProvider() == "" || req.GetExternalId() == "" {
+		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, "provider, external_account_id and external_id are required")
+	}
+	g, err := s.Gear.LinkRef(ctx, userID, id, domain.GearRefKey{
+		Provider:          req.GetProvider(),
+		ExternalAccountID: domain.ExternalAccountID(acct),
+		ExternalID:        req.GetExternalId(),
+	})
+	if err != nil {
+		return nil, gearErr(err)
+	}
+	return &v1.LinkGearRefResponse{Gear: gearToProto(g)}, nil
+}
+
 func (s *GearServer) SetGearDefault(ctx context.Context, req *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error) {
 	userID, err := userIDFromHandlerCtx(ctx)
 	if err != nil {

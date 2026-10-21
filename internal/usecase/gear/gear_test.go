@@ -19,6 +19,8 @@ type memGear struct {
 	refs     map[domain.GearRefKey]domain.GearExternalRef
 	defaults map[domain.UserID]map[domain.ActivityType]domain.GearID
 	totals   int
+
+	activitiesByRef map[domain.GearRefKey][]domain.ActivityID
 }
 
 func newMemGear() *memGear {
@@ -108,6 +110,10 @@ func (m *memGear) Repoint(_ context.Context, from, to domain.GearID) error {
 		}
 	}
 	return nil
+}
+
+func (m *memGear) ListActivityIDsForRef(_ context.Context, key domain.GearRefKey) ([]domain.ActivityID, error) {
+	return m.activitiesByRef[key], nil
 }
 
 func (m *memGear) RecomputeTotalsForUser(context.Context, domain.UserID) error {
@@ -240,6 +246,52 @@ func TestMerge(t *testing.T) {
 	}
 	if repo.totals == 0 {
 		t.Fatal("totals not recomputed after merge")
+	}
+}
+
+func TestLinkRef_MovesRefAndRederives(t *testing.T) {
+	repo := newMemGear()
+	svc := newTestService(repo)
+	user := domain.UserID(uuid.New())
+	acct := domain.ExternalAccountID(uuid.New())
+	key := domain.GearRefKey{Provider: "garmin", ExternalAccountID: acct, ExternalID: "77"}
+
+	golden, _ := svc.Create(context.Background(), user, CreateInput{Kind: domain.GearKindBike, Name: "Bike A"})
+	imported, _ := svc.ImportFromProvider(context.Background(), user, key, domain.GearImport{Kind: domain.GearKindBike, Name: "Bike B"})
+	act := domain.ActivityID(uuid.New())
+	repo.activitiesByRef = map[domain.GearRefKey][]domain.ActivityID{key: {act}}
+	var recomputed []domain.ActivityID
+	svc.SetRecompute(func(_ context.Context, id domain.ActivityID) error {
+		recomputed = append(recomputed, id)
+		return nil
+	})
+
+	g, err := svc.LinkRef(context.Background(), user, golden.ID, key)
+	if err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	if len(g.ExternalRefs) != 1 || g.ExternalRefs[0].ExternalID != "77" || g.ExternalRefs[0].ProviderName != "Bike B" {
+		t.Fatalf("ref not moved with its fields: %+v", g.ExternalRefs)
+	}
+	if got, _ := repo.FindByExternalRef(context.Background(), key); got != golden.ID {
+		t.Fatalf("lookup still resolves to %v", got)
+	}
+	if im, _ := repo.Get(context.Background(), imported); len(im.ExternalRefs) != 0 {
+		t.Fatalf("imported gear kept the ref")
+	}
+	if len(recomputed) != 1 || recomputed[0] != act {
+		t.Fatalf("recomputed = %v", recomputed)
+	}
+	if repo.totals == 0 {
+		t.Fatal("totals not refreshed")
+	}
+
+	// Unknown ref and foreign gear are not-found class errors.
+	if _, err := svc.LinkRef(context.Background(), user, golden.ID, domain.GearRefKey{Provider: "strava", ExternalAccountID: acct, ExternalID: "x"}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown ref: %v", err)
+	}
+	if _, err := svc.LinkRef(context.Background(), domain.UserID(uuid.New()), golden.ID, key); !errors.Is(err, ErrNotOwner) {
+		t.Fatalf("foreign user: %v", err)
 	}
 }
 

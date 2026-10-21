@@ -143,6 +143,20 @@ message ListGearDefaultsResponse {
   repeated GearDefault defaults = 1;
 }
 
+// LinkGearRef maps a provider's gear record onto the given gear: the ref
+// moves from whatever gear it was imported as, and every activity whose
+// gear the merge derived from that provider record is re-derived. The
+// gear the ref came from is left as is (delete or merge it if unwanted).
+message LinkGearRefRequest {
+  string gear_id = 1;
+  string provider = 2;
+  string external_account_id = 3;
+  string external_id = 4;
+}
+message LinkGearRefResponse {
+  Gear gear = 1;
+}
+
 // SyncGear asks the provider worker for the account's full gear list.
 message SyncGearRequest {
   string external_account_id = 1;
@@ -158,6 +172,7 @@ service GearService {
   rpc UpdateGear(UpdateGearRequest) returns (UpdateGearResponse);
   rpc DeleteGear(DeleteGearRequest) returns (DeleteGearResponse);
   rpc MergeGear(MergeGearRequest) returns (MergeGearResponse);
+  rpc LinkGearRef(LinkGearRefRequest) returns (LinkGearRefResponse);
   rpc SetGearDefault(SetGearDefaultRequest) returns (SetGearDefaultResponse);
   rpc ClearGearDefault(ClearGearDefaultRequest) returns (ClearGearDefaultResponse);
   rpc ListGearDefaults(ListGearDefaultsRequest) returns (ListGearDefaultsResponse);

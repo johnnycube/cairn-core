@@ -308,6 +308,10 @@ func wireAppIngestUseCases(app *App, logger *slog.Logger) {
 		app.Tx,
 		nil, // default time.Now
 	)
+	app.Gear.SetRecompute(func(ctx context.Context, id domain.ActivityID) error {
+		_, err := app.RecomputeActivity.Execute(ctx, id)
+		return err
+	})
 	app.IngestActivity = activity.NewIngestActivityFromWorker(
 		app.Activities,
 		app.Streams,

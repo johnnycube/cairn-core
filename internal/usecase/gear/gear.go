@@ -23,6 +23,14 @@ type Service struct {
 	tx    port.TxManager
 	now   func() time.Time
 	newID func() uuid.UUID
+	// recompute re-derives one activity after a ref mapping changed. Nil
+	// until SetRecompute; LinkRef then only moves the ref.
+	recompute func(ctx context.Context, id domain.ActivityID) error
+}
+
+// SetRecompute installs the activity re-derivation LinkRef uses.
+func (s *Service) SetRecompute(fn func(ctx context.Context, id domain.ActivityID) error) {
+	s.recompute = fn
 }
 
 // NewService wires the use cases. now and newID default to time.Now and
@@ -158,6 +166,65 @@ func (s *Service) Merge(ctx context.Context, userID domain.UserID, from, to doma
 		return domain.Gear{}, fmt.Errorf("merge gear: %w", err)
 	}
 	return s.gear.Get(ctx, to)
+}
+
+// LinkRef maps a provider gear record onto gear the user chose: the golden
+// record. The ref must already be known (imported) and belong to the user.
+// Activities whose gear the merge derived from that record are re-derived,
+// so they move with the mapping; user-set activities stay as they are.
+func (s *Service) LinkRef(ctx context.Context, userID domain.UserID, id domain.GearID, key domain.GearRefKey) (domain.Gear, error) {
+	if _, err := s.Get(ctx, userID, id); err != nil {
+		return domain.Gear{}, err
+	}
+	currentID, err := s.gear.FindByExternalRef(ctx, key)
+	if err != nil {
+		return domain.Gear{}, err
+	}
+	current, err := s.Get(ctx, userID, currentID)
+	if err != nil {
+		return domain.Gear{}, err
+	}
+	if currentID != id {
+		if err := s.gear.UpsertExternalRef(ctx, movedRef(current, key, id)); err != nil {
+			return domain.Gear{}, err
+		}
+	}
+	if err := s.rederiveForRef(ctx, key); err != nil {
+		return domain.Gear{}, err
+	}
+	if err := s.gear.RecomputeTotalsForUser(ctx, userID); err != nil {
+		return domain.Gear{}, err
+	}
+	return s.gear.Get(ctx, id)
+}
+
+// movedRef returns from's ref for key with its gear id replaced.
+func movedRef(from domain.Gear, key domain.GearRefKey, to domain.GearID) domain.GearExternalRef {
+	for _, r := range from.ExternalRefs {
+		if r.Key() == key {
+			r.GearID = to
+			return r
+		}
+	}
+	return domain.GearExternalRef{GearID: to, Provider: key.Provider, ExternalAccountID: key.ExternalAccountID, ExternalID: key.ExternalID}
+}
+
+// rederiveForRef recomputes the merge-assigned activities that took their
+// gear from the provider record, so they follow the new mapping.
+func (s *Service) rederiveForRef(ctx context.Context, key domain.GearRefKey) error {
+	if s.recompute == nil {
+		return nil
+	}
+	ids, err := s.gear.ListActivityIDsForRef(ctx, key)
+	if err != nil {
+		return err
+	}
+	for _, aid := range ids {
+		if err := s.recompute(ctx, aid); err != nil {
+			return fmt.Errorf("re-derive activity %s: %w", aid, err)
+		}
+	}
+	return nil
 }
 
 // SetDefault makes the gear the user's default for an activity type.

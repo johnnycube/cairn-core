@@ -37,6 +37,11 @@ type GearRepo interface {
 	ClearDefault(ctx context.Context, userID domain.UserID, t domain.ActivityType) error
 	ListDefaults(ctx context.Context, userID domain.UserID) ([]domain.GearDefault, error)
 
+	// ListActivityIDsForRef returns the live, merge-assigned activities that
+	// have a non-detached source carrying this provider gear id — the ones
+	// to re-derive after the ref is mapped onto other gear.
+	ListActivityIDsForRef(ctx context.Context, key domain.GearRefKey) ([]domain.ActivityID, error)
+
 	// Repoint moves refs, defaults and activity attachments from one gear to
 	// another (same user). Used by the merge-gear use case inside a tx.
 	Repoint(ctx context.Context, from, to domain.GearID) error
