@@ -108,7 +108,8 @@ func Verify(req *http.Request, body []byte, pub *rsa.PublicKey) error {
 }
 
 func bodyDigest(body []byte) string {
-	sum := sha256.Sum256(body)
+	// RFC 3230 content digest for HTTP Signatures, not a password hash.
+	sum := sha256.Sum256(body) // codeql[go/weak-sensitive-data-hashing]
 	return "SHA-256=" + base64.StdEncoding.EncodeToString(sum[:])
 }
 
