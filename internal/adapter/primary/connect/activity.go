@@ -29,6 +29,7 @@ import (
 	"github.com/opencairn-org/cairn-core/internal/domain"
 	"github.com/opencairn-org/cairn-core/internal/port"
 	"github.com/opencairn-org/cairn-core/internal/usecase/activity"
+	gearuc "github.com/opencairn-org/cairn-core/internal/usecase/gear"
 )
 
 // ActivityServer implements cairnv1connect.ActivityServiceHandler. The
@@ -54,6 +55,10 @@ type ActivityServer struct {
 	// federation is off). Lets making an activity public after import federate
 	// it, since the ingest-time publish only fires for public-at-import.
 	Federation port.FederationPublisher
+
+	// Gear backs the gear_id edit (ownership check, type default on reset)
+	// and the gear names on the wire. Nil → gear edits rejected.
+	Gear *gearuc.Service
 }
 
 // Compile-time interface check.
@@ -68,6 +73,7 @@ func NewActivityServer(
 	recompute *activity.RecomputeActivityFromSources,
 	classOverrides port.ClassificationOverrideRepo,
 	federation port.FederationPublisher,
+	gear *gearuc.Service,
 ) *ActivityServer {
 	return &ActivityServer{
 		Activities:     activities,
@@ -76,7 +82,47 @@ func NewActivityServer(
 		Recompute:      recompute,
 		ClassOverrides: classOverrides,
 		Federation:     federation,
+		Gear:           gear,
 	}
+}
+
+// gearNames resolves the names of the gear attached to the given activities
+// (one query) for Activity.gear_name. Empty when gear is not wired or the
+// lookup fails: names are a display hint.
+func (s *ActivityServer) gearNames(ctx context.Context, activities ...domain.Activity) map[domain.GearID]string {
+	if s.Gear == nil {
+		return nil
+	}
+	var ids []domain.GearID
+	for _, a := range activities {
+		if a.GearID != nil {
+			ids = append(ids, *a.GearID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	names, err := s.Gear.Names(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
+// withGear fills the gear fields of a wire activity.
+func withGear(out *v1.Activity, a domain.Activity, names map[domain.GearID]string) *v1.Activity {
+	out.GearSetBy = gearSetByToProto(a.GearSetBy)
+	if a.GearID != nil {
+		out.GearName = names[*a.GearID]
+	}
+	return out
+}
+
+func gearSetByToProto(s domain.GearSetBy) v1.GearSetBy {
+	if s == domain.GearSetByUser {
+		return v1.GearSetBy_GEAR_SET_BY_USER
+	}
+	return v1.GearSetBy_GEAR_SET_BY_MERGE
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +161,7 @@ func (s *ActivityServer) ListActivities(
 		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list activities: %w", err))
 	}
+	names := s.gearNames(ctx, activities...)
 
 	out := &v1.ListActivitiesResponse{
 		Activities: make([]*v1.Activity, 0, len(activities)),
@@ -129,7 +176,7 @@ func (s *ActivityServer) ListActivities(
 			}
 			sources = srcs
 		}
-		out.Activities = append(out.Activities, activityToProto(a, sources))
+		out.Activities = append(out.Activities, withGear(activityToProto(a, sources), a, names))
 	}
 
 	// Reverse to start-time-DESC unless the caller asked otherwise. The
@@ -184,7 +231,7 @@ func (s *ActivityServer) GetActivity(
 	}
 
 	return &v1.GetActivityResponse{
-		Activity: activityToProto(activity, sources),
+		Activity: withGear(activityToProto(activity, sources), activity, s.gearNames(ctx, activity)),
 	}, nil
 }
 
@@ -251,7 +298,7 @@ func (s *ActivityServer) UpdateActivity(
 	}
 
 	return &v1.UpdateActivityResponse{
-		Activity: activityToProto(updated, sources),
+		Activity: withGear(activityToProto(updated, sources), updated, s.gearNames(ctx, updated)),
 	}, nil
 }
 
@@ -332,6 +379,10 @@ func (e *activityUpdateEdit) applyField(f string) error {
 		// Merge-managed (FieldGroupGPSTrack); changed via a gps_track field
 		// pin, not a direct edit.
 		return activityUpdateRejectClass(f)
+	case "gear_id":
+		return e.applyGearID()
+	case "reset_gear":
+		return e.applyGearReset()
 	default:
 		set, ok := activityUpdateClassSetters[f]
 		if !ok {
@@ -339,6 +390,59 @@ func (e *activityUpdateEdit) applyField(f string) error {
 				fmt.Errorf("unknown field %q in field_mask", f))
 		}
 		return e.applyClassField(f, set)
+	}
+	return nil
+}
+
+// applyGearID attaches the caller's gear ("" = no gear) and marks the choice
+// as the user's so recompute leaves it alone.
+func (e *activityUpdateEdit) applyGearID() error {
+	if e.s.Gear == nil {
+		return connectrpc.NewError(connectrpc.CodeUnavailable, "gear is not available on this instance")
+	}
+	raw := e.msg.GetGearId()
+	if raw == "" {
+		e.activity.GearID = nil
+	} else {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return connectrpc.NewError(connectrpc.CodeInvalidArgument, "invalid gear_id")
+		}
+		g, err := e.s.Gear.Get(e.ctx, e.activity.UserID, domain.GearID(id))
+		if err != nil {
+			return connectrpc.NewError(connectrpc.CodeNotFound, "gear not found")
+		}
+		e.activity.GearID = &g.ID
+	}
+	e.activity.GearSetBy = domain.GearSetByUser
+	return nil
+}
+
+// applyGearReset hands the choice back to the merge. Recompute re-derives it
+// from the sources; a provider-less activity (manual, upload) gets the type
+// default again here, since recompute applies that only on the first merge
+// and otherwise keeps a default-applied gear.
+func (e *activityUpdateEdit) applyGearReset() error {
+	if e.s.Gear == nil {
+		return connectrpc.NewError(connectrpc.CodeUnavailable, "gear is not available on this instance")
+	}
+	e.activity.GearID = nil
+	e.activity.GearSetBy = domain.GearSetByMerge
+	sources, err := e.s.Activities.ListSourcesForActivity(e.ctx, e.activity.ID)
+	if err != nil {
+		return connectError(connectrpc.CodeInternal, fmt.Errorf("list sources: %w", err))
+	}
+	for _, src := range sources {
+		if src.ExternalAccountID != nil {
+			return nil
+		}
+	}
+	gid, ok, err := e.s.Gear.DefaultFor(e.ctx, e.activity.UserID, e.activity.Type)
+	if err != nil {
+		return connectError(connectrpc.CodeInternal, fmt.Errorf("gear default: %w", err))
+	}
+	if ok {
+		e.activity.GearID = &gid
 	}
 	return nil
 }

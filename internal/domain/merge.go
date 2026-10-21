@@ -53,6 +53,12 @@ const (
 	// FieldGroupLaps chooses which source's lap segmentation the UI renders.
 	// Like GPSTrack, this picks an ID rather than writing fields.
 	FieldGroupLaps FieldGroup = "laps"
+
+	// FieldGroupGear picks the source whose provider gear id decides
+	// Activity.GearID. Resolved by ResolveGear (needs the gear-ref lookup
+	// the use case supplies), not by the merge engine; it is listed here so
+	// policies and field pins can address it.
+	FieldGroupGear FieldGroup = "gear"
 )
 
 // AllFieldGroups is the deterministic iteration order for the merge engine.
@@ -77,6 +83,7 @@ var AllFieldGroups = []FieldGroup{
 	FieldGroupSwim,
 	FieldGroupGPSTrack,
 	FieldGroupLaps,
+	FieldGroupGear,
 }
 
 // ---------------------------------------------------------------------------

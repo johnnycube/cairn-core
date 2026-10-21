@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -129,7 +130,34 @@ func parseActivityFilter(q url.Values) port.ActivityListFilter {
 		AvgHRMaxBpm:    feedFloat(q.Get("hr_max_bpm")),
 		AvgPowerMinW:   feedFloat(q.Get("power_min_w")),
 		AvgPowerMaxW:   feedFloat(q.Get("power_max_w")),
+		GearIDs:        feedGearIDs(q["gear_id"]),
 	}
+}
+
+// feedGearIDsMax bounds a repeated ?gear_id= filter.
+const feedGearIDsMax = 50
+
+// feedGearIDs parses repeated ?gear_id= values, deduplicated and capped;
+// malformed ids are dropped.
+func feedGearIDs(raw []string) []domain.GearID {
+	var out []domain.GearID
+	seen := map[domain.GearID]struct{}{}
+	for _, s := range raw {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			continue
+		}
+		gid := domain.GearID(id)
+		if _, dup := seen[gid]; dup {
+			continue
+		}
+		seen[gid] = struct{}{}
+		out = append(out, gid)
+		if len(out) == feedGearIDsMax {
+			break
+		}
+	}
+	return out
 }
 
 func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {

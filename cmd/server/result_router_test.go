@@ -7,12 +7,16 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
+	"github.com/opencairn-org/cairn-core/internal/adapter/secondary/inmem"
 	"github.com/opencairn-org/cairn-core/internal/domain"
 	"github.com/opencairn-org/cairn-core/internal/port"
+	gearuc "github.com/opencairn-org/cairn-core/internal/usecase/gear"
 )
 
 // fakeQueue records MarkFailedByExternalID calls; all other
@@ -167,5 +171,81 @@ func TestIsDeterministicDBError(t *testing.T) {
 	}
 	if isDeterministicDBError(errors.New("network blip")) {
 		t.Error("non-pg errors must stay transient")
+	}
+}
+
+func TestRouteJobResult_IgnoresUnknownFields(t *testing.T) {
+	q := &fakeQueue{}
+	app := &App{ImportQueue: q}
+	// A worker on a newer additive contract: a field this core does not know.
+	body := []byte(`{"workerName":"strava-fetcher","futureField":{"x":1}}`)
+	err := routeJobResult(context.Background(), app, testLogger(), port.Message{
+		Subject: "cairn.results.fetch_source.strava",
+		Body:    body,
+	})
+	if err != nil {
+		t.Fatalf("unknown field must be ignored, got %v", err)
+	}
+}
+
+type passTx struct{}
+
+func (passTx) InTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
+
+type fakeAccountLookup map[domain.ExternalAccountID]domain.ExternalAccount
+
+func (f fakeAccountLookup) GetExternalAccount(_ context.Context, id domain.ExternalAccountID) (domain.ExternalAccount, error) {
+	a, ok := f[id]
+	if !ok {
+		return domain.ExternalAccount{}, domain.ErrNotFound
+	}
+	return a, nil
+}
+
+func TestProcessWorkerEvent_GearUpsertsByRef(t *testing.T) {
+	repo := inmem.NewGearRepo()
+	userID, acctID := domain.UserID(uuid.New()), domain.ExternalAccountID(uuid.New())
+	accounts := fakeAccountLookup{acctID: {ID: acctID, UserID: userID, Provider: "strava"}}
+	app := &App{Gear: gearuc.NewService(repo, accounts, passTx{}, nil, nil, nil, nil)}
+	user, acct := userID.String(), acctID.String()
+	ev := &workerv1.WorkerEvent{
+		Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
+		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{
+			Ref:     &workerv1.ExternalRef{UserId: user, Provider: "strava", ExternalAccountId: acct, ExternalId: "b42"},
+			Payload: &workerv1.GearImport{Kind: cairnv1.GearKind_GEAR_KIND_BIKE, Name: "Canyon", Primary: true},
+		}},
+	}
+	for range 2 { // second delivery must not duplicate
+		if err := processWorkerEvent(context.Background(), app, testLogger(), &workerv1.JobResult{}, &ingestBundle{}, ev); err != nil {
+			t.Fatalf("gear event: %v", err)
+		}
+	}
+	// Unknown provider gear is recorded as a pending ref, never as gear.
+	pending, _ := repo.ListPendingRefs(context.Background(), userID)
+	if repo.Count() != 0 || len(pending) != 1 {
+		t.Fatalf("gear=%d pending=%d", repo.Count(), len(pending))
+	}
+	if r := pending[0]; r.ProviderName != "Canyon" || r.Kind != domain.GearKindBike || r.UserID != userID {
+		t.Fatalf("ref = %+v", r)
+	}
+
+	// A ref whose user_id does not own the account is rejected, not stored.
+	foreign := &workerv1.WorkerEvent{Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
+		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{
+			Ref:     &workerv1.ExternalRef{UserId: uuid.NewString(), Provider: "strava", ExternalAccountId: acct, ExternalId: "b99"},
+			Payload: &workerv1.GearImport{Name: "not yours"},
+		}}}
+	if err := processWorkerEvent(context.Background(), app, testLogger(), &workerv1.JobResult{}, &ingestBundle{}, foreign); err != nil {
+		t.Fatalf("foreign gear event must be non-fatal: %v", err)
+	}
+	if pending, _ := repo.ListPendingRefs(context.Background(), userID); len(pending) != 1 {
+		t.Fatalf("foreign ref stored: %d", len(pending))
+	}
+
+	// Bad ref: logged, never NAKs the message.
+	bad := &workerv1.WorkerEvent{Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
+		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{Ref: &workerv1.ExternalRef{UserId: "nope", ExternalId: "x"}}}}
+	if err := processWorkerEvent(context.Background(), app, testLogger(), &workerv1.JobResult{}, &ingestBundle{}, bad); err != nil {
+		t.Fatalf("bad gear event must be non-fatal: %v", err)
 	}
 }

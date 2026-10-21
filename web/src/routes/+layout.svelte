@@ -80,6 +80,7 @@
 			'M19.5 12.6 12 20l-7.5-7.4A5 5 0 1 1 12 6.3a5 5 0 1 1 7.5 6.3 M6.7 12h1.5l1.3-2 2.5 4.5 1.3-2h2',
 		connections:
 			'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7.1-7.1L12 4.8 M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7.1 7.1L12 19.2',
+		gear: 'M5.5 17.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M18.5 17.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M5.5 14l3-7h7l3 7 M8.5 7l1.5 3h6 M12 14V7',
 		review:
 			'M22 12h-6l-2 3h-4l-2-3H2 M5.4 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1z',
 		settings: 'M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M2 14h4 M10 8h4 M18 16h4',
@@ -126,6 +127,7 @@
 				},
 				{ href: '/athlete', label: m.nav_athlete(), icon: icons.athlete },
 				{ href: '/health', label: 'Health', icon: icons.health },
+				{ href: '/gear', label: m.nav_gear(), icon: icons.gear },
 				{ href: '/connections', label: m.nav_connections(), icon: icons.connections },
 				{ href: '/review', label: 'Review queue', icon: icons.review },
 				{ href: '/settings', label: m.nav_settings(), icon: icons.settings }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/opencairn-org/cairn-core/internal/domain"
 
 	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
@@ -51,37 +54,84 @@ func mountManualActivityEndpoint(mux *http.ServeMux, app *App, logger *slog.Logg
 			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		payload, err := in.toPayload()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		jr := &workerv1.JobResult{WorkerName: "manual-entry", WorkerVersion: "1"}
-		ev := &workerv1.ImportedActivity{
-			Ref: &workerv1.ExternalRef{
-				UserId:     userID.String(),
-				Provider:   "manual",
-				ExternalId: uuid.NewString(),
-			},
-			Payload: payload,
-		}
-
-		out, err := ingestActivityEvent(r.Context(), app, logger, jr, ev)
-		if err != nil {
-			logger.Error("manual ingest failed", "user_id", userID, "error", err)
-			http.Error(w, "ingest failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"activity_id": out.ActivityID.String(),
-			"source_id":   out.SourceID.String(),
-		})
+		createManualActivity(w, r, app, logger, userID, in)
 	})
 
 	logger.Info("manual activity endpoint mounted", "path", "/api/activities/manual")
+}
+
+// createManualActivity validates the input, ingests it through the standard
+// pipeline and attaches an explicitly chosen gear.
+func createManualActivity(w http.ResponseWriter, r *http.Request, app *App, logger *slog.Logger, userID domain.UserID, in manualActivityInput) {
+	payload, err := in.toPayload()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	gearID, err := manualGearID(r.Context(), app, userID, in.GearID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	jr := &workerv1.JobResult{WorkerName: "manual-entry", WorkerVersion: "1"}
+	ev := &workerv1.ImportedActivity{
+		Ref: &workerv1.ExternalRef{
+			UserId:     userID.String(),
+			Provider:   "manual",
+			ExternalId: uuid.NewString(),
+		},
+		Payload: payload,
+	}
+
+	out, err := ingestActivityEvent(r.Context(), app, logger, jr, ev)
+	if err != nil {
+		logger.Error("manual ingest failed", "user_id", userID, "error", err)
+		http.Error(w, "ingest failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if gearID != nil {
+		if err := setManualGear(r.Context(), app, out.ActivityID, *gearID); err != nil {
+			// The activity exists; only the gear choice is lost.
+			logger.Warn("manual gear attach failed", "activity_id", out.ActivityID, "error", err)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"activity_id": out.ActivityID.String(),
+		"source_id":   out.SourceID.String(),
+	})
+}
+
+// manualGearID validates an optional gear id against the caller's gear.
+func manualGearID(ctx context.Context, app *App, userID domain.UserID, raw string) (*domain.GearID, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || app.Gear == nil {
+		return nil, fmt.Errorf("invalid gear_id")
+	}
+	g, err := app.Gear.Get(ctx, userID, domain.GearID(id))
+	if err != nil {
+		return nil, fmt.Errorf("gear not found")
+	}
+	return &g.ID, nil
+}
+
+// setManualGear attaches the user's explicit gear choice to the new activity
+// and re-merges, which also refreshes totals.
+func setManualGear(ctx context.Context, app *App, activityID domain.ActivityID, gearID domain.GearID) error {
+	a, err := app.Activities.GetActivity(ctx, activityID)
+	if err != nil {
+		return err
+	}
+	a.GearID, a.GearSetBy = &gearID, domain.GearSetByUser
+	if err := app.Activities.SaveActivity(ctx, a); err != nil {
+		return err
+	}
+	_, err = app.RecomputeActivity.Execute(ctx, activityID)
+	return err
 }
 
 // manualActivityInput is the JSON body for a manually-entered activity. Only
@@ -101,6 +151,8 @@ type manualActivityInput struct {
 	IsCommute       bool    `json:"is_commute"`
 	IsRace          bool    `json:"is_race"`
 	CustomSubtype   string  `json:"custom_subtype"`
+	// Optional gear id; attached as the user's choice (blank = sport default).
+	GearID string `json:"gear_id"`
 
 	DistanceM       *float64 `json:"distance_m"`
 	ElevationGainM  *float64 `json:"elevation_gain_m"`

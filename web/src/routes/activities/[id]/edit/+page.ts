@@ -1,7 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { connectClients, isUnauthenticated, Code, ConnectError } from '#lib/connect.js';
-import { ActivityType, Discipline, Privacy } from '#lib/proto/cairn/v1/activity_pb.js';
+import { ActivityType, Discipline, GearSetBy, Privacy } from '#lib/proto/cairn/v1/activity_pb.js';
 import { enumName, protoDurationToSeconds } from '#lib/proto-helpers.js';
+import { gearToView } from '#lib/gear.js';
 import type { PageLoad } from './$types';
 
 // Loads the full activity (incl. tags/privacy) for the edit form, independent
@@ -9,10 +10,14 @@ import type { PageLoad } from './$types';
 export const load: PageLoad = async ({ fetch, url, params }) => {
 	const clients = connectClients(fetch, url.origin);
 	try {
-		const res = await clients.activity.getActivity({ id: params.id });
+		const [res, gearRes] = await Promise.all([
+			clients.activity.getActivity({ id: params.id }),
+			clients.gear.listGear({ includeRetired: true }).catch(() => ({ gear: [] }))
+		]);
 		const a = res.activity;
 		if (!a) error(404, 'Activity not found');
 		return {
+			gear: gearRes.gear.map(gearToView),
 			edit: {
 				id: a.id,
 				title: a.title,
@@ -26,6 +31,8 @@ export const load: PageLoad = async ({ fetch, url, params }) => {
 				customSubtype: a.customSubtype,
 				tags: a.tags ?? [],
 				privacy: enumName(Privacy, a.privacy) || 'private',
+				gearId: a.gearId,
+				gearSetBy: enumName(GearSetBy, a.gearSetBy) || 'merge',
 				distanceM: a.summary?.distanceM ?? null,
 				elevationGainM: a.summary?.elevationGainM ?? null,
 				movingDurationS: protoDurationToSeconds(a.movingDuration)

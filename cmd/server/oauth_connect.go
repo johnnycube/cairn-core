@@ -273,6 +273,7 @@ func (h *oauthConnectHandlers) linkCredentialAccount(ctx context.Context, userID
 		return false
 	}
 	h.logger.Info("connection + account created", "provider", body.Provider, "account", acctID)
+	syncGearOnConnect(ctx, h.app, h.logger, acctID)
 	return true
 }
 
@@ -455,6 +456,7 @@ func (h *oauthConnectHandlers) callback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.logger.Info("oauth account connected", "provider", meta.Provider, "account_id", acctID, "connection_id", connID)
+	syncGearOnConnect(r.Context(), h.app, h.logger, acctID)
 	http.Redirect(w, r, "/connections?connected="+meta.Provider, http.StatusFound)
 }
 

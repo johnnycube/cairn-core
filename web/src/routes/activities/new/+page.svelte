@@ -1,7 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { clients } from '#lib/connect.js';
 	import { ACTIVITY_TYPES, DISCIPLINES, typeLabel } from '#lib/activity-types.js';
+	import { gearToView, type GearView } from '#lib/gear.js';
 	import SportIcon from '#lib/components/SportIcon.svelte';
+	import GearPicker from '#lib/components/GearPicker.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	// Manual activity entry — posts to the REST endpoint, which feeds the same
 	// ingest → merge pipeline as imports (provider = "manual").
@@ -20,6 +25,17 @@
 	let isCommute = $state(false);
 	let isRace = $state(false);
 	let customSubtype = $state('');
+	// Gear: blank keeps the sport's default (applied by the server); a pick is
+	// the user's choice.
+	let gearId = $state('');
+	let gear = $state<GearView[]>([]);
+	onMount(async () => {
+		try {
+			gear = (await clients.gear.listGear({})).gear.map(gearToView);
+		} catch {
+			/* no gear picker without the list */
+		}
+	});
 
 	let saving = $state(false);
 	let errMsg = $state<string | null>(null);
@@ -57,7 +73,8 @@
 			is_ebike: isEbike,
 			is_commute: isCommute,
 			is_race: isRace,
-			custom_subtype: customSubtype.trim()
+			custom_subtype: customSubtype.trim(),
+			gear_id: gearId
 		};
 		try {
 			const res = await fetch('/api/activities/manual', {
@@ -123,6 +140,15 @@
 				</select>
 			</div>
 		</div>
+
+		{#if gear.length > 0}
+			<div>
+				<label class="block text-xs uppercase tracking-wide text-zinc-500" for="gear"
+					>{m.gear_title()}</label
+				>
+				<GearPicker {gear} {type} bind:value={gearId} />
+			</div>
+		{/if}
 
 		<div>
 			<label class="block text-xs uppercase tracking-wide text-zinc-500" for="title">Title</label>

@@ -54,6 +54,9 @@ type ReconcileExternalAccount struct {
 	// only 429 — every poll against an exhausted budget is a wasted call.
 	// Force bypasses the gate.
 	budgetExhausted func(ctx context.Context, provider string) bool
+	// gearSync publishes an import_gear job alongside each reconcile; it
+	// decides whether the provider's worker declares gear at all. May be nil.
+	gearSync func(ctx context.Context, a domain.ExternalAccount) error
 
 	now   func() time.Time
 	newID func() uuid.UUID
@@ -66,6 +69,7 @@ func NewReconcileExternalAccount(
 	accounts port.ExternalAccountRepo,
 	bus port.JobBus,
 	budgetExhausted func(ctx context.Context, provider string) bool,
+	gearSync func(ctx context.Context, a domain.ExternalAccount) error,
 	now func() time.Time,
 	newID func() uuid.UUID,
 ) *ReconcileExternalAccount {
@@ -85,6 +89,7 @@ func NewReconcileExternalAccount(
 		accounts:        accounts,
 		bus:             bus,
 		budgetExhausted: budgetExhausted,
+		gearSync:        gearSync,
 		now:             now,
 		newID:           newID,
 	}
@@ -304,6 +309,13 @@ func (uc *ReconcileExternalAccount) publishOne(
 
 	if err := uc.bus.Publish(ctx, subject, msgID, payload); err != nil {
 		return fmt.Errorf("publish reconcile job: %w", err)
+	}
+	// Gear lists are small and the endpoint cheap, so they ride along with
+	// every reconcile (docs/gear-v0.4.0.md). Best-effort.
+	if uc.gearSync != nil {
+		if err := uc.gearSync(ctx, a); err != nil {
+			slog.Warn("reconcile: gear sync publish failed", "account_id", a.ID, "error", err)
+		}
 	}
 	return nil
 }

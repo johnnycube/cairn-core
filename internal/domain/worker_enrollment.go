@@ -274,6 +274,7 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 		fmt.Sprintf("cairn.jobs.backfill.%s", p),
 		fmt.Sprintf("cairn.jobs.reconcile.%s", p),
 		fmt.Sprintf("cairn.jobs.import_metrics.%s", p),
+		fmt.Sprintf("cairn.jobs.import_gear.%s", p),
 	}
 	webhookEvent := fmt.Sprintf("cairn.webhooks.%s.event", wk)
 	return WorkerPermissionTemplate{
@@ -284,6 +285,7 @@ func StandardPermissionTemplate(provider, workerKey string) WorkerPermissionTemp
 			fmt.Sprintf("cairn.results.backfill.%s", p),
 			fmt.Sprintf("cairn.results.reconcile.%s.*", p), // account-suffixed
 			fmt.Sprintf("cairn.results.import_metrics.%s", p),
+			fmt.Sprintf("cairn.results.import_gear.%s", p),
 			fmt.Sprintf("cairn.jobs.fetch_source.%s", p), // reconcile/webhook sub-jobs
 			fmt.Sprintf("cairn.workers.%s.>", wk),
 			fmt.Sprintf("cairn.tokens.%s.>", p),

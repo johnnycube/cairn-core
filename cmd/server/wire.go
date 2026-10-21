@@ -25,6 +25,7 @@ import (
 	authuc "github.com/opencairn-org/cairn-core/internal/usecase/auth"
 	"github.com/opencairn-org/cairn-core/internal/usecase/besteffort"
 	"github.com/opencairn-org/cairn-core/internal/usecase/enrollment"
+	gearuc "github.com/opencairn-org/cairn-core/internal/usecase/gear"
 	geocodeuc "github.com/opencairn-org/cairn-core/internal/usecase/geocode"
 	"github.com/opencairn-org/cairn-core/internal/usecase/invite"
 	matchuc "github.com/opencairn-org/cairn-core/internal/usecase/match"
@@ -128,6 +129,7 @@ type App struct {
 	Attachments              port.AttachmentRepo
 	SourceDenylist           port.SourceDenylistRepo
 	Health                   port.HealthRepo
+	Gear                     *gearuc.Service
 	ComputeBestEfforts       *besteffort.ComputeBestEffortsForSource
 	MatchSegments            *segment.MatchSegmentsForActivity
 	ComputeSegmentRanks      *segmentrank.ComputeSegmentRanks
@@ -136,6 +138,7 @@ type App struct {
 	DeliverNotifications     *notification.DeliverNotifications
 	NotifyAccountNeedsReauth *notification.NotifyAccountNeedsReauth
 	NotifyWorkerOffline      *notification.NotifyWorkerOffline
+	NotifyGearDecision       *notification.NotifyGearDecision
 	ComputeStartPlace        *geocodeuc.ComputeStartPlace
 	CreateUser               *admin.CreateUser
 	BootstrapAdmin           *admin.BootstrapAdmin
@@ -207,10 +210,12 @@ func newApp(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, logger 
 	app.SecretBox = secretBox
 
 	wireAppSecondaryRepos(app, pool, secretBox)
-	wireAppIngestUseCases(app, logger)
+	// Notifications before ingest: the gear use cases notify on pending
+	// provider records.
 	if err := wireAppNotifications(app, pool, cfg, secretBox, logger); err != nil {
 		return nil, err
 	}
+	wireAppIngestUseCases(app, pool, logger)
 	wireAppAccountUseCases(app, pool)
 	if err := wireAppNATS(ctx, app, cfg, logger); err != nil {
 		return nil, err
@@ -291,16 +296,30 @@ func wireAppSecondaryRepos(app *App, pool *pgxpool.Pool, secretBox *auth.SecretB
 	app.Health = postgres.NewHealthRepo(pool)
 }
 
-// wireAppIngestUseCases builds the ingest, recluster and post-ingest compute use cases.
-func wireAppIngestUseCases(app *App, logger *slog.Logger) {
+// wireAppIngestUseCases builds the ingest, recluster, gear and post-ingest compute use cases.
+func wireAppIngestUseCases(app *App, pool *pgxpool.Pool, logger *slog.Logger) {
+	gearRepo := postgres.NewGearRepo(pool)
 	app.RecomputeActivity = activity.NewRecomputeActivityFromSources(
 		app.Activities,
 		app.UserSettings,
 		app.AthleteProfiles,
 		app.FieldOverrides,
 		app.ClassOverrides,
+		gearRepo,
 		app.Tx,
 		nil, // default time.Now
+	)
+	app.Gear = gearuc.NewService(
+		gearRepo,
+		app.ExternalAccounts,
+		app.Tx,
+		func(ctx context.Context, id domain.ActivityID) error {
+			_, err := app.RecomputeActivity.Execute(ctx, id)
+			return err
+		},
+		app.NotifyGearDecision.Execute,
+		nil, // default time.Now
+		nil, // default uuid.NewV7
 	)
 	app.IngestActivity = activity.NewIngestActivityFromWorker(
 		app.Activities,
@@ -401,6 +420,13 @@ func wireAppNotifications(app *App, pool *pgxpool.Pool, cfg *config.Config, secr
 	)
 	app.NotifyWorkerOffline = notification.NewNotifyWorkerOffline(
 		app.Users,
+		app.Notifications,
+		app.Tx,
+		app.DeliverNotifications,
+		nil, // default time.Now
+		nil, // default uuid.NewV7
+	)
+	app.NotifyGearDecision = notification.NewNotifyGearDecision(
 		app.Notifications,
 		app.Tx,
 		app.DeliverNotifications,
@@ -513,6 +539,7 @@ func wireAppNATS(ctx context.Context, app *App, cfg *config.Config, logger *slog
 			_, exhausted := providerBudget(ctx, bus, provider)
 			return exhausted
 		},
+		gearSyncHook(app, logger),
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)

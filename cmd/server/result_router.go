@@ -61,11 +61,15 @@ func startResultRouter(
 	})
 }
 
+// resultUnmarshal tolerates fields this core does not know, so a newer
+// worker's additive contract changes never fail every import on an older core.
+var resultUnmarshal = protojson.UnmarshalOptions{DiscardUnknown: true}
+
 // routeJobResult decodes the typed JobResult and processes its events in
 // order. Extracted so it's unit-testable independent of the NATS glue.
 func routeJobResult(ctx context.Context, app *App, log *slog.Logger, msg port.Message) error {
 	var jr workerv1.JobResult
-	if err := protojson.Unmarshal(msg.Body, &jr); err != nil {
+	if err := resultUnmarshal.Unmarshal(msg.Body, &jr); err != nil {
 		log.Warn("decode JobResult failed", "subject", msg.Subject, "error", err)
 		return &port.TerminalError{Reason: "bad_payload", Cause: err}
 	}
@@ -106,7 +110,7 @@ func routeClaimCheckedResult(ctx context.Context, app *App, log *slog.Logger, su
 		return fmt.Errorf("fetch claim-checked payload %s: %w", ref.GetBlobId(), err)
 	}
 	var full workerv1.JobResult
-	if err := protojson.Unmarshal(data, &full); err != nil {
+	if err := resultUnmarshal.Unmarshal(data, &full); err != nil {
 		log.Warn("decode claim-checked JobResult failed", "subject", subject, "blob_id", ref.GetBlobId(), "error", err)
 		return &port.TerminalError{Reason: "bad_payload", Cause: err}
 	}
@@ -184,6 +188,13 @@ func processWorkerEvent(ctx context.Context, app *App, log *slog.Logger, jr *wor
 		// Non-fatal: a health sample must not fail the batch.
 		if err := ingestMetricEvent(ctx, app, ev.GetMetric()); err != nil {
 			log.Warn("metric ingest failed", "error", err)
+		}
+
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR:
+		// Non-fatal: gear is optional data; the activity that references it
+		// resolves the ref later (next import_gear run or activity).
+		if err := ingestGearEvent(ctx, app, ev.GetGear()); err != nil {
+			log.Warn("gear ingest failed", "error", err)
 		}
 
 	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_RECORD:
@@ -316,6 +327,34 @@ func ingestMetricEvent(ctx context.Context, app *App, im *workerv1.ImportedMetri
 		Provider:  ref.GetProvider(),
 		Value:     &v,
 	}})
+}
+
+// ingestGearEvent records a provider's gear record (docs/gear-v0.4.0.md,
+// contract §5). The use case derives the owner from the external account
+// and rejects a ref whose user_id or provider disagrees with it.
+func ingestGearEvent(ctx context.Context, app *App, g *workerv1.ImportedGear) error {
+	if app.Gear == nil || g == nil {
+		return nil
+	}
+	ref := g.GetRef()
+	if ref.GetExternalId() == "" {
+		return errors.New("gear event missing external_id")
+	}
+	uid, err := uuid.Parse(ref.GetUserId())
+	if err != nil {
+		return fmt.Errorf("gear event bad user_id: %w", err)
+	}
+	accUUID, err := uuid.Parse(ref.GetExternalAccountId())
+	if err != nil {
+		return fmt.Errorf("gear event bad external_account_id: %w", err)
+	}
+	key := domain.GearRefKey{
+		Provider:          ref.GetProvider(),
+		ExternalAccountID: domain.ExternalAccountID(accUUID),
+		ExternalID:        ref.GetExternalId(),
+	}
+	_, err = app.Gear.ImportFromProvider(ctx, domain.UserID(uid), key, protoconv.GearImportFromProto(g.GetPayload()))
+	return err
 }
 
 // ingestBundle memoises segments created earlier in the same JobResult message

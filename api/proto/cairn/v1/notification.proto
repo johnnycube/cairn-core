@@ -123,6 +123,9 @@ enum NotificationEventType {
   NOTIFICATION_EVENT_TYPE_SYNC_AUTO_REIMPORT_COMPLETED = 304;
   NOTIFICATION_EVENT_TYPE_SYNC_UPLOAD_PROCESSED = 305;
   NOTIFICATION_EVENT_TYPE_SYNC_UPLOAD_FAILED = 306;
+  // A provider reported gear Cairn has no record for; the user decides
+  // whether it is new gear or an alias of existing gear.
+  NOTIFICATION_EVENT_TYPE_SYNC_GEAR_DECISION_NEEDED = 307;
 
   // Achievements
   NOTIFICATION_EVENT_TYPE_ACHIEVEMENT_NEW_PERSONAL_RECORD = 400;

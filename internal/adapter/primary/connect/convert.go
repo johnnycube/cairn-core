@@ -675,6 +675,8 @@ func notificationTypeToProto(t domain.NotificationType) v1.NotificationEventType
 		return v1.NotificationEventType_NOTIFICATION_EVENT_TYPE_SYNC_WORKER_OFFLINE_FOR_ACCOUNT
 	case domain.NotificationTypeExternalAccountRefreshFailed:
 		return v1.NotificationEventType_NOTIFICATION_EVENT_TYPE_ACCOUNT_EXTERNAL_AUTH_INVALID
+	case domain.NotificationTypeGearDecisionNeeded:
+		return v1.NotificationEventType_NOTIFICATION_EVENT_TYPE_SYNC_GEAR_DECISION_NEEDED
 	}
 	return v1.NotificationEventType_NOTIFICATION_EVENT_TYPE_UNSPECIFIED
 }

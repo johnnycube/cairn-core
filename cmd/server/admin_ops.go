@@ -42,6 +42,10 @@ func mountAdminOps(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	// atomic) and reload the live issuer's cache. Trust BOTH keys during overlap.
 	mux.HandleFunc("POST /api/admin/nats/rotate-account-key", h.rotateAccountKey)
 
+	// Rebuild every user's gear totals from live activities (after a
+	// migration or a bug in the totals follow-up).
+	mux.HandleFunc("POST /api/admin/gear/rebuild-totals", h.rebuildGearTotals)
+
 	// Dead-letter inspection + replay.
 	mux.HandleFunc("GET /api/admin/dlq", h.listDLQ)
 	mux.HandleFunc("POST /api/admin/dlq/{id}/replay", h.replayDLQ)
@@ -81,6 +85,23 @@ func (h *adminOpsHandlers) geocodeBackfill(w http.ResponseWriter, r *http.Reques
 		h.logger.Info("admin geocode backfill complete", "resolved", n)
 	}(limit)
 	writeJSON(w, http.StatusAccepted, map[string]any{"started": true, "limit": limit})
+}
+
+func (h *adminOpsHandlers) rebuildGearTotals(w http.ResponseWriter, r *http.Request) {
+	if !h.gate(w, r) {
+		return
+	}
+	if h.app.Gear == nil {
+		http.Error(w, "gear not wired", http.StatusServiceUnavailable)
+		return
+	}
+	n, err := h.app.Gear.RebuildAllTotals(r.Context())
+	if err != nil {
+		h.logger.Warn("admin gear totals rebuild failed", "error", err)
+		http.Error(w, "rebuild failed", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rebuilt": true, "users": n})
 }
 
 // signingReady writes 503 and returns false when the signing-key deps are missing.

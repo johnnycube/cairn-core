@@ -49,9 +49,12 @@ type Activity struct {
 
 	MergedAt time.Time
 
-	GearID  *GearID
-	Tags    []string
-	Privacy ActivityPrivacy
+	GearID *GearID
+	// GearSetBy says whether GearID was derived by recompute (merge) or
+	// chosen by the user (user; recompute leaves it alone). Zero reads as merge.
+	GearSetBy GearSetBy
+	Tags      []string
+	Privacy   ActivityPrivacy
 
 	// Start location, denormalised for the feed/detail subtitle. StartLat/
 	// StartLng cache the first GPS point of the primary stream; StartPlace is

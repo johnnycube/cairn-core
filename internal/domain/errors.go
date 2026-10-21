@@ -57,6 +57,20 @@ var (
 	ErrUnique = errors.New("unique constraint violation")
 )
 
+// Gear invariants — checked by Gear.Validate.
+var (
+	ErrGearMissingID     = errors.New("gear: missing ID")
+	ErrGearMissingUserID = errors.New("gear: missing user ID")
+	ErrGearInvalidKind   = errors.New("gear: kind must be bike, shoe or other")
+	ErrGearMissingName   = errors.New("gear: name is required")
+	// ErrGearFieldTooLong is returned when a free-text field exceeds its cap.
+	ErrGearFieldTooLong = errors.New("gear: field too long")
+	// ErrGearSelfMerge is returned by MergeGear when from and to are the same record.
+	ErrGearSelfMerge = errors.New("gear: cannot merge a record into itself")
+	// ErrGearRefMapped is returned when a decision is made on a provider record that already maps to gear.
+	ErrGearRefMapped = errors.New("gear: provider record is already mapped")
+)
+
 // Segment invariants — checked by Segment.Validate.
 var (
 	ErrSegmentInvalidSource            = errors.New("segment: source must be external or native")

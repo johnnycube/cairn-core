@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { refreshAll } from '$app/navigation';
+	import { m } from '#lib/paraglide/messages.js';
 	import { formatDate } from '#lib/format.js';
 
 	// When `connectionId` is set, only the account belonging to that connection
@@ -321,6 +322,23 @@
 		}
 	}
 
+	// Ask the account's worker for its gear list; 409 = the worker does not
+	// import gear.
+	async function syncGear(id: string) {
+		busy = { ...busy, [id]: true };
+		error = null;
+		notice = null;
+		try {
+			const res = await fetch(`/api/accounts/${id}/sync-gear`, { method: 'POST' });
+			if (!res.ok) throw new Error(await errText(res));
+			notice = m.gear_sync_queued();
+		} catch (e) {
+			error = (e as Error).message;
+		} finally {
+			busy = { ...busy, [id]: false };
+		}
+	}
+
 	async function start(id: string, skipExisting: boolean) {
 		busy = { ...busy, [id]: true };
 		error = null;
@@ -425,6 +443,14 @@
 								class="rounded border border-zinc-700 px-2.5 py-1 text-zinc-300 hover:border-accent-500 hover:text-accent-300 max-md:py-2"
 							>
 								{importOpen[a.id] ? 'Cancel import' : 'Import activity'}
+							</button>
+							<button
+								type="button"
+								disabled={busy[a.id]}
+								onclick={() => syncGear(a.id)}
+								class="rounded border border-zinc-700 px-2.5 py-1 text-zinc-300 hover:border-accent-500 hover:text-accent-300 disabled:opacity-50 max-md:py-2"
+							>
+								Sync gear
 							</button>
 							{#if a.provider === 'garmin'}
 								<button

@@ -35,6 +35,13 @@ import "cairn/v1/common.proto";
 // type+discipline to express the full activity nature without enum explosion.
 // ----------------------------------------------------------------------------
 
+// GearSetBy says who decided Activity.gear_id.
+enum GearSetBy {
+  GEAR_SET_BY_UNSPECIFIED = 0;
+  GEAR_SET_BY_MERGE = 1;
+  GEAR_SET_BY_USER = 2;
+}
+
 enum ActivityType {
   ACTIVITY_TYPE_UNSPECIFIED = 0;
   ACTIVITY_TYPE_RIDE = 1;
@@ -164,6 +171,13 @@ message Activity {
   string start_place = 28;
   optional double start_lat = 29;
   optional double start_lng = 30;
+
+  // Who decided gear_id: MERGE (derived from the winning source or the
+  // type default; recompute may change it) or USER (set through
+  // UpdateActivity; recompute never touches it).
+  GearSetBy gear_set_by = 31;
+  // Denormalised for list rendering; empty when no gear is attached.
+  string gear_name = 32;
 }
 
 enum Privacy {
@@ -335,6 +349,13 @@ message ActivitySourcePayload {
   // Free-form provider data the Core does not interpret. Persisted for
   // audit and surfaced in the activity-source detail view.
   map<string, string> extra = 18;
+
+  // The provider's id of the gear used on this activity, matching
+  // ImportedGear.ref.external_id on the same account. MAY reference gear
+  // the Core has not seen yet; it is resolved when the gear arrives.
+  string gear_external_id = 22;
+  // Provider display name of that gear, a hint until the gear is imported.
+  string gear_name = 23;
 }
 
 message ActivityLap {
@@ -666,6 +687,12 @@ message UpdateActivityRequest {
   optional double distance_m = 15;
   optional double elevation_gain_m = 16;
   optional int64 moving_duration_s = 17;
+
+  // Gear. "gear_id" in field_mask attaches the gear (empty string = no
+  // gear) and marks the choice as the user's. The mask key "reset_gear"
+  // (no field) hands it back to the merge (gear_set_by = MERGE) and
+  // re-derives it.
+  optional string gear_id = 18;
 }
 
 message UpdateActivityResponse {

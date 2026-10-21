@@ -15,6 +15,8 @@ func TestStandardPermissionTemplateJetStream(t *testing.T) {
 		"$JS.API.CONSUMER.DURABLE.CREATE.CAIRN_JOBS.*",
 		"cairn.results.reconcile.strava.*",
 		"cairn.results.import_metrics.strava",
+		"$JS.API.CONSUMER.CREATE.CAIRN_JOBS.*.cairn.jobs.import_gear.strava",
+		"cairn.results.import_gear.strava",
 		"cairn.jobs.fetch_source.strava",
 		"cairn.creds.strava.get",
 		"$JS.API.CONSUMER.CREATE.CAIRN_WEBHOOKS.*.cairn.webhooks.w1-strava.event",

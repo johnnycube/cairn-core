@@ -112,6 +112,8 @@ export class ActivityFilter {
 	flags = $state<Record<string, string>>(emptyFlags());
 	ranges = $state<Record<RangeKey, RangeBounds>>(emptyRanges());
 	moreFilters = $state(false);
+	// Gear id ('' = any), deep-linkable from the gear page.
+	gearId = $state('');
 
 	constructor(params?: ReadonlyURLSearchParams) {
 		if (!params) return;
@@ -119,6 +121,7 @@ export class ActivityFilter {
 		this.discipline = params.get('discipline') ?? '';
 		this.from = params.get('from') ?? '';
 		this.to = params.get('to') ?? '';
+		this.gearId = params.get('gear_id') ?? '';
 		const sort = params.get('sort') ?? '';
 		if (SORTS.some((s) => s.value === sort)) this.sort = sort;
 	}
@@ -133,6 +136,7 @@ export class ActivityFilter {
 			this.discipline !== '' ||
 			this.from !== '' ||
 			this.to !== '' ||
+			this.gearId !== '' ||
 			this.flagsActive ||
 			this.rangesActive
 	);
@@ -140,7 +144,7 @@ export class ActivityFilter {
 	// Change keys for pages to react to: chip/select edits should re-query at
 	// once, free-text (dates, ranges) after a debounce.
 	readonly immediateKey = $derived(
-		JSON.stringify([this.type, this.discipline, this.sort, this.flags])
+		JSON.stringify([this.type, this.discipline, this.sort, this.flags, this.gearId])
 	);
 	readonly textKey = $derived(JSON.stringify([this.from, this.to, this.ranges]));
 
@@ -195,6 +199,7 @@ export class ActivityFilter {
 		this.year = '';
 		this.flags = emptyFlags();
 		this.ranges = emptyRanges();
+		this.gearId = '';
 	}
 
 	// Query params in the server's shared filter vocabulary (activities_feed.go).
@@ -205,6 +210,7 @@ export class ActivityFilter {
 		if (this.discipline) q.set('discipline', this.discipline);
 		if (this.from) q.set('from', this.from);
 		if (this.to) q.set('to', this.to);
+		if (this.gearId) q.set('gear_id', this.gearId);
 		for (const f of FLAGS) {
 			const v = this.flags[f.key];
 			if (v) q.set(f.key, v);

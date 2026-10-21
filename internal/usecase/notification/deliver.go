@@ -509,6 +509,8 @@ func (uc *DeliverNotifications) render(n domain.Notification) (subject, body str
 		headline = "A connector (worker) went offline."
 	case domain.NotificationTypeExternalAccountRefreshFailed:
 		headline = "A connection needs to be re-authorised."
+	case domain.NotificationTypeGearDecisionNeeded:
+		headline = "A connection reported gear Cairn does not know yet. Create it or map it to existing gear."
 	default:
 		headline = "You have a new Cairn notification."
 	}

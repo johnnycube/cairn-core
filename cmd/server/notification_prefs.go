@@ -20,6 +20,7 @@ var notifTypeMeta = []struct {
 	{domain.NotificationTypeActivityReimported, "Activity updated from source"},
 	{domain.NotificationTypeWorkerOffline, "Connector went offline"},
 	{domain.NotificationTypeExternalAccountRefreshFailed, "Connection needs re-auth"},
+	{domain.NotificationTypeGearDecisionNeeded, "Gear needs a decision"},
 }
 
 // mountNotificationPrefs exposes the per-user email notification preference
