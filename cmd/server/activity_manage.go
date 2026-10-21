@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/opencairn-org/cairn-core/internal/domain"
+	"github.com/opencairn-org/cairn-core/internal/domain/capability"
 	"github.com/opencairn-org/cairn-core/internal/usecase/besteffort"
 	"github.com/opencairn-org/cairn-core/internal/usecase/segment"
 	"github.com/opencairn-org/cairn-core/internal/usecase/trainingload"
@@ -235,7 +236,6 @@ func activityManageRecomputeHandler(app *App, logger *slog.Logger) http.HandlerF
 		if result.SoftDeleted {
 			publishActivityDelete(r.Context(), app, logger, act.UserID, act.ID)
 		}
-		refreshGearTotals(r.Context(), app, logger, act.UserID)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"recomputed":   true,
 			"soft_deleted": result.SoftDeleted,
@@ -261,9 +261,10 @@ func activityManageRecomputeDerivedHandler(app *App, logger *slog.Logger) http.H
 // triple parses a blob the same way. Worker NAME/alias is deliberately NOT part
 // of the identity: names are admin-assigned routing labels, not code identity.
 type liveWorker struct {
-	provider string
-	version  string
-	pkg      string
+	provider     string
+	version      string
+	pkg          string
+	capabilities capability.Manifest
 }
 
 // currentWorkers reads the worker-presence KV and returns the identity of every
@@ -289,10 +290,11 @@ func currentWorkers(ctx context.Context, app *App, log *slog.Logger) []liveWorke
 			continue
 		}
 		var hb struct {
-			Provider string `json:"provider"`
-			Version  string `json:"version"`
-			Package  string `json:"package"`
-			LastSeen string `json:"last_seen"`
+			Provider     string              `json:"provider"`
+			Version      string              `json:"version"`
+			Package      string              `json:"package"`
+			LastSeen     string              `json:"last_seen"`
+			Capabilities capability.Manifest `json:"capabilities"`
 		}
 		if json.Unmarshal(entry.Value, &hb) != nil {
 			continue
@@ -300,7 +302,7 @@ func currentWorkers(ctx context.Context, app *App, log *slog.Logger) []liveWorke
 		if ts, perr := time.Parse(time.RFC3339, hb.LastSeen); perr == nil && now.Sub(ts) > presenceStaleAfter {
 			continue // stale ghost
 		}
-		out = append(out, liveWorker{provider: hb.Provider, version: hb.Version, pkg: hb.Package})
+		out = append(out, liveWorker{provider: hb.Provider, version: hb.Version, pkg: hb.Package, capabilities: hb.Capabilities})
 	}
 	return out
 }

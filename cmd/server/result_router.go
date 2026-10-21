@@ -329,8 +329,9 @@ func ingestMetricEvent(ctx context.Context, app *App, im *workerv1.ImportedMetri
 	}})
 }
 
-// ingestGearEvent upserts a provider's gear record (docs/gear-v0.4.0.md,
-// contract §5): refs are keyed by (provider, account, external id).
+// ingestGearEvent records a provider's gear record (docs/gear-v0.4.0.md,
+// contract §5). The use case derives the owner from the external account
+// and rejects a ref whose user_id or provider disagrees with it.
 func ingestGearEvent(ctx context.Context, app *App, g *workerv1.ImportedGear) error {
 	if app.Gear == nil || g == nil {
 		return nil
@@ -719,13 +720,6 @@ func runFollowUpsUserDerived(ctx context.Context, app *App, log *slog.Logger, ou
 			WarmUpDays: 42,
 		}); err != nil {
 			log.Warn("training-load compute failed", "user_id", out.Activity.UserID, "error", err)
-		}
-	}
-	// Gear totals: one aggregate over the user's live activities, so a
-	// reimport that moved the activity to other gear refreshes both sides.
-	if app.Gear != nil {
-		if err := app.Gear.RecomputeTotals(ctx, out.Activity.UserID); err != nil {
-			log.Warn("gear totals recompute failed", "user_id", out.Activity.UserID, "error", err)
 		}
 	}
 	if app.DispatchPR != nil {

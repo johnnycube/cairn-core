@@ -42,10 +42,11 @@ func mountAdminOps(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	// atomic) and reload the live issuer's cache. Trust BOTH keys during overlap.
 	mux.HandleFunc("POST /api/admin/nats/rotate-account-key", h.rotateAccountKey)
 
-	// Dead-letter inspection + replay.
 	// Rebuild every user's gear totals from live activities (after a
 	// migration or a bug in the totals follow-up).
 	mux.HandleFunc("POST /api/admin/gear/rebuild-totals", h.rebuildGearTotals)
+
+	// Dead-letter inspection + replay.
 	mux.HandleFunc("GET /api/admin/dlq", h.listDLQ)
 	mux.HandleFunc("POST /api/admin/dlq/{id}/replay", h.replayDLQ)
 

@@ -54,7 +54,9 @@ type ReconcileExternalAccount struct {
 	// only 429 — every poll against an exhausted budget is a wasted call.
 	// Force bypasses the gate.
 	budgetExhausted func(ctx context.Context, provider string) bool
-	gearSync        func(ctx context.Context, a domain.ExternalAccount) error
+	// gearSync publishes an import_gear job alongside each reconcile; it
+	// decides whether the provider's worker declares gear at all. May be nil.
+	gearSync func(ctx context.Context, a domain.ExternalAccount) error
 
 	now   func() time.Time
 	newID func() uuid.UUID
@@ -67,6 +69,7 @@ func NewReconcileExternalAccount(
 	accounts port.ExternalAccountRepo,
 	bus port.JobBus,
 	budgetExhausted func(ctx context.Context, provider string) bool,
+	gearSync func(ctx context.Context, a domain.ExternalAccount) error,
 	now func() time.Time,
 	newID func() uuid.UUID,
 ) *ReconcileExternalAccount {
@@ -86,6 +89,7 @@ func NewReconcileExternalAccount(
 		accounts:        accounts,
 		bus:             bus,
 		budgetExhausted: budgetExhausted,
+		gearSync:        gearSync,
 		now:             now,
 		newID:           newID,
 	}
@@ -314,11 +318,4 @@ func (uc *ReconcileExternalAccount) publishOne(
 		}
 	}
 	return nil
-}
-
-// SetGearSync installs the hook that publishes an import_gear job for an
-// account alongside its reconcile. The hook decides whether the provider's
-// worker declares gear at all.
-func (uc *ReconcileExternalAccount) SetGearSync(fn func(ctx context.Context, a domain.ExternalAccount) error) {
-	uc.gearSync = fn
 }

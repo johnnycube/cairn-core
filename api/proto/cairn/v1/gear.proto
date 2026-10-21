@@ -30,7 +30,9 @@ message Gear {
   string brand = 4;
   string model = 5;
   string notes = 6;
-  // ISO date (YYYY-MM-DD); empty when unknown.
+  // ISO date (YYYY-MM-DD); empty when unknown. A string on purpose: a
+  // purchase has a day, not an instant, and google.type.Date would be the
+  // API's only external proto dependency.
   string purchase_date = 7;
   bool retired = 8;
   optional google.protobuf.Timestamp retired_at = 9;
@@ -185,14 +187,6 @@ message CreateGearFromRefResponse {
   Gear gear = 1;
 }
 
-// SyncGear asks the provider worker for the account's full gear list.
-message SyncGearRequest {
-  string external_account_id = 1;
-}
-message SyncGearResponse {
-  bool queued = 1;
-}
-
 service GearService {
   rpc ListGear(ListGearRequest) returns (ListGearResponse);
   rpc GetGear(GetGearRequest) returns (GetGearResponse);
@@ -206,5 +200,4 @@ service GearService {
   rpc SetGearDefault(SetGearDefaultRequest) returns (SetGearDefaultResponse);
   rpc ClearGearDefault(ClearGearDefaultRequest) returns (ClearGearDefaultResponse);
   rpc ListGearDefaults(ListGearDefaultsRequest) returns (ListGearDefaultsResponse);
-  rpc SyncGear(SyncGearRequest) returns (SyncGearResponse);
 }

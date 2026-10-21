@@ -161,6 +161,7 @@ func newUC(t *testing.T, accounts *fakeAccounts, bus *fakeBus) *ReconcileExterna
 		accounts,
 		bus,
 		nil, // no budget gate in tests
+		nil, // no gear sync in tests
 		func() time.Time { return fixedNow },
 		func() uuid.UUID { return stableUUID },
 	)

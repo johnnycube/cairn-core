@@ -108,8 +108,16 @@ func (r *GearRepo) Save(ctx context.Context, g domain.Gear) error {
 	return nil
 }
 
+// Delete removes the gear. Its activities go back to merge-assigned first:
+// the FK nulls gear_id, and a sticky 'user' would otherwise read as "no
+// gear, by choice" and never be re-derived.
 func (r *GearRepo) Delete(ctx context.Context, id domain.GearID) error {
 	db := dbtx(ctx, r.pool)
+	if _, err := db.Exec(ctx,
+		`UPDATE activities SET gear_set_by = 'merge', updated_at = now() WHERE gear_id = $1`,
+		id.UUID()); err != nil {
+		return fmt.Errorf("delete gear %s: reset activities: %w", id, err)
+	}
 	tag, err := db.Exec(ctx, `DELETE FROM gear WHERE id = $1`, id.UUID())
 	if err != nil {
 		return fmt.Errorf("delete gear %s: %w", id, err)
@@ -118,6 +126,28 @@ func (r *GearRepo) Delete(ctx context.Context, id domain.GearID) error {
 		return fmt.Errorf("delete gear %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
+}
+
+func (r *GearRepo) Names(ctx context.Context, ids []domain.GearID) (map[domain.GearID]string, error) {
+	out := make(map[domain.GearID]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	db := dbtx(ctx, r.pool)
+	rows, err := db.Query(ctx, `SELECT id, name FROM gear WHERE id = ANY($1)`, gearIDParams(ids))
+	if err != nil {
+		return nil, fmt.Errorf("gear names: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[domain.GearID(id)] = name
+	}
+	return out, rows.Err()
 }
 
 // gearRefImportJSON is the on-disk shape of gear_external_refs.provider_import:
@@ -156,10 +186,6 @@ func decodeGearRefImport(b []byte, ref *domain.GearExternalRef) error {
 
 func (r *GearRepo) UpsertExternalRef(ctx context.Context, ref domain.GearExternalRef) error {
 	db := dbtx(ctx, r.pool)
-	seen := ref.LastSeenAt
-	if seen.IsZero() {
-		seen = time.Now().UTC()
-	}
 	var gearParam any
 	if ref.GearID != nil {
 		gearParam = ref.GearID.UUID()
@@ -177,7 +203,7 @@ func (r *GearRepo) UpsertExternalRef(ctx context.Context, ref domain.GearExterna
 		   provider_distance_m = EXCLUDED.provider_distance_m, is_primary = EXCLUDED.is_primary,
 		   provider_import = EXCLUDED.provider_import, last_seen_at = EXCLUDED.last_seen_at`,
 		gearParam, ref.Provider, ref.ExternalAccountID.UUID(), ref.ExternalID,
-		ref.ProviderName, ref.ProviderDistanceM, ref.Primary, imp, seen)
+		ref.ProviderName, ref.ProviderDistanceM, ref.Primary, imp, ref.LastSeenAt)
 	if err != nil {
 		return fmt.Errorf("upsert gear ref: %w", err)
 	}
@@ -321,19 +347,42 @@ func (r *GearRepo) ListDefaults(ctx context.Context, userID domain.UserID) ([]do
 	return out, rows.Err()
 }
 
-func (r *GearRepo) ListActivityIDsForRef(ctx context.Context, key domain.GearRefKey) ([]domain.ActivityID, error) {
+func (r *GearRepo) MapPendingRef(ctx context.Context, key domain.GearRefKey, id domain.GearID) (bool, error) {
 	db := dbtx(ctx, r.pool)
-	rows, err := db.Query(ctx,
-		`SELECT DISTINCT a.id
-		   FROM activities a
-		   JOIN activity_sources s ON s.activity_id = a.id
-		  WHERE s.provider = $1 AND s.external_account_id = $2
-		    AND s.parsed->>'gear_external_id' = $3
-		    AND s.status != 'detached'
-		    AND a.deleted_at IS NULL AND a.gear_set_by = 'merge'`,
-		key.Provider, key.ExternalAccountID.UUID(), key.ExternalID)
+	tag, err := db.Exec(ctx,
+		`UPDATE gear_external_refs SET gear_id = $4
+		  WHERE provider = $1 AND external_account_id = $2 AND external_id = $3 AND gear_id IS NULL`,
+		key.Provider, key.ExternalAccountID.UUID(), key.ExternalID, id.UUID())
 	if err != nil {
-		return nil, fmt.Errorf("list activities for gear ref: %w", err)
+		return false, fmt.Errorf("map pending gear ref: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ListActivityIDsForRef is scoped by user so the (user_id, provider) index
+// on activity_sources applies; the jsonb predicate then filters a few rows.
+func (r *GearRepo) ListActivityIDsForRef(ctx context.Context, userID domain.UserID, key domain.GearRefKey) ([]domain.ActivityID, error) {
+	db := dbtx(ctx, r.pool)
+	return scanActivityIDs(db.Query(ctx,
+		`SELECT DISTINCT a.id
+		   FROM activity_sources s
+		   JOIN activities a ON a.id = s.activity_id
+		  WHERE s.user_id = $1 AND s.provider = $2 AND s.external_account_id = $3
+		    AND s.parsed->>'gear_external_id' = $4
+		    AND s.status != 'detached'
+		    AND a.user_id = $1 AND a.deleted_at IS NULL AND a.gear_set_by = 'merge'`,
+		userID.UUID(), key.Provider, key.ExternalAccountID.UUID(), key.ExternalID))
+}
+
+func (r *GearRepo) ListActivityIDsForGear(ctx context.Context, id domain.GearID) ([]domain.ActivityID, error) {
+	db := dbtx(ctx, r.pool)
+	return scanActivityIDs(db.Query(ctx,
+		`SELECT id FROM activities WHERE gear_id = $1 AND deleted_at IS NULL`, id.UUID()))
+}
+
+func scanActivityIDs(rows pgx.Rows, err error) ([]domain.ActivityID, error) {
+	if err != nil {
+		return nil, fmt.Errorf("list activity ids: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.ActivityID

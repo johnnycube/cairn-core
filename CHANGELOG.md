@@ -31,8 +31,7 @@ All notable changes to Cairn are documented here. The format follows
   events, the `import_gear` job (`cairn.jobs.import_gear.<provider>`, in the
   standard worker permission template and the conformance harness `--gear`
   flag), `cairn.v1.GearKind`, and `gear_external_id` / `gear_name` on
-  `ActivitySourcePayload`. Groundwork for gear in 0.4.0; the Core does not
-  act on these yet.
+  `ActivitySourcePayload`.
 
 ### Changed
 - Job results are decoded with unknown fields ignored, so a worker on a

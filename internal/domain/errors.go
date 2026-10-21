@@ -63,8 +63,8 @@ var (
 	ErrGearMissingUserID = errors.New("gear: missing user ID")
 	ErrGearInvalidKind   = errors.New("gear: kind must be bike, shoe or other")
 	ErrGearMissingName   = errors.New("gear: name is required")
-	// ErrGearSameUser is returned by MergeGear when the records belong to different users.
-	ErrGearSameUser = errors.New("gear: merge requires both records to belong to the same user")
+	// ErrGearFieldTooLong is returned when a free-text field exceeds its cap.
+	ErrGearFieldTooLong = errors.New("gear: field too long")
 	// ErrGearSelfMerge is returned by MergeGear when from and to are the same record.
 	ErrGearSelfMerge = errors.New("gear: cannot merge a record into itself")
 	// ErrGearRefMapped is returned when a decision is made on a provider record that already maps to gear.

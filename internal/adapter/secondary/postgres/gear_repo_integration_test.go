@@ -55,6 +55,7 @@ func TestGearRepo_Integration(t *testing.T) {
 	// Refs: a pending record first (no gear), then mapped; an upsert for the
 	// same key repoints. The owner comes from the external account.
 	key := domain.GearRefKey{Provider: "strava", ExternalAccountID: acctID, ExternalID: "b1"}
+	missing := domain.GearRefKey{Provider: "strava", ExternalAccountID: acctID, ExternalID: "nope"}
 	ref := domain.GearExternalRef{Provider: "strava", ExternalAccountID: acctID, ExternalID: "b1", ProviderName: "Canyon", Primary: true,
 		Kind: domain.GearKindBike, Brand: "Canyon", DefaultFor: []domain.ActivityType{domain.ActivityTypeRide}}
 	if err := gear.UpsertExternalRef(ctx, ref); err != nil {
@@ -69,11 +70,18 @@ func TestGearRepo_Integration(t *testing.T) {
 	if resolved, err := gear.ResolveExternalRefs(ctx, []domain.GearRefKey{key}); err != nil || len(resolved) != 0 {
 		t.Fatalf("pending ref must not resolve: %v/%v", resolved, err)
 	}
+	// MapPendingRef maps once; a second attempt reports it was not pending.
+	if ok, err := gear.MapPendingRef(ctx, key, other.ID); err != nil || !ok {
+		t.Fatalf("MapPendingRef = %v/%v", ok, err)
+	}
+	if ok, err := gear.MapPendingRef(ctx, key, bike.ID); err != nil || ok {
+		t.Fatalf("MapPendingRef on mapped ref = %v/%v", ok, err)
+	}
+	if ok, _ := gear.MapPendingRef(ctx, missing, bike.ID); ok {
+		t.Fatal("MapPendingRef on absent ref succeeded")
+	}
 	otherID0 := other.ID
 	ref.GearID = &otherID0
-	if err := gear.UpsertExternalRef(ctx, ref); err != nil {
-		t.Fatalf("UpsertExternalRef (map): %v", err)
-	}
 	bikeID0 := bike.ID
 	ref.GearID = &bikeID0
 	if err := gear.UpsertExternalRef(ctx, ref); err != nil {
@@ -85,7 +93,6 @@ func TestGearRepo_Integration(t *testing.T) {
 	if pending, _ := gear.ListPendingRefs(ctx, userID); len(pending) != 0 {
 		t.Fatalf("mapped ref listed as pending")
 	}
-	missing := domain.GearRefKey{Provider: "strava", ExternalAccountID: acctID, ExternalID: "nope"}
 	resolved, err := gear.ResolveExternalRefs(ctx, []domain.GearRefKey{key, missing})
 	if err != nil || len(resolved) != 1 || resolved[key] != bike.ID {
 		t.Fatalf("ResolveExternalRefs = %v/%v", resolved, err)
@@ -151,8 +158,17 @@ func TestGearRepo_Integration(t *testing.T) {
 			t.Fatalf("SaveSource: %v", err)
 		}
 	}
-	if ids, err := gear.ListActivityIDsForRef(ctx, key); err != nil || len(ids) != 1 || ids[0] != a1 {
+	if ids, err := gear.ListActivityIDsForRef(ctx, userID, key); err != nil || len(ids) != 1 || ids[0] != a1 {
 		t.Fatalf("ListActivityIDsForRef = %v/%v (want only merge-set %s)", ids, err, a1)
+	}
+	if ids, _ := gear.ListActivityIDsForRef(ctx, domain.UserID(uuid.New()), key); len(ids) != 0 {
+		t.Fatalf("other user's lookup returned %v", ids)
+	}
+	if ids, err := gear.ListActivityIDsForGear(ctx, bike.ID); err != nil || len(ids) != 3 {
+		t.Fatalf("ListActivityIDsForGear = %v/%v", ids, err)
+	}
+	if names, err := gear.Names(ctx, []domain.GearID{bike.ID, other.ID, domain.GearID(uuid.New())}); err != nil || len(names) != 2 || names[bike.ID] != "Canyon" {
+		t.Fatalf("Names = %v/%v", names, err)
 	}
 
 	// Repoint + delete = merge; the default and the activities follow.
@@ -169,12 +185,15 @@ func TestGearRepo_Integration(t *testing.T) {
 		t.Fatalf("activity not repointed: %+v", a.GearID)
 	}
 
-	// Deleting gear nulls the activities' gear (FK SET NULL).
+	// Deleting gear nulls the activities' gear (FK SET NULL) and hands a
+	// user-set choice back to the merge.
 	if err := gear.Delete(ctx, bike.ID); err != nil {
 		t.Fatalf("Delete bike: %v", err)
 	}
-	if a, _ := activities.GetActivity(ctx, a1); a.GearID != nil {
-		t.Fatalf("gear_id not nulled after delete")
+	for _, aid := range []domain.ActivityID{a1, a2} {
+		if a, _ := activities.GetActivity(ctx, aid); a.GearID != nil || a.GearSetBy != domain.GearSetByMerge {
+			t.Fatalf("activity %s after delete: gear=%v set_by=%s", aid, a.GearID, a.GearSetBy)
+		}
 	}
 	if err := gear.Delete(ctx, bike.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("second delete = %v", err)

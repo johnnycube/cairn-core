@@ -18,9 +18,13 @@ type GearRepo interface {
 	ListForUser(ctx context.Context, userID domain.UserID, includeRetired bool) ([]domain.Gear, error)
 	// Save upserts the gear row by ID. Totals and refs are not written here.
 	Save(ctx context.Context, g domain.Gear) error
-	// Delete removes the gear; activities keep no gear (FK SET NULL), refs
+	// Delete removes the gear; its activities lose the gear (FK SET NULL)
+	// and go back to merge-assigned so recompute can re-derive them; refs
 	// and defaults cascade. ErrNotFound when absent.
 	Delete(ctx context.Context, id domain.GearID) error
+	// Names returns id → name for the given gear (any owner; callers pass
+	// ids taken from the caller's own activities).
+	Names(ctx context.Context, ids []domain.GearID) (map[domain.GearID]string, error)
 
 	// UpsertExternalRef creates or refreshes a provider ref (pending or
 	// mapped). The ref's key is unique: an upsert for an existing key updates
@@ -40,10 +44,15 @@ type GearRepo interface {
 	ClearDefault(ctx context.Context, userID domain.UserID, t domain.ActivityType) error
 	ListDefaults(ctx context.Context, userID domain.UserID) ([]domain.GearDefault, error)
 
-	// ListActivityIDsForRef returns the live, merge-assigned activities that
-	// have a non-detached source carrying this provider gear id — the ones
-	// to re-derive after the ref is mapped onto other gear.
-	ListActivityIDsForRef(ctx context.Context, key domain.GearRefKey) ([]domain.ActivityID, error)
+	// MapPendingRef sets the gear of a ref only while it is still pending;
+	// reports whether it did (false = already mapped or absent).
+	MapPendingRef(ctx context.Context, key domain.GearRefKey, id domain.GearID) (bool, error)
+	// ListActivityIDsForRef returns the user's live, merge-assigned
+	// activities that have a non-detached source carrying this provider gear
+	// id — the ones to re-derive after the ref is mapped onto other gear.
+	ListActivityIDsForRef(ctx context.Context, userID domain.UserID, key domain.GearRefKey) ([]domain.ActivityID, error)
+	// ListActivityIDsForGear returns the live activities attached to the gear.
+	ListActivityIDsForGear(ctx context.Context, id domain.GearID) ([]domain.ActivityID, error)
 
 	// Repoint moves refs, defaults and activity attachments from one gear to
 	// another (same user). Used by the merge-gear use case inside a tx.

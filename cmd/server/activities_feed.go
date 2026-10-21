@@ -134,12 +134,27 @@ func parseActivityFilter(q url.Values) port.ActivityListFilter {
 	}
 }
 
-// feedGearIDs parses repeated ?gear_id= values; malformed ids are dropped.
+// feedGearIDsMax bounds a repeated ?gear_id= filter.
+const feedGearIDsMax = 50
+
+// feedGearIDs parses repeated ?gear_id= values, deduplicated and capped;
+// malformed ids are dropped.
 func feedGearIDs(raw []string) []domain.GearID {
 	var out []domain.GearID
+	seen := map[domain.GearID]struct{}{}
 	for _, s := range raw {
-		if id, err := uuid.Parse(s); err == nil {
-			out = append(out, domain.GearID(id))
+		id, err := uuid.Parse(s)
+		if err != nil {
+			continue
+		}
+		gid := domain.GearID(id)
+		if _, dup := seen[gid]; dup {
+			continue
+		}
+		seen[gid] = struct{}{}
+		out = append(out, gid)
+		if len(out) == feedGearIDsMax {
+			break
 		}
 	}
 	return out

@@ -24,31 +24,10 @@ import (
 
 var errGearNotSupported = errors.New("no connected worker for this provider imports gear")
 
-// workerDeclares reports whether any live worker for provider can read dt,
-// from the presence KV the workers heartbeat into.
-func workerDeclares(ctx context.Context, app *App, provider string, dt capability.DataType) bool {
-	if app.NATSBus == nil {
-		return false
-	}
-	kv, err := app.NATSBus.KV("cairn_worker_presence")
-	if err != nil {
-		return false
-	}
-	keys, _ := kv.Keys(ctx)
-	now := time.Now()
-	for _, k := range keys {
-		entry, err := kv.Get(ctx, k)
-		if err != nil {
-			continue
-		}
-		var hb adminAPIHeartbeat
-		if json.Unmarshal(entry.Value, &hb) != nil || hb.Provider != provider {
-			continue
-		}
-		if ts, perr := time.Parse(time.RFC3339, hb.LastSeen); perr == nil && now.Sub(ts) > presenceStaleAfter {
-			continue
-		}
-		if hb.Capabilities[string(dt)].Read {
+// workerDeclares reports whether any live worker for provider can read dt.
+func workerDeclares(ctx context.Context, app *App, logger *slog.Logger, provider string, dt capability.DataType) bool {
+	for _, w := range currentWorkers(ctx, app, logger) {
+		if w.provider == provider && w.capabilities.CanRead(dt) {
 			return true
 		}
 	}
@@ -67,11 +46,11 @@ type importGearJobBody struct {
 
 // publishImportGear enqueues an import_gear job for the account. Returns
 // errGearNotSupported when no live worker for the provider declares gear.
-func publishImportGear(ctx context.Context, app *App, acct domain.ExternalAccount, reason string) error {
+func publishImportGear(ctx context.Context, app *App, logger *slog.Logger, acct domain.ExternalAccount, reason string) error {
 	if app.NATSBus == nil {
 		return errors.New("worker bus unavailable")
 	}
-	if !workerDeclares(ctx, app, acct.Provider, capability.DataTypeGear) {
+	if !workerDeclares(ctx, app, logger, acct.Provider, capability.DataTypeGear) {
 		return errGearNotSupported
 	}
 	now := time.Now().UTC()
@@ -92,23 +71,11 @@ func publishImportGear(ctx context.Context, app *App, acct domain.ExternalAccoun
 	return app.NATSBus.Publish(ctx, "cairn.jobs.import_gear."+acct.Provider, msgID, body)
 }
 
-// refreshGearTotals rebuilds the user's gear totals after any path that
-// re-merged an activity outside the ingest router (detach, field pins,
-// source-from). Best-effort, logs on failure.
-func refreshGearTotals(ctx context.Context, app *App, logger *slog.Logger, userID domain.UserID) {
-	if app.Gear == nil {
-		return
-	}
-	if err := app.Gear.RecomputeTotals(ctx, userID); err != nil {
-		logger.Warn("gear totals recompute failed", "user_id", userID, "error", err)
-	}
-}
-
 // gearSyncHook is the reconcile-time publisher; a provider whose worker does
 // not import gear is simply skipped.
-func gearSyncHook(app *App) func(ctx context.Context, a domain.ExternalAccount) error {
+func gearSyncHook(app *App, logger *slog.Logger) func(ctx context.Context, a domain.ExternalAccount) error {
 	return func(ctx context.Context, a domain.ExternalAccount) error {
-		err := publishImportGear(ctx, app, a, "scheduled")
+		err := publishImportGear(ctx, app, logger, a, "scheduled")
 		if errors.Is(err, errGearNotSupported) {
 			return nil
 		}
@@ -126,37 +93,17 @@ func syncGearOnConnect(ctx context.Context, app *App, logger *slog.Logger, acctI
 	if err != nil {
 		return
 	}
-	if err := publishImportGear(ctx, app, acct, "connect"); err != nil && !errors.Is(err, errGearNotSupported) {
+	if err := publishImportGear(ctx, app, logger, acct, "connect"); err != nil && !errors.Is(err, errGearNotSupported) {
 		logger.Warn("gear sync on connect failed", "account_id", acctID, "error", err)
-	}
-}
-
-// gearSyncForUser is the GearService.SyncGear backend: ownership check, then
-// publish. queued=false with a nil error means no worker imports gear.
-func gearSyncForUser(app *App) func(ctx context.Context, userID domain.UserID, accountID domain.ExternalAccountID) (bool, error) {
-	return func(ctx context.Context, userID domain.UserID, accountID domain.ExternalAccountID) (bool, error) {
-		if app.NATSBus == nil {
-			return false, errors.New("worker bus unavailable")
-		}
-		acct, err := app.ExternalAccounts.GetExternalAccount(ctx, accountID)
-		if err != nil || acct.UserID != userID {
-			return false, domain.ErrNotFound
-		}
-		err = publishImportGear(ctx, app, acct, "manual")
-		if errors.Is(err, errGearNotSupported) {
-			return false, nil
-		}
-		return err == nil, err
 	}
 }
 
 // mountGearSync serves POST /api/accounts/{id}/sync-gear for the connections
 // page (same shape as the Garmin health import trigger).
-func mountGearSync(mux *http.ServeMux, app *App) {
+func mountGearSync(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	if app.ExternalAccounts == nil {
 		return
 	}
-	sync := gearSyncForUser(app)
 	mux.HandleFunc("POST /api/accounts/{id}/sync-gear", func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := resolveSessionUser(r, app)
 		if !ok {
@@ -168,14 +115,16 @@ func mountGearSync(mux *http.ServeMux, app *App) {
 			http.Error(w, "bad account id", http.StatusBadRequest)
 			return
 		}
-		queued, err := sync(r.Context(), userID, domain.ExternalAccountID(accID))
-		switch {
-		case errors.Is(err, domain.ErrNotFound):
+		acct, err := app.ExternalAccounts.GetExternalAccount(r.Context(), domain.ExternalAccountID(accID))
+		if err != nil || acct.UserID != userID {
 			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		switch err := publishImportGear(r.Context(), app, logger, acct, "manual"); {
+		case errors.Is(err, errGearNotSupported):
+			http.Error(w, err.Error(), http.StatusConflict)
 		case err != nil:
 			http.Error(w, "enqueue failed", http.StatusInternalServerError)
-		case !queued:
-			http.Error(w, errGearNotSupported.Error(), http.StatusConflict)
 		default:
 			writeJSON(w, http.StatusOK, map[string]any{"queued": true})
 		}

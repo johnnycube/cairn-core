@@ -23,16 +23,12 @@ type GearServer struct {
 	cairnv1connect.UnimplementedGearServiceHandler
 
 	Gear *gearuc.Service
-	// Sync publishes an import_gear job for one of the caller's accounts.
-	// queued=false with a nil error means no connected worker for the
-	// provider imports gear. Nil when no job bus is wired.
-	Sync func(ctx context.Context, userID domain.UserID, accountID domain.ExternalAccountID) (queued bool, err error)
 }
 
 var _ cairnv1connect.GearServiceHandler = (*GearServer)(nil)
 
-func NewGearServer(gear *gearuc.Service, sync func(context.Context, domain.UserID, domain.ExternalAccountID) (bool, error)) *GearServer {
-	return &GearServer{Gear: gear, Sync: sync}
+func NewGearServer(gear *gearuc.Service) *GearServer {
+	return &GearServer{Gear: gear}
 }
 
 func (s *GearServer) ListGear(ctx context.Context, req *v1.ListGearRequest) (*v1.ListGearResponse, error) {
@@ -102,18 +98,8 @@ func (s *GearServer) UpdateGear(ctx context.Context, req *v1.UpdateGearRequest) 
 	if len(req.GetFieldMask()) == 0 {
 		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, "field_mask must list at least one field to update")
 	}
-	var purchase *time.Time
-	for _, f := range req.GetFieldMask() {
-		switch f {
-		case "name", "brand", "model", "notes", "kind", "retired":
-		case "purchase_date":
-			if purchase, err = purchaseDateFromString(req.GetPurchaseDate()); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, connectError(connectrpc.CodeInvalidArgument, fmt.Errorf("unknown field %q in field_mask", f))
-		}
-	}
+	// Validate the mask before touching the record; the closure only applies.
+	var maskErr error
 	g, err := s.Gear.Update(ctx, userID, id, func(g *domain.Gear) {
 		for _, f := range req.GetFieldMask() {
 			switch f {
@@ -126,14 +112,22 @@ func (s *GearServer) UpdateGear(ctx context.Context, req *v1.UpdateGearRequest) 
 			case "notes":
 				g.Notes = req.GetNotes()
 			case "purchase_date":
-				g.PurchaseDate = purchase
+				g.PurchaseDate, maskErr = purchaseDateFromString(req.GetPurchaseDate())
 			case "kind":
 				g.Kind = protoconv.GearKindFromProto(req.GetKind())
 			case "retired":
 				g.Retired = req.GetRetired()
+			default:
+				maskErr = connectError(connectrpc.CodeInvalidArgument, fmt.Errorf("unknown field %q in field_mask", f))
+			}
+			if maskErr != nil {
+				return
 			}
 		}
 	})
+	if maskErr != nil {
+		return nil, maskErr
+	}
 	if err != nil {
 		return nil, gearErr(err)
 	}
@@ -280,28 +274,6 @@ func (s *GearServer) ListGearDefaults(ctx context.Context, _ *v1.ListGearDefault
 	return out, nil
 }
 
-func (s *GearServer) SyncGear(ctx context.Context, req *v1.SyncGearRequest) (*v1.SyncGearResponse, error) {
-	userID, err := userIDFromHandlerCtx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if s.Sync == nil {
-		return nil, connectrpc.NewError(connectrpc.CodeUnavailable, "worker bus unavailable")
-	}
-	raw, err := uuid.Parse(req.GetExternalAccountId())
-	if err != nil {
-		return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, "invalid external_account_id")
-	}
-	queued, err := s.Sync(ctx, userID, domain.ExternalAccountID(raw))
-	if err != nil {
-		return nil, gearErr(err)
-	}
-	if !queued {
-		return nil, connectrpc.NewError(connectrpc.CodeFailedPrecondition, "no connected worker for this provider imports gear")
-	}
-	return &v1.SyncGearResponse{Queued: true}, nil
-}
-
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -342,12 +314,14 @@ func gearErr(err error) error {
 	case errors.Is(err, domain.ErrNotFound), errors.Is(err, gearuc.ErrNotOwner):
 		return connectError(connectrpc.CodeNotFound, domain.ErrNotFound)
 	case errors.Is(err, domain.ErrGearMissingName), errors.Is(err, domain.ErrGearInvalidKind),
-		errors.Is(err, domain.ErrGearSelfMerge), errors.Is(err, domain.ErrActivityInvalidType):
+		errors.Is(err, domain.ErrGearFieldTooLong), errors.Is(err, domain.ErrGearSelfMerge),
+		errors.Is(err, domain.ErrActivityInvalidType):
 		return connectError(connectrpc.CodeInvalidArgument, err)
 	case errors.Is(err, domain.ErrGearRefMapped):
 		return connectError(connectrpc.CodeFailedPrecondition, err)
 	}
-	return connectError(connectrpc.CodeInternal, err)
+	// Internal causes (pg messages, ids) stay server-side.
+	return connectrpc.NewError(connectrpc.CodeInternal, "gear operation failed").WithCause(err)
 }
 
 func gearToProto(g domain.Gear) *v1.Gear {

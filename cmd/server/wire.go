@@ -129,7 +129,6 @@ type App struct {
 	Attachments              port.AttachmentRepo
 	SourceDenylist           port.SourceDenylistRepo
 	Health                   port.HealthRepo
-	GearRepo                 port.GearRepo
 	Gear                     *gearuc.Service
 	ComputeBestEfforts       *besteffort.ComputeBestEffortsForSource
 	MatchSegments            *segment.MatchSegmentsForActivity
@@ -211,10 +210,12 @@ func newApp(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, logger 
 	app.SecretBox = secretBox
 
 	wireAppSecondaryRepos(app, pool, secretBox)
-	wireAppIngestUseCases(app, logger)
+	// Notifications before ingest: the gear use cases notify on pending
+	// provider records.
 	if err := wireAppNotifications(app, pool, cfg, secretBox, logger); err != nil {
 		return nil, err
 	}
+	wireAppIngestUseCases(app, pool, logger)
 	wireAppAccountUseCases(app, pool)
 	if err := wireAppNATS(ctx, app, cfg, logger); err != nil {
 		return nil, err
@@ -293,26 +294,33 @@ func wireAppSecondaryRepos(app *App, pool *pgxpool.Pool, secretBox *auth.SecretB
 	app.Attachments = postgres.NewAttachmentRepo(pool)
 	app.SourceDenylist = postgres.NewSourceDenylistRepo(pool)
 	app.Health = postgres.NewHealthRepo(pool)
-	app.GearRepo = postgres.NewGearRepo(pool)
-	app.Gear = gearuc.NewService(app.GearRepo, app.Tx, nil, nil)
 }
 
-// wireAppIngestUseCases builds the ingest, recluster and post-ingest compute use cases.
-func wireAppIngestUseCases(app *App, logger *slog.Logger) {
+// wireAppIngestUseCases builds the ingest, recluster, gear and post-ingest compute use cases.
+func wireAppIngestUseCases(app *App, pool *pgxpool.Pool, logger *slog.Logger) {
+	gearRepo := postgres.NewGearRepo(pool)
 	app.RecomputeActivity = activity.NewRecomputeActivityFromSources(
 		app.Activities,
 		app.UserSettings,
 		app.AthleteProfiles,
 		app.FieldOverrides,
 		app.ClassOverrides,
-		app.GearRepo,
+		gearRepo,
 		app.Tx,
 		nil, // default time.Now
 	)
-	app.Gear.SetRecompute(func(ctx context.Context, id domain.ActivityID) error {
-		_, err := app.RecomputeActivity.Execute(ctx, id)
-		return err
-	})
+	app.Gear = gearuc.NewService(
+		gearRepo,
+		app.ExternalAccounts,
+		app.Tx,
+		func(ctx context.Context, id domain.ActivityID) error {
+			_, err := app.RecomputeActivity.Execute(ctx, id)
+			return err
+		},
+		app.NotifyGearDecision.Execute,
+		nil, // default time.Now
+		nil, // default uuid.NewV7
+	)
 	app.IngestActivity = activity.NewIngestActivityFromWorker(
 		app.Activities,
 		app.Streams,
@@ -425,7 +433,6 @@ func wireAppNotifications(app *App, pool *pgxpool.Pool, cfg *config.Config, secr
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	app.Gear.SetNotifier(app.NotifyGearDecision.Execute)
 	return nil
 }
 
@@ -532,10 +539,10 @@ func wireAppNATS(ctx context.Context, app *App, cfg *config.Config, logger *slog
 			_, exhausted := providerBudget(ctx, bus, provider)
 			return exhausted
 		},
+		gearSyncHook(app, logger),
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
-	app.ReconcileAccount.SetGearSync(gearSyncHook(app))
 	return nil
 }
 

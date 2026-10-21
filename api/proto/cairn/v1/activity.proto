@@ -35,6 +35,13 @@ import "cairn/v1/common.proto";
 // type+discipline to express the full activity nature without enum explosion.
 // ----------------------------------------------------------------------------
 
+// GearSetBy says who decided Activity.gear_id.
+enum GearSetBy {
+  GEAR_SET_BY_UNSPECIFIED = 0;
+  GEAR_SET_BY_MERGE = 1;
+  GEAR_SET_BY_USER = 2;
+}
+
 enum ActivityType {
   ACTIVITY_TYPE_UNSPECIFIED = 0;
   ACTIVITY_TYPE_RIDE = 1;
@@ -165,10 +172,10 @@ message Activity {
   optional double start_lat = 29;
   optional double start_lng = 30;
 
-  // Who decided gear_id: "merge" (derived from the winning source or the
-  // type default; recompute may change it) or "user" (set through
+  // Who decided gear_id: MERGE (derived from the winning source or the
+  // type default; recompute may change it) or USER (set through
   // UpdateActivity; recompute never touches it).
-  string gear_set_by = 31;
+  GearSetBy gear_set_by = 31;
   // Denormalised for list rendering; empty when no gear is attached.
   string gear_name = 32;
 }
@@ -631,8 +638,6 @@ message ListActivitiesRequest {
   // (cheaper); true is useful for the activity-feed UI which shows source
   // badges.
   bool include_sources = 8;
-  // Filter to activities attached to any of these gear ids.
-  repeated string gear_ids = 9;
 }
 
 enum ActivitySort {
@@ -684,10 +689,10 @@ message UpdateActivityRequest {
   optional int64 moving_duration_s = 17;
 
   // Gear. "gear_id" in field_mask attaches the gear (empty string = no
-  // gear) and marks the choice as the user's; "reset_gear" hands it back
-  // to the merge (gear_set_by = merge) and re-derives it.
+  // gear) and marks the choice as the user's. The mask key "reset_gear"
+  // (no field) hands it back to the merge (gear_set_by = MERGE) and
+  // re-derives it.
   optional string gear_id = 18;
-  optional bool reset_gear = 19;
 }
 
 message UpdateActivityResponse {

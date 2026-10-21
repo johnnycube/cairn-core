@@ -145,6 +145,11 @@ func (uc *IngestActivityFromWorker) Execute(ctx context.Context, in IngestInput)
 		}
 		return uc.handleCreateNew(ctx, in, &result)
 	})
+	// A first merge attaches gear outside Recompute (the reimport branch
+	// goes through it), so refresh totals here for that case.
+	if err == nil && result.Action == IngestActionImportedNew && result.Activity.GearID != nil && uc.recompute != nil {
+		uc.recompute.refreshGearTotals(ctx, result.Activity.UserID)
+	}
 	return result, err
 }
 

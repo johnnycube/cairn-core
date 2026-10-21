@@ -33,9 +33,9 @@ func mountConnectRPC(mux *http.ServeMux, app *App, logger *slog.Logger) {
 	server := connectrpc.NewServer(sessionInterceptor, connectadapter.ScopeInterceptor())
 
 	activitySvc := connectadapter.NewActivityServer(app.Activities, app.Streams, app.BestEfforts, app.RecomputeActivity,
-		app.ClassOverrides, newFederationPublisher(app, logger), app.GearRepo)
+		app.ClassOverrides, newFederationPublisher(app, logger), app.Gear)
 	cairnv1connect.RegisterActivityServiceHandler(server, activitySvc)
-	cairnv1connect.RegisterGearServiceHandler(server, connectadapter.NewGearServer(app.Gear, gearSyncForUser(app)))
+	cairnv1connect.RegisterGearServiceHandler(server, connectadapter.NewGearServer(app.Gear))
 	cairnv1connect.RegisterNotificationServiceHandler(server, connectadapter.NewNotificationServer(app.Notifications))
 	cairnv1connect.RegisterAuthServiceHandler(server, connectadapter.NewAuthServer(app.Users, app.OIDCProviders))
 	connecthttp.Mount(mux, server)

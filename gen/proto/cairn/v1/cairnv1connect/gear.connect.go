@@ -60,8 +60,6 @@ const (
 	// GearServiceListGearDefaultsProcedure is the procedure name of the GearService's ListGearDefaults
 	// RPC.
 	GearServiceListGearDefaultsProcedure = "/cairn.v1.GearService/ListGearDefaults"
-	// GearServiceSyncGearProcedure is the procedure name of the GearService's SyncGear RPC.
-	GearServiceSyncGearProcedure = "/cairn.v1.GearService/SyncGear"
 )
 
 var (
@@ -149,13 +147,6 @@ var (
 			Procedure:  GearServiceListGearDefaultsProcedure,
 		}
 	})
-	gearServiceSyncGearSpec = sync.OnceValue(func() connect.Spec {
-		return connect.Spec{
-			StreamType: connect.StreamTypeUnary,
-			Schema:     v1.File_cairn_v1_gear_proto.Services().ByName("GearService").Methods().ByName("SyncGear"),
-			Procedure:  GearServiceSyncGearProcedure,
-		}
-	})
 )
 
 // GearServiceClient is a client for the cairn.v1.GearService service.
@@ -172,7 +163,6 @@ type GearServiceClient interface {
 	SetGearDefault(context.Context, *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error)
 	ClearGearDefault(context.Context, *v1.ClearGearDefaultRequest) (*v1.ClearGearDefaultResponse, error)
 	ListGearDefaults(context.Context, *v1.ListGearDefaultsRequest) (*v1.ListGearDefaultsResponse, error)
-	SyncGear(context.Context, *v1.SyncGearRequest) (*v1.SyncGearResponse, error)
 }
 
 // NewGearServiceClient constructs a client for the cairn.v1.GearService service. Multiple service
@@ -195,7 +185,6 @@ type GearServiceHandler interface {
 	SetGearDefault(context.Context, *v1.SetGearDefaultRequest) (*v1.SetGearDefaultResponse, error)
 	ClearGearDefault(context.Context, *v1.ClearGearDefaultRequest) (*v1.ClearGearDefaultResponse, error)
 	ListGearDefaults(context.Context, *v1.ListGearDefaultsRequest) (*v1.ListGearDefaultsResponse, error)
-	SyncGear(context.Context, *v1.SyncGearRequest) (*v1.SyncGearResponse, error)
 }
 
 // RegisterGearServiceHandler registers svc as the cairn.v1.GearService implementation on server.
@@ -214,7 +203,6 @@ func RegisterGearServiceHandler(server *connect.Server, svc GearServiceHandler) 
 		connect.Method{Spec: gearServiceSetGearDefaultSpec(), Handler: adapter.setGearDefault},
 		connect.Method{Spec: gearServiceClearGearDefaultSpec(), Handler: adapter.clearGearDefault},
 		connect.Method{Spec: gearServiceListGearDefaultsSpec(), Handler: adapter.listGearDefaults},
-		connect.Method{Spec: gearServiceSyncGearSpec(), Handler: adapter.syncGear},
 	)
 }
 
@@ -267,10 +255,6 @@ func (UnimplementedGearServiceHandler) ClearGearDefault(context.Context, *v1.Cle
 
 func (UnimplementedGearServiceHandler) ListGearDefaults(context.Context, *v1.ListGearDefaultsRequest) (*v1.ListGearDefaultsResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.GearService.ListGearDefaults is not implemented")
-}
-
-func (UnimplementedGearServiceHandler) SyncGear(context.Context, *v1.SyncGearRequest) (*v1.SyncGearResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, "cairn.v1.GearService.SyncGear is not implemented")
 }
 
 type gearServiceClient struct {
@@ -368,14 +352,6 @@ func (c *gearServiceClient) ClearGearDefault(ctx context.Context, req *v1.ClearG
 func (c *gearServiceClient) ListGearDefaults(ctx context.Context, req *v1.ListGearDefaultsRequest) (*v1.ListGearDefaultsResponse, error) {
 	var res v1.ListGearDefaultsResponse
 	if err := c.client.CallUnary(ctx, gearServiceListGearDefaultsSpec(), req, &res); err != nil {
-		return nil, err
-	}
-	return &res, nil
-}
-
-func (c *gearServiceClient) SyncGear(ctx context.Context, req *v1.SyncGearRequest) (*v1.SyncGearResponse, error) {
-	var res v1.SyncGearResponse
-	if err := c.client.CallUnary(ctx, gearServiceSyncGearSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -521,18 +497,6 @@ func (h gearServiceHandler) listGearDefaults(ctx context.Context, _ connect.Spec
 		return err
 	}
 	res, err := h.svc.ListGearDefaults(ctx, &req)
-	if err != nil {
-		return err
-	}
-	return stream.Send(res)
-}
-
-func (h gearServiceHandler) syncGear(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
-	var req v1.SyncGearRequest
-	if err := stream.Receive(&req); err != nil {
-		return err
-	}
-	res, err := h.svc.SyncGear(ctx, &req)
 	if err != nil {
 		return err
 	}

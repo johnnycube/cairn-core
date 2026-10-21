@@ -13,6 +13,7 @@ import (
 
 	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
+	"github.com/opencairn-org/cairn-core/internal/adapter/secondary/inmem"
 	"github.com/opencairn-org/cairn-core/internal/domain"
 	"github.com/opencairn-org/cairn-core/internal/port"
 	gearuc "github.com/opencairn-org/cairn-core/internal/usecase/gear"
@@ -187,45 +188,26 @@ func TestRouteJobResult_IgnoresUnknownFields(t *testing.T) {
 	}
 }
 
-// memGearRepo is the minimal port.GearRepo the gear ingest path touches.
-type memGearRepo struct {
-	port.GearRepo
-	gear map[domain.GearID]domain.Gear
-	refs map[domain.GearRefKey]domain.GearExternalRef
-}
-
-func (m *memGearRepo) Get(_ context.Context, id domain.GearID) (domain.Gear, error) {
-	g, ok := m.gear[id]
-	if !ok {
-		return domain.Gear{}, domain.ErrNotFound
-	}
-	return g, nil
-}
-func (m *memGearRepo) Save(_ context.Context, g domain.Gear) error { m.gear[g.ID] = g; return nil }
-func (m *memGearRepo) UpsertExternalRef(_ context.Context, r domain.GearExternalRef) error {
-	m.refs[r.Key()] = r
-	return nil
-}
-func (m *memGearRepo) GetExternalRef(_ context.Context, k domain.GearRefKey) (domain.GearExternalRef, error) {
-	r, ok := m.refs[k]
-	if !ok {
-		return domain.GearExternalRef{}, domain.ErrNotFound
-	}
-	return r, nil
-}
-func (m *memGearRepo) GetDefault(context.Context, domain.UserID, domain.ActivityType) (domain.GearID, error) {
-	return domain.GearID{}, domain.ErrNotFound
-}
-func (m *memGearRepo) SetDefault(context.Context, domain.GearDefault) error { return nil }
-
 type passTx struct{}
 
 func (passTx) InTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
 
+type fakeAccountLookup map[domain.ExternalAccountID]domain.ExternalAccount
+
+func (f fakeAccountLookup) GetExternalAccount(_ context.Context, id domain.ExternalAccountID) (domain.ExternalAccount, error) {
+	a, ok := f[id]
+	if !ok {
+		return domain.ExternalAccount{}, domain.ErrNotFound
+	}
+	return a, nil
+}
+
 func TestProcessWorkerEvent_GearUpsertsByRef(t *testing.T) {
-	repo := &memGearRepo{gear: map[domain.GearID]domain.Gear{}, refs: map[domain.GearRefKey]domain.GearExternalRef{}}
-	app := &App{Gear: gearuc.NewService(repo, passTx{}, nil, nil)}
-	user, acct := uuid.NewString(), uuid.NewString()
+	repo := inmem.NewGearRepo()
+	userID, acctID := domain.UserID(uuid.New()), domain.ExternalAccountID(uuid.New())
+	accounts := fakeAccountLookup{acctID: {ID: acctID, UserID: userID, Provider: "strava"}}
+	app := &App{Gear: gearuc.NewService(repo, accounts, passTx{}, nil, nil, nil, nil)}
+	user, acct := userID.String(), acctID.String()
 	ev := &workerv1.WorkerEvent{
 		Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
 		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{
@@ -239,13 +221,25 @@ func TestProcessWorkerEvent_GearUpsertsByRef(t *testing.T) {
 		}
 	}
 	// Unknown provider gear is recorded as a pending ref, never as gear.
-	if len(repo.gear) != 0 || len(repo.refs) != 1 {
-		t.Fatalf("gear=%d refs=%d", len(repo.gear), len(repo.refs))
+	pending, _ := repo.ListPendingRefs(context.Background(), userID)
+	if repo.Count() != 0 || len(pending) != 1 {
+		t.Fatalf("gear=%d pending=%d", repo.Count(), len(pending))
 	}
-	for _, r := range repo.refs {
-		if !r.Pending() || r.ProviderName != "Canyon" || r.Kind != domain.GearKindBike || r.UserID.String() != user {
-			t.Fatalf("ref = %+v", r)
-		}
+	if r := pending[0]; r.ProviderName != "Canyon" || r.Kind != domain.GearKindBike || r.UserID != userID {
+		t.Fatalf("ref = %+v", r)
+	}
+
+	// A ref whose user_id does not own the account is rejected, not stored.
+	foreign := &workerv1.WorkerEvent{Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
+		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{
+			Ref:     &workerv1.ExternalRef{UserId: uuid.NewString(), Provider: "strava", ExternalAccountId: acct, ExternalId: "b99"},
+			Payload: &workerv1.GearImport{Name: "not yours"},
+		}}}
+	if err := processWorkerEvent(context.Background(), app, testLogger(), &workerv1.JobResult{}, &ingestBundle{}, foreign); err != nil {
+		t.Fatalf("foreign gear event must be non-fatal: %v", err)
+	}
+	if pending, _ := repo.ListPendingRefs(context.Background(), userID); len(pending) != 1 {
+		t.Fatalf("foreign ref stored: %d", len(pending))
 	}
 
 	// Bad ref: logged, never NAKs the message.

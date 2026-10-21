@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/opencairn-org/cairn-core/internal/domain"
@@ -67,6 +68,8 @@ func NewRecomputeActivityFromSources(
 type RecomputeResult struct {
 	// Activity is the merged result. Zero-valued when SoftDeleted is true.
 	Activity domain.Activity
+	// UserID is the owner, set even when SoftDeleted is true.
+	UserID domain.UserID
 
 	// SourceIDs lists every non-detached source contributing to Activity.
 	SourceIDs []domain.SourceID
@@ -78,6 +81,10 @@ type RecomputeResult struct {
 	// SoftDeleted is true when the activity had no remaining sources
 	// and was soft-deleted instead of re-merged.
 	SoftDeleted bool
+
+	// GearChanged is true when the activity's gear attachment differs from
+	// before (incl. a soft-delete of an activity that had gear).
+	GearChanged bool
 }
 
 // Execute runs the use case. The activityID must already exist as a row
@@ -102,8 +109,22 @@ func (uc *RecomputeActivityFromSources) Execute(
 	err := uc.tx.InTx(ctx, func(ctx context.Context) error {
 		return uc.recomputeInTx(ctx, id, &result)
 	})
-
+	if err == nil && result.GearChanged {
+		uc.refreshGearTotals(ctx, result.UserID)
+	}
 	return result, err
+}
+
+// refreshGearTotals rebuilds the user's gear totals after an attachment
+// changed. Best-effort and outside the merge transaction: totals are derived
+// data, a failure here must not undo a durable merge.
+func (uc *RecomputeActivityFromSources) refreshGearTotals(ctx context.Context, userID domain.UserID) {
+	if uc.gear == nil || userID == (domain.UserID{}) {
+		return
+	}
+	if err := uc.gear.RecomputeTotalsForUser(ctx, userID); err != nil {
+		slog.Warn("gear totals recompute failed", "user_id", userID, "error", err)
+	}
 }
 
 func (uc *RecomputeActivityFromSources) recomputeInTx(ctx context.Context, id domain.ActivityID, result *RecomputeResult) error {
@@ -130,6 +151,8 @@ func (uc *RecomputeActivityFromSources) recomputeInTx(ctx context.Context, id do
 			return fmt.Errorf("soft delete: %w", err)
 		}
 		result.SoftDeleted = true
+		result.UserID = prev.UserID
+		result.GearChanged = prev.GearID != nil
 		return nil
 	}
 
@@ -167,9 +190,18 @@ func (uc *RecomputeActivityFromSources) recomputeInTx(ctx context.Context, id do
 	}
 
 	result.Activity = merged
+	result.UserID = merged.UserID
 	result.SourceIDs = collectSourceIDs(sources)
 	result.Created = !prevExists
+	result.GearChanged = !sameGear(prev.GearID, merged.GearID)
 	return nil
+}
+
+func sameGear(a, b *domain.GearID) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 // applyOverlays runs the post-merge steps in order: the user's classification

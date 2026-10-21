@@ -86,6 +86,12 @@ type Gear struct {
 	UpdatedAt time.Time
 }
 
+// Free-text caps: the columns are unbounded text, these keep API input sane.
+const (
+	GearNameMaxLen  = 200
+	GearNotesMaxLen = 10000
+)
+
 // Validate enforces the gear invariants before persisting.
 func (g *Gear) Validate() error {
 	if g.ID == (GearID{}) {
@@ -99,6 +105,10 @@ func (g *Gear) Validate() error {
 	}
 	if strings.TrimSpace(g.Name) == "" {
 		return ErrGearMissingName
+	}
+	if len(g.Name) > GearNameMaxLen || len(g.Brand) > GearNameMaxLen || len(g.Model) > GearNameMaxLen ||
+		len(g.Notes) > GearNotesMaxLen {
+		return ErrGearFieldTooLong
 	}
 	return nil
 }

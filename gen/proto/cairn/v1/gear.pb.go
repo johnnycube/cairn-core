@@ -94,7 +94,9 @@ type Gear struct {
 	Brand string                 `protobuf:"bytes,4,opt,name=brand,proto3" json:"brand,omitempty"`
 	Model string                 `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`
 	Notes string                 `protobuf:"bytes,6,opt,name=notes,proto3" json:"notes,omitempty"`
-	// ISO date (YYYY-MM-DD); empty when unknown.
+	// ISO date (YYYY-MM-DD); empty when unknown. A string on purpose: a
+	// purchase has a day, not an instant, and google.type.Date would be the
+	// API's only external proto dependency.
 	PurchaseDate string                 `protobuf:"bytes,7,opt,name=purchase_date,json=purchaseDate,proto3" json:"purchase_date,omitempty"`
 	Retired      bool                   `protobuf:"varint,8,opt,name=retired,proto3" json:"retired,omitempty"`
 	RetiredAt    *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=retired_at,json=retiredAt,proto3,oneof" json:"retired_at,omitempty"`
@@ -1644,95 +1646,6 @@ func (x *CreateGearFromRefResponse) GetGear() *Gear {
 	return nil
 }
 
-// SyncGear asks the provider worker for the account's full gear list.
-type SyncGearRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	ExternalAccountId string                 `protobuf:"bytes,1,opt,name=external_account_id,json=externalAccountId,proto3" json:"external_account_id,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
-}
-
-func (x *SyncGearRequest) Reset() {
-	*x = SyncGearRequest{}
-	mi := &file_cairn_v1_gear_proto_msgTypes[27]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SyncGearRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SyncGearRequest) ProtoMessage() {}
-
-func (x *SyncGearRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_v1_gear_proto_msgTypes[27]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SyncGearRequest.ProtoReflect.Descriptor instead.
-func (*SyncGearRequest) Descriptor() ([]byte, []int) {
-	return file_cairn_v1_gear_proto_rawDescGZIP(), []int{27}
-}
-
-func (x *SyncGearRequest) GetExternalAccountId() string {
-	if x != nil {
-		return x.ExternalAccountId
-	}
-	return ""
-}
-
-type SyncGearResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Queued        bool                   `protobuf:"varint,1,opt,name=queued,proto3" json:"queued,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SyncGearResponse) Reset() {
-	*x = SyncGearResponse{}
-	mi := &file_cairn_v1_gear_proto_msgTypes[28]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SyncGearResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SyncGearResponse) ProtoMessage() {}
-
-func (x *SyncGearResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cairn_v1_gear_proto_msgTypes[28]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SyncGearResponse.ProtoReflect.Descriptor instead.
-func (*SyncGearResponse) Descriptor() ([]byte, []int) {
-	return file_cairn_v1_gear_proto_rawDescGZIP(), []int{28}
-}
-
-func (x *SyncGearResponse) GetQueued() bool {
-	if x != nil {
-		return x.Queued
-	}
-	return false
-}
-
 var File_cairn_v1_gear_proto protoreflect.FileDescriptor
 
 const file_cairn_v1_gear_proto_rawDesc = "" +
@@ -1855,16 +1768,12 @@ const file_cairn_v1_gear_proto_rawDesc = "" +
 	"\vexternal_id\x18\x03 \x01(\tR\n" +
 	"externalId\"?\n" +
 	"\x19CreateGearFromRefResponse\x12\"\n" +
-	"\x04gear\x18\x01 \x01(\v2\x0e.cairn.v1.GearR\x04gear\"A\n" +
-	"\x0fSyncGearRequest\x12.\n" +
-	"\x13external_account_id\x18\x01 \x01(\tR\x11externalAccountId\"*\n" +
-	"\x10SyncGearResponse\x12\x16\n" +
-	"\x06queued\x18\x01 \x01(\bR\x06queued*b\n" +
+	"\x04gear\x18\x01 \x01(\v2\x0e.cairn.v1.GearR\x04gear*b\n" +
 	"\bGearKind\x12\x19\n" +
 	"\x15GEAR_KIND_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eGEAR_KIND_BIKE\x10\x01\x12\x12\n" +
 	"\x0eGEAR_KIND_SHOE\x10\x02\x12\x13\n" +
-	"\x0fGEAR_KIND_OTHER\x10\x032\x8d\b\n" +
+	"\x0fGEAR_KIND_OTHER\x10\x032\xca\a\n" +
 	"\vGearService\x12A\n" +
 	"\bListGear\x12\x19.cairn.v1.ListGearRequest\x1a\x1a.cairn.v1.ListGearResponse\x12>\n" +
 	"\aGetGear\x12\x18.cairn.v1.GetGearRequest\x1a\x19.cairn.v1.GetGearResponse\x12G\n" +
@@ -1880,8 +1789,7 @@ const file_cairn_v1_gear_proto_rawDesc = "" +
 	"\x11CreateGearFromRef\x12\".cairn.v1.CreateGearFromRefRequest\x1a#.cairn.v1.CreateGearFromRefResponse\x12S\n" +
 	"\x0eSetGearDefault\x12\x1f.cairn.v1.SetGearDefaultRequest\x1a .cairn.v1.SetGearDefaultResponse\x12Y\n" +
 	"\x10ClearGearDefault\x12!.cairn.v1.ClearGearDefaultRequest\x1a\".cairn.v1.ClearGearDefaultResponse\x12Y\n" +
-	"\x10ListGearDefaults\x12!.cairn.v1.ListGearDefaultsRequest\x1a\".cairn.v1.ListGearDefaultsResponse\x12A\n" +
-	"\bSyncGear\x12\x19.cairn.v1.SyncGearRequest\x1a\x1a.cairn.v1.SyncGearResponseB\x9a\x01\n" +
+	"\x10ListGearDefaults\x12!.cairn.v1.ListGearDefaultsRequest\x1a\".cairn.v1.ListGearDefaultsResponseB\x9a\x01\n" +
 	"\fcom.cairn.v1B\tGearProtoP\x01Z>github.com/opencairn-org/cairn-core/gen/proto/cairn/v1;cairnv1\xa2\x02\x03CXX\xaa\x02\bCairn.V1\xca\x02\bCairn\\V1\xe2\x02\x14Cairn\\V1\\GPBMetadata\xea\x02\tCairn::V1b\x06proto3"
 
 var (
@@ -1897,7 +1805,7 @@ func file_cairn_v1_gear_proto_rawDescGZIP() []byte {
 }
 
 var file_cairn_v1_gear_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_cairn_v1_gear_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_cairn_v1_gear_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_cairn_v1_gear_proto_goTypes = []any{
 	(GearKind)(0),                       // 0: cairn.v1.GearKind
 	(*Gear)(nil),                        // 1: cairn.v1.Gear
@@ -1927,21 +1835,19 @@ var file_cairn_v1_gear_proto_goTypes = []any{
 	(*ListPendingGearRefsResponse)(nil), // 25: cairn.v1.ListPendingGearRefsResponse
 	(*CreateGearFromRefRequest)(nil),    // 26: cairn.v1.CreateGearFromRefRequest
 	(*CreateGearFromRefResponse)(nil),   // 27: cairn.v1.CreateGearFromRefResponse
-	(*SyncGearRequest)(nil),             // 28: cairn.v1.SyncGearRequest
-	(*SyncGearResponse)(nil),            // 29: cairn.v1.SyncGearResponse
-	(*timestamppb.Timestamp)(nil),       // 30: google.protobuf.Timestamp
-	(ActivityType)(0),                   // 31: cairn.v1.ActivityType
+	(*timestamppb.Timestamp)(nil),       // 28: google.protobuf.Timestamp
+	(ActivityType)(0),                   // 29: cairn.v1.ActivityType
 }
 var file_cairn_v1_gear_proto_depIdxs = []int32{
 	0,  // 0: cairn.v1.Gear.kind:type_name -> cairn.v1.GearKind
-	30, // 1: cairn.v1.Gear.retired_at:type_name -> google.protobuf.Timestamp
+	28, // 1: cairn.v1.Gear.retired_at:type_name -> google.protobuf.Timestamp
 	2,  // 2: cairn.v1.Gear.external_refs:type_name -> cairn.v1.GearExternalRef
-	30, // 3: cairn.v1.Gear.created_at:type_name -> google.protobuf.Timestamp
-	30, // 4: cairn.v1.Gear.updated_at:type_name -> google.protobuf.Timestamp
-	30, // 5: cairn.v1.GearExternalRef.last_seen_at:type_name -> google.protobuf.Timestamp
+	28, // 3: cairn.v1.Gear.created_at:type_name -> google.protobuf.Timestamp
+	28, // 4: cairn.v1.Gear.updated_at:type_name -> google.protobuf.Timestamp
+	28, // 5: cairn.v1.GearExternalRef.last_seen_at:type_name -> google.protobuf.Timestamp
 	0,  // 6: cairn.v1.GearExternalRef.kind:type_name -> cairn.v1.GearKind
-	31, // 7: cairn.v1.GearExternalRef.default_for:type_name -> cairn.v1.ActivityType
-	31, // 8: cairn.v1.GearDefault.activity_type:type_name -> cairn.v1.ActivityType
+	29, // 7: cairn.v1.GearExternalRef.default_for:type_name -> cairn.v1.ActivityType
+	29, // 8: cairn.v1.GearDefault.activity_type:type_name -> cairn.v1.ActivityType
 	1,  // 9: cairn.v1.ListGearResponse.gear:type_name -> cairn.v1.Gear
 	1,  // 10: cairn.v1.GetGearResponse.gear:type_name -> cairn.v1.Gear
 	0,  // 11: cairn.v1.CreateGearRequest.kind:type_name -> cairn.v1.GearKind
@@ -1949,8 +1855,8 @@ var file_cairn_v1_gear_proto_depIdxs = []int32{
 	0,  // 13: cairn.v1.UpdateGearRequest.kind:type_name -> cairn.v1.GearKind
 	1,  // 14: cairn.v1.UpdateGearResponse.gear:type_name -> cairn.v1.Gear
 	1,  // 15: cairn.v1.MergeGearResponse.gear:type_name -> cairn.v1.Gear
-	31, // 16: cairn.v1.SetGearDefaultRequest.activity_type:type_name -> cairn.v1.ActivityType
-	31, // 17: cairn.v1.ClearGearDefaultRequest.activity_type:type_name -> cairn.v1.ActivityType
+	29, // 16: cairn.v1.SetGearDefaultRequest.activity_type:type_name -> cairn.v1.ActivityType
+	29, // 17: cairn.v1.ClearGearDefaultRequest.activity_type:type_name -> cairn.v1.ActivityType
 	3,  // 18: cairn.v1.ListGearDefaultsResponse.defaults:type_name -> cairn.v1.GearDefault
 	1,  // 19: cairn.v1.LinkGearRefResponse.gear:type_name -> cairn.v1.Gear
 	2,  // 20: cairn.v1.ListPendingGearRefsResponse.refs:type_name -> cairn.v1.GearExternalRef
@@ -1967,22 +1873,20 @@ var file_cairn_v1_gear_proto_depIdxs = []int32{
 	16, // 31: cairn.v1.GearService.SetGearDefault:input_type -> cairn.v1.SetGearDefaultRequest
 	18, // 32: cairn.v1.GearService.ClearGearDefault:input_type -> cairn.v1.ClearGearDefaultRequest
 	20, // 33: cairn.v1.GearService.ListGearDefaults:input_type -> cairn.v1.ListGearDefaultsRequest
-	28, // 34: cairn.v1.GearService.SyncGear:input_type -> cairn.v1.SyncGearRequest
-	5,  // 35: cairn.v1.GearService.ListGear:output_type -> cairn.v1.ListGearResponse
-	7,  // 36: cairn.v1.GearService.GetGear:output_type -> cairn.v1.GetGearResponse
-	9,  // 37: cairn.v1.GearService.CreateGear:output_type -> cairn.v1.CreateGearResponse
-	11, // 38: cairn.v1.GearService.UpdateGear:output_type -> cairn.v1.UpdateGearResponse
-	13, // 39: cairn.v1.GearService.DeleteGear:output_type -> cairn.v1.DeleteGearResponse
-	15, // 40: cairn.v1.GearService.MergeGear:output_type -> cairn.v1.MergeGearResponse
-	23, // 41: cairn.v1.GearService.LinkGearRef:output_type -> cairn.v1.LinkGearRefResponse
-	25, // 42: cairn.v1.GearService.ListPendingGearRefs:output_type -> cairn.v1.ListPendingGearRefsResponse
-	27, // 43: cairn.v1.GearService.CreateGearFromRef:output_type -> cairn.v1.CreateGearFromRefResponse
-	17, // 44: cairn.v1.GearService.SetGearDefault:output_type -> cairn.v1.SetGearDefaultResponse
-	19, // 45: cairn.v1.GearService.ClearGearDefault:output_type -> cairn.v1.ClearGearDefaultResponse
-	21, // 46: cairn.v1.GearService.ListGearDefaults:output_type -> cairn.v1.ListGearDefaultsResponse
-	29, // 47: cairn.v1.GearService.SyncGear:output_type -> cairn.v1.SyncGearResponse
-	35, // [35:48] is the sub-list for method output_type
-	22, // [22:35] is the sub-list for method input_type
+	5,  // 34: cairn.v1.GearService.ListGear:output_type -> cairn.v1.ListGearResponse
+	7,  // 35: cairn.v1.GearService.GetGear:output_type -> cairn.v1.GetGearResponse
+	9,  // 36: cairn.v1.GearService.CreateGear:output_type -> cairn.v1.CreateGearResponse
+	11, // 37: cairn.v1.GearService.UpdateGear:output_type -> cairn.v1.UpdateGearResponse
+	13, // 38: cairn.v1.GearService.DeleteGear:output_type -> cairn.v1.DeleteGearResponse
+	15, // 39: cairn.v1.GearService.MergeGear:output_type -> cairn.v1.MergeGearResponse
+	23, // 40: cairn.v1.GearService.LinkGearRef:output_type -> cairn.v1.LinkGearRefResponse
+	25, // 41: cairn.v1.GearService.ListPendingGearRefs:output_type -> cairn.v1.ListPendingGearRefsResponse
+	27, // 42: cairn.v1.GearService.CreateGearFromRef:output_type -> cairn.v1.CreateGearFromRefResponse
+	17, // 43: cairn.v1.GearService.SetGearDefault:output_type -> cairn.v1.SetGearDefaultResponse
+	19, // 44: cairn.v1.GearService.ClearGearDefault:output_type -> cairn.v1.ClearGearDefaultResponse
+	21, // 45: cairn.v1.GearService.ListGearDefaults:output_type -> cairn.v1.ListGearDefaultsResponse
+	34, // [34:46] is the sub-list for method output_type
+	22, // [22:34] is the sub-list for method input_type
 	22, // [22:22] is the sub-list for extension type_name
 	22, // [22:22] is the sub-list for extension extendee
 	0,  // [0:22] is the sub-list for field type_name
@@ -2003,7 +1907,7 @@ func file_cairn_v1_gear_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cairn_v1_gear_proto_rawDesc), len(file_cairn_v1_gear_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   29,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
