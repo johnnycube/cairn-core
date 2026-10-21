@@ -1,6 +1,16 @@
+// Gear: the bikes and shoes a user rides and runs in.
+//
+// Gear is owner-only. It is attached to activities either by the merge
+// pipeline (from the winning source's provider gear id, or the user's
+// per-type default for manual/uploaded activities) or explicitly by the
+// user; Activity.gear_set_by says which. Totals are derived from live
+// activities and never written by clients. See docs/gear-v0.4.0.md.
 syntax = "proto3";
 
 package cairn.v1;
+
+import "cairn/v1/activity.proto";
+import "google/protobuf/timestamp.proto";
 
 // GearKind classifies gear coarsely so pickers can filter by activity
 // type. Bike-like activities map to BIKE, foot activities to SHOE,
@@ -11,4 +21,145 @@ enum GearKind {
   GEAR_KIND_BIKE = 1;
   GEAR_KIND_SHOE = 2;
   GEAR_KIND_OTHER = 3;
+}
+
+message Gear {
+  string id = 1;
+  GearKind kind = 2;
+  string name = 3;
+  string brand = 4;
+  string model = 5;
+  string notes = 6;
+  // ISO date (YYYY-MM-DD); empty when unknown.
+  string purchase_date = 7;
+  bool retired = 8;
+  optional google.protobuf.Timestamp retired_at = 9;
+
+  // Derived from live activities (post-override distance / moving time).
+  double total_distance_m = 10;
+  int64 total_moving_s = 11;
+  int64 activity_count = 12;
+
+  repeated GearExternalRef external_refs = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+}
+
+// GearExternalRef links a gear record to the provider's record of it. One
+// physical bike known to two providers has two refs on one Gear.
+message GearExternalRef {
+  string provider = 1;
+  string external_account_id = 2;
+  string external_id = 3;
+  // Display name as the provider has it.
+  string provider_name = 4;
+  // Provider-reported odometer, audit only.
+  optional double provider_distance_m = 5;
+  // The provider's default for this kind.
+  bool primary = 6;
+  google.protobuf.Timestamp last_seen_at = 7;
+}
+
+// GearDefault is the user's default gear for an activity type, applied once
+// to manual and uploaded activities at creation.
+message GearDefault {
+  ActivityType activity_type = 1;
+  string gear_id = 2;
+}
+
+message ListGearRequest {
+  bool include_retired = 1;
+}
+message ListGearResponse {
+  repeated Gear gear = 1;
+}
+
+message GetGearRequest {
+  string id = 1;
+}
+message GetGearResponse {
+  Gear gear = 1;
+}
+
+message CreateGearRequest {
+  GearKind kind = 1;
+  string name = 2;
+  string brand = 3;
+  string model = 4;
+  string notes = 5;
+  string purchase_date = 6;
+}
+message CreateGearResponse {
+  Gear gear = 1;
+}
+
+message UpdateGearRequest {
+  string id = 1;
+  // Proto-style field names: name, brand, model, notes, purchase_date,
+  // kind, retired.
+  repeated string field_mask = 2;
+  optional string name = 3;
+  optional string brand = 4;
+  optional string model = 5;
+  optional string notes = 6;
+  optional string purchase_date = 7;
+  optional GearKind kind = 8;
+  optional bool retired = 9;
+}
+message UpdateGearResponse {
+  Gear gear = 1;
+}
+
+// Deleting gear detaches it from its activities (they keep no gear) and
+// drops its provider refs and defaults.
+message DeleteGearRequest {
+  string id = 1;
+}
+message DeleteGearResponse {}
+
+// MergeGear folds `from` into `to`: provider refs, defaults and activity
+// attachments move to `to`, `from` is deleted. Not reversible.
+message MergeGearRequest {
+  string from_id = 1;
+  string to_id = 2;
+}
+message MergeGearResponse {
+  Gear gear = 1;
+}
+
+message SetGearDefaultRequest {
+  ActivityType activity_type = 1;
+  string gear_id = 2;
+}
+message SetGearDefaultResponse {}
+
+message ClearGearDefaultRequest {
+  ActivityType activity_type = 1;
+}
+message ClearGearDefaultResponse {}
+
+message ListGearDefaultsRequest {}
+message ListGearDefaultsResponse {
+  repeated GearDefault defaults = 1;
+}
+
+// SyncGear asks the provider worker for the account's full gear list.
+message SyncGearRequest {
+  string external_account_id = 1;
+}
+message SyncGearResponse {
+  bool queued = 1;
+}
+
+service GearService {
+  rpc ListGear(ListGearRequest) returns (ListGearResponse);
+  rpc GetGear(GetGearRequest) returns (GetGearResponse);
+  rpc CreateGear(CreateGearRequest) returns (CreateGearResponse);
+  rpc UpdateGear(UpdateGearRequest) returns (UpdateGearResponse);
+  rpc DeleteGear(DeleteGearRequest) returns (DeleteGearResponse);
+  rpc MergeGear(MergeGearRequest) returns (MergeGearResponse);
+  rpc SetGearDefault(SetGearDefaultRequest) returns (SetGearDefaultResponse);
+  rpc ClearGearDefault(ClearGearDefaultRequest) returns (ClearGearDefaultResponse);
+  rpc ListGearDefaults(ListGearDefaultsRequest) returns (ListGearDefaultsResponse);
+  rpc SyncGear(SyncGearRequest) returns (SyncGearResponse);
 }

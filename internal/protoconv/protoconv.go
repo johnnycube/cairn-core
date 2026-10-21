@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
+	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
 	"github.com/opencairn-org/cairn-core/internal/domain"
 )
 
@@ -91,6 +92,8 @@ func ActivitySourcePayloadFromProto(p *cairnv1.ActivitySourcePayload) domain.Act
 		MovingDuration:  p.GetMovingDuration().AsDuration(),
 		Timezone:        p.GetTimezone(),
 		Summary:         activitySummaryFromProto(p.GetSummary()),
+		GearExternalID:  p.GetGearExternalId(),
+		GearName:        p.GetGearName(),
 	}
 	if ts := p.GetStartTime(); ts != nil {
 		out.StartTime = ts.AsTime()
@@ -100,6 +103,57 @@ func ActivitySourcePayloadFromProto(p *cairnv1.ActivitySourcePayload) domain.Act
 	}
 	out.Laps = activityLapsFromProto(p.GetLaps(), out.StartTime)
 	return out
+}
+
+// GearImportFromProto maps a worker's gear description to the domain.
+func GearImportFromProto(g *workerv1.GearImport) domain.GearImport {
+	if g == nil {
+		return domain.GearImport{}
+	}
+	out := domain.GearImport{
+		Kind:        GearKindFromProto(g.GetKind()),
+		Name:        g.GetName(),
+		Brand:       g.GetBrand(),
+		Model:       g.GetModel(),
+		Description: g.GetDescription(),
+		Retired:     g.GetRetired(),
+		Primary:     g.GetPrimary(),
+	}
+	if g.DistanceM != nil {
+		d := g.GetDistanceM()
+		out.DistanceM = &d
+	}
+	for _, t := range g.GetDefaultFor() {
+		if at := ActivityTypeFromProto(t); at.Valid() {
+			out.DefaultFor = append(out.DefaultFor, at)
+		}
+	}
+	return out
+}
+
+// GearKindFromProto maps the wire enum; UNSPECIFIED and unknown values map to
+// OTHER so a provider's novel kind still imports.
+func GearKindFromProto(k cairnv1.GearKind) domain.GearKind {
+	switch k {
+	case cairnv1.GearKind_GEAR_KIND_BIKE:
+		return domain.GearKindBike
+	case cairnv1.GearKind_GEAR_KIND_SHOE:
+		return domain.GearKindShoe
+	}
+	return domain.GearKindOther
+}
+
+// GearKindToProto maps the domain kind to the wire enum.
+func GearKindToProto(k domain.GearKind) cairnv1.GearKind {
+	switch k {
+	case domain.GearKindBike:
+		return cairnv1.GearKind_GEAR_KIND_BIKE
+	case domain.GearKindShoe:
+		return cairnv1.GearKind_GEAR_KIND_SHOE
+	case domain.GearKindOther:
+		return cairnv1.GearKind_GEAR_KIND_OTHER
+	}
+	return cairnv1.GearKind_GEAR_KIND_UNSPECIFIED
 }
 
 // activityLapsFromProto maps provider-reported laps. The domain models a lap's

@@ -25,6 +25,7 @@ import (
 	authuc "github.com/opencairn-org/cairn-core/internal/usecase/auth"
 	"github.com/opencairn-org/cairn-core/internal/usecase/besteffort"
 	"github.com/opencairn-org/cairn-core/internal/usecase/enrollment"
+	gearuc "github.com/opencairn-org/cairn-core/internal/usecase/gear"
 	geocodeuc "github.com/opencairn-org/cairn-core/internal/usecase/geocode"
 	"github.com/opencairn-org/cairn-core/internal/usecase/invite"
 	matchuc "github.com/opencairn-org/cairn-core/internal/usecase/match"
@@ -128,6 +129,8 @@ type App struct {
 	Attachments              port.AttachmentRepo
 	SourceDenylist           port.SourceDenylistRepo
 	Health                   port.HealthRepo
+	GearRepo                 port.GearRepo
+	Gear                     *gearuc.Service
 	ComputeBestEfforts       *besteffort.ComputeBestEffortsForSource
 	MatchSegments            *segment.MatchSegmentsForActivity
 	ComputeSegmentRanks      *segmentrank.ComputeSegmentRanks
@@ -289,6 +292,8 @@ func wireAppSecondaryRepos(app *App, pool *pgxpool.Pool, secretBox *auth.SecretB
 	app.Attachments = postgres.NewAttachmentRepo(pool)
 	app.SourceDenylist = postgres.NewSourceDenylistRepo(pool)
 	app.Health = postgres.NewHealthRepo(pool)
+	app.GearRepo = postgres.NewGearRepo(pool)
+	app.Gear = gearuc.NewService(app.GearRepo, app.Tx, nil, nil)
 }
 
 // wireAppIngestUseCases builds the ingest, recluster and post-ingest compute use cases.
@@ -299,6 +304,7 @@ func wireAppIngestUseCases(app *App, logger *slog.Logger) {
 		app.AthleteProfiles,
 		app.FieldOverrides,
 		app.ClassOverrides,
+		app.GearRepo,
 		app.Tx,
 		nil, // default time.Now
 	)
@@ -516,6 +522,7 @@ func wireAppNATS(ctx context.Context, app *App, cfg *config.Config, logger *slog
 		nil, // default time.Now
 		nil, // default uuid.NewV7
 	)
+	app.ReconcileAccount.SetGearSync(gearSyncHook(app))
 	return nil
 }
 

@@ -120,6 +120,7 @@ func (h *mergeOverridesAPI) setFieldSource(w http.ResponseWriter, r *http.Reques
 	if _, err := h.app.RecomputeActivity.Execute(r.Context(), act.ID); err != nil {
 		h.logger.Warn("recompute after field pin failed", "activity_id", act.ID, "error", err)
 	}
+	refreshGearTotals(r.Context(), h.app, h.logger, act.UserID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "field": body.Field, "source_id": body.SourceID})
 }
 
@@ -140,6 +141,7 @@ func (h *mergeOverridesAPI) deleteFieldSource(w http.ResponseWriter, r *http.Req
 	if _, err := h.app.RecomputeActivity.Execute(r.Context(), act.ID); err != nil {
 		h.logger.Warn("recompute after field unpin failed", "activity_id", act.ID, "error", err)
 	}
+	refreshGearTotals(r.Context(), h.app, h.logger, act.UserID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -192,6 +194,7 @@ func (h *mergeOverridesAPI) merge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "merge recorded but recluster failed", http.StatusInternalServerError)
 		return
 	}
+	refreshGearTotals(r.Context(), h.app, h.logger, userID)
 	writeJSON(w, http.StatusOK, map[string]any{"merged": true})
 }
 
@@ -273,6 +276,7 @@ func (h *mergeOverridesAPI) split(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "split recorded but recluster failed", http.StatusInternalServerError)
 		return
 	}
+	refreshGearTotals(r.Context(), h.app, h.logger, userID)
 	writeJSON(w, http.StatusOK, map[string]any{"split": true})
 }
 

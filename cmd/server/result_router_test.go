@@ -7,12 +7,15 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	cairnv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/v1"
 	workerv1 "github.com/opencairn-org/cairn-core/gen/proto/cairn/worker/v1"
 	"github.com/opencairn-org/cairn-core/internal/domain"
 	"github.com/opencairn-org/cairn-core/internal/port"
+	gearuc "github.com/opencairn-org/cairn-core/internal/usecase/gear"
 )
 
 // fakeQueue records MarkFailedByExternalID calls; all other
@@ -181,5 +184,73 @@ func TestRouteJobResult_IgnoresUnknownFields(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unknown field must be ignored, got %v", err)
+	}
+}
+
+// memGearRepo is the minimal port.GearRepo the gear ingest path touches.
+type memGearRepo struct {
+	port.GearRepo
+	gear map[domain.GearID]domain.Gear
+	refs map[domain.GearRefKey]domain.GearExternalRef
+}
+
+func (m *memGearRepo) Get(_ context.Context, id domain.GearID) (domain.Gear, error) {
+	g, ok := m.gear[id]
+	if !ok {
+		return domain.Gear{}, domain.ErrNotFound
+	}
+	return g, nil
+}
+func (m *memGearRepo) Save(_ context.Context, g domain.Gear) error { m.gear[g.ID] = g; return nil }
+func (m *memGearRepo) UpsertExternalRef(_ context.Context, r domain.GearExternalRef) error {
+	m.refs[r.Key()] = r
+	return nil
+}
+func (m *memGearRepo) FindByExternalRef(_ context.Context, k domain.GearRefKey) (domain.GearID, error) {
+	r, ok := m.refs[k]
+	if !ok {
+		return domain.GearID{}, domain.ErrNotFound
+	}
+	return r.GearID, nil
+}
+func (m *memGearRepo) GetDefault(context.Context, domain.UserID, domain.ActivityType) (domain.GearID, error) {
+	return domain.GearID{}, domain.ErrNotFound
+}
+func (m *memGearRepo) SetDefault(context.Context, domain.GearDefault) error { return nil }
+
+type passTx struct{}
+
+func (passTx) InTx(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
+
+func TestProcessWorkerEvent_GearUpsertsByRef(t *testing.T) {
+	repo := &memGearRepo{gear: map[domain.GearID]domain.Gear{}, refs: map[domain.GearRefKey]domain.GearExternalRef{}}
+	app := &App{Gear: gearuc.NewService(repo, passTx{}, nil, nil)}
+	user, acct := uuid.NewString(), uuid.NewString()
+	ev := &workerv1.WorkerEvent{
+		Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
+		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{
+			Ref:     &workerv1.ExternalRef{UserId: user, Provider: "strava", ExternalAccountId: acct, ExternalId: "b42"},
+			Payload: &workerv1.GearImport{Kind: cairnv1.GearKind_GEAR_KIND_BIKE, Name: "Canyon", Primary: true},
+		}},
+	}
+	for range 2 { // second delivery must not duplicate
+		if err := processWorkerEvent(context.Background(), app, testLogger(), &workerv1.JobResult{}, &ingestBundle{}, ev); err != nil {
+			t.Fatalf("gear event: %v", err)
+		}
+	}
+	if len(repo.gear) != 1 || len(repo.refs) != 1 {
+		t.Fatalf("gear=%d refs=%d", len(repo.gear), len(repo.refs))
+	}
+	for _, g := range repo.gear {
+		if g.Name != "Canyon" || g.Kind != domain.GearKindBike || g.UserID.String() != user {
+			t.Fatalf("gear = %+v", g)
+		}
+	}
+
+	// Bad ref: logged, never NAKs the message.
+	bad := &workerv1.WorkerEvent{Type: workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR,
+		Entity: &workerv1.WorkerEvent_Gear{Gear: &workerv1.ImportedGear{Ref: &workerv1.ExternalRef{UserId: "nope", ExternalId: "x"}}}}
+	if err := processWorkerEvent(context.Background(), app, testLogger(), &workerv1.JobResult{}, &ingestBundle{}, bad); err != nil {
+		t.Fatalf("bad gear event must be non-fatal: %v", err)
 	}
 }

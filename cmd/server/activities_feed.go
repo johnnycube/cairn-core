@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -129,7 +130,19 @@ func parseActivityFilter(q url.Values) port.ActivityListFilter {
 		AvgHRMaxBpm:    feedFloat(q.Get("hr_max_bpm")),
 		AvgPowerMinW:   feedFloat(q.Get("power_min_w")),
 		AvgPowerMaxW:   feedFloat(q.Get("power_max_w")),
+		GearIDs:        feedGearIDs(q["gear_id"]),
 	}
+}
+
+// feedGearIDs parses repeated ?gear_id= values; malformed ids are dropped.
+func feedGearIDs(raw []string) []domain.GearID {
+	var out []domain.GearID
+	for _, s := range raw {
+		if id, err := uuid.Parse(s); err == nil {
+			out = append(out, domain.GearID(id))
+		}
+	}
+	return out
 }
 
 func mountActivitiesFeed(mux *http.ServeMux, app *App, logger *slog.Logger) {

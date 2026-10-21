@@ -72,6 +72,9 @@ type ActivityListFilter struct {
 	AvgPowerMinW   *float64 // avg_power_w
 	AvgPowerMaxW   *float64
 
+	// GearIDs restricts to activities attached to any of these gear.
+	GearIDs []domain.GearID
+
 	Limit  int // <= 0 → default
 	Offset int // page offset; 0 = first page
 }

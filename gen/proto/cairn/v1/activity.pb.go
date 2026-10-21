@@ -811,9 +811,15 @@ type Activity struct {
 	// Reverse-geocoded start location for the feed/detail subtitle
 	// ("Ride from Darmstadt"). Empty when not yet geocoded or no place found.
 	// start_lat/start_lng cache the first GPS point of the primary stream.
-	StartPlace    string   `protobuf:"bytes,28,opt,name=start_place,json=startPlace,proto3" json:"start_place,omitempty"`
-	StartLat      *float64 `protobuf:"fixed64,29,opt,name=start_lat,json=startLat,proto3,oneof" json:"start_lat,omitempty"`
-	StartLng      *float64 `protobuf:"fixed64,30,opt,name=start_lng,json=startLng,proto3,oneof" json:"start_lng,omitempty"`
+	StartPlace string   `protobuf:"bytes,28,opt,name=start_place,json=startPlace,proto3" json:"start_place,omitempty"`
+	StartLat   *float64 `protobuf:"fixed64,29,opt,name=start_lat,json=startLat,proto3,oneof" json:"start_lat,omitempty"`
+	StartLng   *float64 `protobuf:"fixed64,30,opt,name=start_lng,json=startLng,proto3,oneof" json:"start_lng,omitempty"`
+	// Who decided gear_id: "merge" (derived from the winning source or the
+	// type default; recompute may change it) or "user" (set through
+	// UpdateActivity; recompute never touches it).
+	GearSetBy string `protobuf:"bytes,31,opt,name=gear_set_by,json=gearSetBy,proto3" json:"gear_set_by,omitempty"`
+	// Denormalised for list rendering; empty when no gear is attached.
+	GearName      string `protobuf:"bytes,32,opt,name=gear_name,json=gearName,proto3" json:"gear_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1056,6 +1062,20 @@ func (x *Activity) GetStartLng() float64 {
 		return *x.StartLng
 	}
 	return 0
+}
+
+func (x *Activity) GetGearSetBy() string {
+	if x != nil {
+		return x.GearSetBy
+	}
+	return ""
+}
+
+func (x *Activity) GetGearName() string {
+	if x != nil {
+		return x.GearName
+	}
+	return ""
 }
 
 type ActivitySummary struct {
@@ -2677,8 +2697,10 @@ type ListActivitiesRequest struct {
 	// (cheaper); true is useful for the activity-feed UI which shows source
 	// badges.
 	IncludeSources bool `protobuf:"varint,8,opt,name=include_sources,json=includeSources,proto3" json:"include_sources,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Filter to activities attached to any of these gear ids.
+	GearIds       []string `protobuf:"bytes,9,rep,name=gear_ids,json=gearIds,proto3" json:"gear_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListActivitiesRequest) Reset() {
@@ -2765,6 +2787,13 @@ func (x *ListActivitiesRequest) GetIncludeSources() bool {
 		return x.IncludeSources
 	}
 	return false
+}
+
+func (x *ListActivitiesRequest) GetGearIds() []string {
+	if x != nil {
+		return x.GearIds
+	}
+	return nil
 }
 
 type ListActivitiesResponse struct {
@@ -2933,8 +2962,13 @@ type UpdateActivityRequest struct {
 	DistanceM       *float64 `protobuf:"fixed64,15,opt,name=distance_m,json=distanceM,proto3,oneof" json:"distance_m,omitempty"`
 	ElevationGainM  *float64 `protobuf:"fixed64,16,opt,name=elevation_gain_m,json=elevationGainM,proto3,oneof" json:"elevation_gain_m,omitempty"`
 	MovingDurationS *int64   `protobuf:"varint,17,opt,name=moving_duration_s,json=movingDurationS,proto3,oneof" json:"moving_duration_s,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Gear. "gear_id" in field_mask attaches the gear (empty string = no
+	// gear) and marks the choice as the user's; "reset_gear" hands it back
+	// to the merge (gear_set_by = merge) and re-derives it.
+	GearId        *string `protobuf:"bytes,18,opt,name=gear_id,json=gearId,proto3,oneof" json:"gear_id,omitempty"`
+	ResetGear     *bool   `protobuf:"varint,19,opt,name=reset_gear,json=resetGear,proto3,oneof" json:"reset_gear,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateActivityRequest) Reset() {
@@ -3084,6 +3118,20 @@ func (x *UpdateActivityRequest) GetMovingDurationS() int64 {
 		return *x.MovingDurationS
 	}
 	return 0
+}
+
+func (x *UpdateActivityRequest) GetGearId() string {
+	if x != nil && x.GearId != nil {
+		return *x.GearId
+	}
+	return ""
+}
+
+func (x *UpdateActivityRequest) GetResetGear() bool {
+	if x != nil && x.ResetGear != nil {
+		return *x.ResetGear
+	}
+	return false
 }
 
 type UpdateActivityResponse struct {
@@ -4838,7 +4886,7 @@ var File_cairn_v1_activity_proto protoreflect.FileDescriptor
 
 const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\n" +
-	"\x17cairn/v1/activity.proto\x12\bcairn.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15cairn/v1/common.proto\"\x91\v\n" +
+	"\x17cairn/v1/activity.proto\x12\bcairn.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15cairn/v1/common.proto\"\xce\v\n" +
 	"\bActivity\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12*\n" +
@@ -4879,7 +4927,9 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\vstart_place\x18\x1c \x01(\tR\n" +
 	"startPlace\x12 \n" +
 	"\tstart_lat\x18\x1d \x01(\x01H\x01R\bstartLat\x88\x01\x01\x12 \n" +
-	"\tstart_lng\x18\x1e \x01(\x01H\x02R\bstartLng\x88\x01\x01\x1aB\n" +
+	"\tstart_lng\x18\x1e \x01(\x01H\x02R\bstartLng\x88\x01\x01\x12\x1e\n" +
+	"\vgear_set_by\x18\x1f \x01(\tR\tgearSetBy\x12\x1b\n" +
+	"\tgear_name\x18  \x01(\tR\bgearName\x1aB\n" +
 	"\x14MergeProvenanceEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\r\n" +
@@ -5124,7 +5174,7 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\fwindow_value\x18\x06 \x01(\x05R\vwindowValue\x12\x14\n" +
 	"\x05label\x18\a \x01(\tR\x05label\x129\n" +
 	"\n" +
-	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xe3\x02\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xfe\x02\n" +
 	"\x15ListActivitiesRequest\x122\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x13.cairn.v1.TimeRangeR\ttimeRange\x12,\n" +
@@ -5134,7 +5184,8 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\x04tags\x18\x05 \x03(\tR\x04tags\x12*\n" +
 	"\x04sort\x18\x06 \x01(\x0e2\x16.cairn.v1.ActivitySortR\x04sort\x12)\n" +
 	"\x04page\x18\a \x01(\v2\x15.cairn.v1.PageRequestR\x04page\x12'\n" +
-	"\x0finclude_sources\x18\b \x01(\bR\x0eincludeSources\"x\n" +
+	"\x0finclude_sources\x18\b \x01(\bR\x0eincludeSources\x12\x19\n" +
+	"\bgear_ids\x18\t \x03(\tR\agearIds\"x\n" +
 	"\x16ListActivitiesResponse\x122\n" +
 	"\n" +
 	"activities\x18\x01 \x03(\v2\x12.cairn.v1.ActivityR\n" +
@@ -5143,7 +5194,7 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\x12GetActivityRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"E\n" +
 	"\x13GetActivityResponse\x12.\n" +
-	"\bactivity\x18\x01 \x01(\v2\x12.cairn.v1.ActivityR\bactivity\"\x8d\a\n" +
+	"\bactivity\x18\x01 \x01(\v2\x12.cairn.v1.ActivityR\bactivity\"\xea\a\n" +
 	"\x15UpdateActivityRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -5169,7 +5220,10 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\n" +
 	"distance_m\x18\x0f \x01(\x01H\vR\tdistanceM\x88\x01\x01\x12-\n" +
 	"\x10elevation_gain_m\x18\x10 \x01(\x01H\fR\x0eelevationGainM\x88\x01\x01\x12/\n" +
-	"\x11moving_duration_s\x18\x11 \x01(\x03H\rR\x0fmovingDurationS\x88\x01\x01B\b\n" +
+	"\x11moving_duration_s\x18\x11 \x01(\x03H\rR\x0fmovingDurationS\x88\x01\x01\x12\x1c\n" +
+	"\agear_id\x18\x12 \x01(\tH\x0eR\x06gearId\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"reset_gear\x18\x13 \x01(\bH\x0fR\tresetGear\x88\x01\x01B\b\n" +
 	"\x06_titleB\x0e\n" +
 	"\f_descriptionB\a\n" +
 	"\x05_typeB\r\n" +
@@ -5185,7 +5239,10 @@ const file_cairn_v1_activity_proto_rawDesc = "" +
 	"\x19_primary_stream_source_idB\r\n" +
 	"\v_distance_mB\x13\n" +
 	"\x11_elevation_gain_mB\x14\n" +
-	"\x12_moving_duration_s\"H\n" +
+	"\x12_moving_duration_sB\n" +
+	"\n" +
+	"\b_gear_idB\r\n" +
+	"\v_reset_gear\"H\n" +
 	"\x16UpdateActivityResponse\x12.\n" +
 	"\bactivity\x18\x01 \x01(\v2\x12.cairn.v1.ActivityR\bactivity\"'\n" +
 	"\x15DeleteActivityRequest\x12\x0e\n" +

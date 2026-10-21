@@ -190,6 +190,13 @@ func processWorkerEvent(ctx context.Context, app *App, log *slog.Logger, jr *wor
 			log.Warn("metric ingest failed", "error", err)
 		}
 
+	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_GEAR:
+		// Non-fatal: gear is optional data; the activity that references it
+		// resolves the ref later (next import_gear run or activity).
+		if err := ingestGearEvent(ctx, app, ev.GetGear()); err != nil {
+			log.Warn("gear ingest failed", "error", err)
+		}
+
 	case workerv1.WorkerEventType_WORKER_EVENT_TYPE_RECORD:
 		// Provider records ingestion is a separate milestone; Cairn computes
 		// canonical best-efforts itself from streams.
@@ -320,6 +327,33 @@ func ingestMetricEvent(ctx context.Context, app *App, im *workerv1.ImportedMetri
 		Provider:  ref.GetProvider(),
 		Value:     &v,
 	}})
+}
+
+// ingestGearEvent upserts a provider's gear record (docs/gear-v0.4.0.md,
+// contract §5): refs are keyed by (provider, account, external id).
+func ingestGearEvent(ctx context.Context, app *App, g *workerv1.ImportedGear) error {
+	if app.Gear == nil || g == nil {
+		return nil
+	}
+	ref := g.GetRef()
+	if ref.GetExternalId() == "" {
+		return errors.New("gear event missing external_id")
+	}
+	uid, err := uuid.Parse(ref.GetUserId())
+	if err != nil {
+		return fmt.Errorf("gear event bad user_id: %w", err)
+	}
+	accUUID, err := uuid.Parse(ref.GetExternalAccountId())
+	if err != nil {
+		return fmt.Errorf("gear event bad external_account_id: %w", err)
+	}
+	key := domain.GearRefKey{
+		Provider:          ref.GetProvider(),
+		ExternalAccountID: domain.ExternalAccountID(accUUID),
+		ExternalID:        ref.GetExternalId(),
+	}
+	_, err = app.Gear.ImportFromProvider(ctx, domain.UserID(uid), key, protoconv.GearImportFromProto(g.GetPayload()))
+	return err
 }
 
 // ingestBundle memoises segments created earlier in the same JobResult message
@@ -685,6 +719,13 @@ func runFollowUpsUserDerived(ctx context.Context, app *App, log *slog.Logger, ou
 			WarmUpDays: 42,
 		}); err != nil {
 			log.Warn("training-load compute failed", "user_id", out.Activity.UserID, "error", err)
+		}
+	}
+	// Gear totals: one aggregate over the user's live activities, so a
+	// reimport that moved the activity to other gear refreshes both sides.
+	if app.Gear != nil {
+		if err := app.Gear.RecomputeTotals(ctx, out.Activity.UserID); err != nil {
+			log.Warn("gear totals recompute failed", "user_id", out.Activity.UserID, "error", err)
 		}
 	}
 	if app.DispatchPR != nil {

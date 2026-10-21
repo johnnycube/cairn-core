@@ -176,7 +176,15 @@ func overrideWinner(sources []ActivitySource, g FieldGroup, overrides map[FieldG
 //
 // Returns (zero ActivitySource, false) when no source matches.
 func pickWinner(sources []ActivitySource, g FieldGroup, policy MergePolicy) (ActivitySource, bool) {
-	priorities := policy.PriorityFor(g)
+	return pickWinnerBy(sources, policy.PriorityFor(g), func(s *ActivitySource) bool {
+		return s.Parsed.Provides(g)
+	})
+}
+
+// pickWinnerBy walks priorities and returns the first source that matches the
+// entry and satisfies provides. Shared by the field-group cascade and
+// ResolveGear, which decides "provides" by a lookup instead of the payload.
+func pickWinnerBy(sources []ActivitySource, priorities []string, provides func(*ActivitySource) bool) (ActivitySource, bool) {
 	if len(priorities) == 0 {
 		return ActivitySource{}, false
 	}
@@ -190,7 +198,7 @@ func pickWinner(sources []ActivitySource, g FieldGroup, policy MergePolicy) (Act
 	}
 
 	for _, p := range priorities {
-		if s, ok := pickWinnerForPriority(sources, g, p, named); ok {
+		if s, ok := pickWinnerForPriority(sources, p, named, provides); ok {
 			return s, true
 		}
 	}
@@ -198,9 +206,10 @@ func pickWinner(sources []ActivitySource, g FieldGroup, policy MergePolicy) (Act
 	return ActivitySource{}, false
 }
 
-// pickWinnerForPriority returns the first source matching priority entry p that provides g.
-func pickWinnerForPriority(sources []ActivitySource, g FieldGroup, p string, named map[string]struct{}) (ActivitySource, bool) {
-	for _, s := range sources {
+// pickWinnerForPriority returns the first source matching priority entry p that satisfies provides.
+func pickWinnerForPriority(sources []ActivitySource, p string, named map[string]struct{}, provides func(*ActivitySource) bool) (ActivitySource, bool) {
+	for i := range sources {
+		s := &sources[i]
 		if p == AnyProvider {
 			if _, isNamed := named[s.Provider]; isNamed {
 				continue
@@ -208,8 +217,8 @@ func pickWinnerForPriority(sources []ActivitySource, g FieldGroup, p string, nam
 		} else if s.Provider != p {
 			continue
 		}
-		if s.Parsed.Provides(g) {
-			return s, true
+		if provides(s) {
+			return *s, true
 		}
 	}
 	return ActivitySource{}, false
@@ -218,8 +227,8 @@ func pickWinnerForPriority(sources []ActivitySource, g FieldGroup, p string, nam
 // mergeApplyGroups applies each non-classification group's winner (pin, else cascade) to out.
 func mergeApplyGroups(out *Activity, ordered []ActivitySource, policy MergePolicy, overrides map[FieldGroup]SourceID) {
 	for _, g := range AllFieldGroups {
-		if g == FieldGroupClassification {
-			continue // already handled
+		if g == FieldGroupClassification || g == FieldGroupGear {
+			continue // classification handled above; gear by ResolveGear
 		}
 
 		// A manual per-field source pin (override) wins over the cascade.

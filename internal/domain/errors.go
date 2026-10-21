@@ -57,6 +57,18 @@ var (
 	ErrUnique = errors.New("unique constraint violation")
 )
 
+// Gear invariants — checked by Gear.Validate.
+var (
+	ErrGearMissingID     = errors.New("gear: missing ID")
+	ErrGearMissingUserID = errors.New("gear: missing user ID")
+	ErrGearInvalidKind   = errors.New("gear: kind must be bike, shoe or other")
+	ErrGearMissingName   = errors.New("gear: name is required")
+	// ErrGearSameUser is returned by MergeGear when the records belong to different users.
+	ErrGearSameUser = errors.New("gear: merge requires both records to belong to the same user")
+	// ErrGearSelfMerge is returned by MergeGear when from and to are the same record.
+	ErrGearSelfMerge = errors.New("gear: cannot merge a record into itself")
+)
+
 // Segment invariants — checked by Segment.Validate.
 var (
 	ErrSegmentInvalidSource            = errors.New("segment: source must be external or native")

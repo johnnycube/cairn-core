@@ -54,6 +54,10 @@ type ActivityServer struct {
 	// federation is off). Lets making an activity public after import federate
 	// it, since the ingest-time publish only fires for public-at-import.
 	Federation port.FederationPublisher
+
+	// Gear backs the gear_id edit (ownership check), the gear names on the
+	// wire and the totals refresh after an edit. Nil → gear edits rejected.
+	Gear port.GearRepo
 }
 
 // Compile-time interface check.
@@ -68,6 +72,7 @@ func NewActivityServer(
 	recompute *activity.RecomputeActivityFromSources,
 	classOverrides port.ClassificationOverrideRepo,
 	federation port.FederationPublisher,
+	gear port.GearRepo,
 ) *ActivityServer {
 	return &ActivityServer{
 		Activities:     activities,
@@ -76,7 +81,56 @@ func NewActivityServer(
 		Recompute:      recompute,
 		ClassOverrides: classOverrides,
 		Federation:     federation,
+		Gear:           gear,
 	}
+}
+
+// listActivitiesByGear serves a gear-filtered list through the filtered
+// query; the time window is optional there.
+func (s *ActivityServer) listActivitiesByGear(ctx context.Context, userID domain.UserID, req *v1.ListActivitiesRequest) ([]domain.Activity, error) {
+	filter := port.ActivityListFilter{Limit: int(req.GetPage().GetLimit())}
+	for _, raw := range req.GetGearIds() {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return nil, connectrpc.NewError(connectrpc.CodeInvalidArgument, "invalid gear id in gear_ids")
+		}
+		filter.GearIDs = append(filter.GearIDs, domain.GearID(id))
+	}
+	if tr := req.GetTimeRange(); tr != nil && (tr.GetFrom() != nil || tr.GetTo() != nil) {
+		filter.From, filter.To = windowFromRequest(tr)
+	}
+	activities, _, err := s.Activities.ListActivitiesFiltered(ctx, userID, filter)
+	return activities, err
+}
+
+// gearNames returns the caller's gear id → name map (retired included, since
+// retired gear stays attached) for denormalising Activity.gear_name. Empty
+// when gear is not wired or the lookup fails: names are a display hint.
+func (s *ActivityServer) gearNames(ctx context.Context, userID domain.UserID) map[domain.GearID]string {
+	if s.Gear == nil {
+		return nil
+	}
+	gear, err := s.Gear.ListForUser(ctx, userID, true)
+	if err != nil {
+		return nil
+	}
+	names := make(map[domain.GearID]string, len(gear))
+	for _, g := range gear {
+		names[g.ID] = g.Name
+	}
+	return names
+}
+
+// withGear fills the gear fields of a wire activity.
+func withGear(out *v1.Activity, a domain.Activity, names map[domain.GearID]string) *v1.Activity {
+	out.GearSetBy = string(a.GearSetBy)
+	if out.GearSetBy == "" {
+		out.GearSetBy = string(domain.GearSetByMerge)
+	}
+	if a.GearID != nil {
+		out.GearName = names[*a.GearID]
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -104,10 +158,13 @@ func (s *ActivityServer) ListActivities(
 	// explicit range still uses the time-windowed query.
 	tr := req.GetTimeRange()
 	var activities []domain.Activity
-	if tr == nil || (tr.GetFrom() == nil && tr.GetTo() == nil) {
+	switch {
+	case len(req.GetGearIds()) > 0:
+		activities, err = s.listActivitiesByGear(ctx, userID, req)
+	case tr == nil || (tr.GetFrom() == nil && tr.GetTo() == nil):
 		limit := int(req.GetPage().GetLimit())
 		activities, err = s.Activities.ListRecentActivitiesForUser(ctx, userID, limit)
-	} else {
+	default:
 		start, end := windowFromRequest(tr)
 		activities, err = s.Activities.ListActivitiesForUser(ctx, userID, start, end)
 	}
@@ -115,6 +172,7 @@ func (s *ActivityServer) ListActivities(
 		return nil, connectError(connectrpc.CodeInternal,
 			fmt.Errorf("list activities: %w", err))
 	}
+	names := s.gearNames(ctx, userID)
 
 	out := &v1.ListActivitiesResponse{
 		Activities: make([]*v1.Activity, 0, len(activities)),
@@ -129,7 +187,7 @@ func (s *ActivityServer) ListActivities(
 			}
 			sources = srcs
 		}
-		out.Activities = append(out.Activities, activityToProto(a, sources))
+		out.Activities = append(out.Activities, withGear(activityToProto(a, sources), a, names))
 	}
 
 	// Reverse to start-time-DESC unless the caller asked otherwise. The
@@ -184,7 +242,7 @@ func (s *ActivityServer) GetActivity(
 	}
 
 	return &v1.GetActivityResponse{
-		Activity: activityToProto(activity, sources),
+		Activity: withGear(activityToProto(activity, sources), activity, s.gearNames(ctx, activity.UserID)),
 	}, nil
 }
 
@@ -250,9 +308,42 @@ func (s *ActivityServer) UpdateActivity(
 			fmt.Errorf("list sources: %w", err))
 	}
 
+	if e.gearTouched {
+		updated = s.activityUpdateGearAfter(ctx, updated, sources, e.gearReset)
+	}
+
 	return &v1.UpdateActivityResponse{
-		Activity: activityToProto(updated, sources),
+		Activity: withGear(activityToProto(updated, sources), updated, s.gearNames(ctx, updated.UserID)),
 	}, nil
+}
+
+// activityUpdateGearAfter runs after a gear edit was recomputed: a reset on a
+// provider-less activity gets the type default again (recompute applies it
+// only on the first merge), and the user's gear totals are refreshed.
+// Best-effort: the edit itself is already persisted.
+func (s *ActivityServer) activityUpdateGearAfter(ctx context.Context, a domain.Activity, sources []domain.ActivitySource, reset bool) domain.Activity {
+	if s.Gear == nil {
+		return a
+	}
+	if reset && a.GearID == nil && a.GearSetBy == domain.GearSetByMerge && allProviderless(sources) {
+		if gid, err := s.Gear.GetDefault(ctx, a.UserID, a.Type); err == nil {
+			a.GearID = &gid
+			if err := s.Activities.SaveActivity(ctx, a); err != nil {
+				a.GearID = nil
+			}
+		}
+	}
+	_ = s.Gear.RecomputeTotalsForUser(ctx, a.UserID)
+	return a
+}
+
+func allProviderless(sources []domain.ActivitySource) bool {
+	for _, src := range sources {
+		if src.ExternalAccountID != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // activityUpdateLoad resolves the caller and loads the activity they own.
@@ -302,6 +393,8 @@ type activityUpdateEdit struct {
 	msg            *v1.UpdateActivityRequest
 	activity       *domain.Activity
 	privacyTouched bool
+	gearTouched    bool
+	gearReset      bool
 
 	// Classification edits (type/discipline/flags) are stored as a user overlay
 	// applied AFTER the merge by Recompute, so they survive future source
@@ -332,6 +425,13 @@ func (e *activityUpdateEdit) applyField(f string) error {
 		// Merge-managed (FieldGroupGPSTrack); changed via a gps_track field
 		// pin, not a direct edit.
 		return activityUpdateRejectClass(f)
+	case "gear_id":
+		return e.applyGearID()
+	case "reset_gear":
+		// Hand the choice back to the merge; recompute re-derives it.
+		e.activity.GearID = nil
+		e.activity.GearSetBy = domain.GearSetByMerge
+		e.gearTouched, e.gearReset = true, true
 	default:
 		set, ok := activityUpdateClassSetters[f]
 		if !ok {
@@ -340,6 +440,32 @@ func (e *activityUpdateEdit) applyField(f string) error {
 		}
 		return e.applyClassField(f, set)
 	}
+	return nil
+}
+
+// applyGearID attaches the caller's gear ("" = no gear) and marks the choice
+// as the user's so recompute leaves it alone.
+func (e *activityUpdateEdit) applyGearID() error {
+	if e.s.Gear == nil {
+		return connectrpc.NewError(connectrpc.CodeUnavailable, "gear is not available on this instance")
+	}
+	raw := e.msg.GetGearId()
+	if raw == "" {
+		e.activity.GearID = nil
+	} else {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return connectrpc.NewError(connectrpc.CodeInvalidArgument, "invalid gear_id")
+		}
+		g, err := e.s.Gear.Get(e.ctx, domain.GearID(id))
+		if err != nil || g.UserID != e.activity.UserID {
+			return connectrpc.NewError(connectrpc.CodeNotFound, "gear not found")
+		}
+		gid := g.ID
+		e.activity.GearID = &gid
+	}
+	e.activity.GearSetBy = domain.GearSetByUser
+	e.gearTouched = true
 	return nil
 }
 

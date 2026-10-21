@@ -135,6 +135,12 @@ type ActivitySourcePayload struct {
 
 	// Lap segmentation, if the source provides it. Empty when unavailable.
 	Laps []ActivityLap
+
+	// Provider gear id on this activity (resolved to a Gear through the
+	// account's gear refs) and the provider's display name as a hint until
+	// the gear is imported.
+	GearExternalID string
+	GearName       string
 }
 
 // ActivityLap is a per-lap summary record. Same per-source flag and merge
@@ -187,6 +193,21 @@ func (p *ActivitySourcePayload) Provides(g FieldGroup) bool {
 	case FieldGroupTime:
 		return !p.StartTime.IsZero()
 
+	case FieldGroupGPSTrack:
+		return p.HasStream
+
+	case FieldGroupLaps:
+		return len(p.Laps) > 0
+
+	case FieldGroupGear:
+		return p.GearExternalID != ""
+	}
+	return p.providesSummary(g)
+}
+
+// providesSummary reports whether any field of a summary-metric group is set.
+func (p *ActivitySourcePayload) providesSummary(g FieldGroup) bool {
+	switch g {
 	case FieldGroupDistance:
 		return p.Summary.DistanceM != nil
 
@@ -223,12 +244,6 @@ func (p *ActivitySourcePayload) Provides(g FieldGroup) bool {
 
 	case FieldGroupSwim:
 		return p.Summary.PoolLengthM != nil || p.Summary.TotalStrokes != nil
-
-	case FieldGroupGPSTrack:
-		return p.HasStream
-
-	case FieldGroupLaps:
-		return len(p.Laps) > 0
 	}
 	return false
 }

@@ -235,6 +235,7 @@ func activityManageRecomputeHandler(app *App, logger *slog.Logger) http.HandlerF
 		if result.SoftDeleted {
 			publishActivityDelete(r.Context(), app, logger, act.UserID, act.ID)
 		}
+		refreshGearTotals(r.Context(), app, logger, act.UserID)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"recomputed":   true,
 			"soft_deleted": result.SoftDeleted,

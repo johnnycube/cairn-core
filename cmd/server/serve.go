@@ -320,6 +320,7 @@ func serveMountFeatures(mux *http.ServeMux, app *App, cfg *config.Config, logger
 	mountLaps(mux, app, logger)
 	mountActivitySources(mux, app, logger)
 	mountGarminConnect(mux, app)
+	mountGearSync(mux, app)
 	mountMergeOverrides(mux, app, logger)
 	mountMergePolicy(mux, app, logger)
 	mountMergedStream(mux, app)

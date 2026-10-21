@@ -233,6 +233,11 @@ func (uc *IngestActivityFromWorker) handleCreateNew(
 		return fmt.Errorf("initial merge: %w", err)
 	}
 	merged.CreatedAt = uc.now()
+	if uc.recompute != nil {
+		if err := uc.recompute.assignGear(ctx, &merged, nil, []domain.ActivitySource{src}, nil, resolver); err != nil {
+			return fmt.Errorf("initial gear: %w", err)
+		}
+	}
 	if err := merged.Validate(); err != nil {
 		return fmt.Errorf("initial activity invalid: %w", err)
 	}

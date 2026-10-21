@@ -50,7 +50,8 @@ const activityColumns = `
 	gear_id, tags, privacy,
 	created_at, updated_at, deleted_at,
 	start_lat, start_lng, start_place,
-	hidden_by_admin
+	hidden_by_admin,
+	gear_set_by
 `
 
 // GetActivity reads one activities row by ID.
@@ -138,7 +139,17 @@ func activitySaveArgs(a domain.Activity, provenanceJSON []byte) []any {
 		a.MergedAt,
 		gearParam, tags, string(a.Privacy),
 		nullableTime(a.CreatedAt), deletedAtParam,
+		string(gearSetByOrMerge(a.GearSetBy)),
 	}
+}
+
+// gearIDParams converts typed gear ids to the uuid slice pgx binds as uuid[].
+func gearIDParams(ids []domain.GearID) []uuid.UUID {
+	out := make([]uuid.UUID, len(ids))
+	for i, g := range ids {
+		out[i] = g.UUID()
+	}
+	return out
 }
 
 // activitySaveSQL upserts one activities row by id.
@@ -160,7 +171,8 @@ const activitySaveSQL = `
 			primary_stream_source_id,
 			merged_at,
 			gear_id, tags, privacy,
-			created_at, updated_at, deleted_at
+			created_at, updated_at, deleted_at,
+			gear_set_by
 		) VALUES (
 			$1, $2,
 			$3, $4, $5, $6, $7, $8, $9,
@@ -178,7 +190,8 @@ const activitySaveSQL = `
 			$40,
 			$41,
 			$42, $43, $44,
-			COALESCE($45, now()), now(), $46
+			COALESCE($45, now()), now(), $46,
+			$47
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			type = EXCLUDED.type,
@@ -221,6 +234,7 @@ const activitySaveSQL = `
 			primary_stream_source_id = EXCLUDED.primary_stream_source_id,
 			merged_at = EXCLUDED.merged_at,
 			gear_id = EXCLUDED.gear_id,
+			gear_set_by = EXCLUDED.gear_set_by,
 			tags = EXCLUDED.tags,
 			privacy = EXCLUDED.privacy,
 			-- created_at: never overwritten (preserves original creation time)
@@ -1069,6 +1083,9 @@ func activityFilterConds(
 	if !filter.To.IsZero() {
 		add("start_time < $%d", filter.To)
 	}
+	if len(filter.GearIDs) > 0 {
+		add("gear_id = ANY($%d)", gearIDParams(filter.GearIDs))
+	}
 
 	for _, f := range []struct {
 		col string
@@ -1083,9 +1100,15 @@ func activityFilterConds(
 			add(f.col+" = $%d", *f.val)
 		}
 	}
+	activityFilterRanges(filter, add)
 
-	// Bounded ranges: a NULL column value never matches (SQL comparison with
-	// NULL is not true), which is the intended "unknown doesn't match" rule.
+	return conds, args
+}
+
+// activityFilterRanges adds the bounded numeric ranges. A NULL column value
+// never matches (SQL comparison with NULL is not true), which is the intended
+// "unknown doesn't match" rule.
+func activityFilterRanges(filter port.ActivityListFilter, add func(cond string, val any)) {
 	for _, rng := range []struct {
 		col      string
 		min, max *float64
@@ -1104,8 +1127,6 @@ func activityFilterConds(
 			add(rng.col+" <= $%d", *rng.max)
 		}
 	}
-
-	return conds, args
 }
 
 // ActivityFacets returns per-type and per-discipline counts (only values the
@@ -1310,6 +1331,7 @@ func scanActivityRow(row rowScanner) (domain.Activity, error) {
 		&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt,
 		&a.StartLat, &a.StartLng, &x.startPlace,
 		&a.HiddenByAdmin,
+		&x.gearSetBy,
 	)
 	if err != nil {
 		return domain.Activity{}, err
@@ -1329,8 +1351,17 @@ type activityScanExtras struct {
 	provenanceRaw         []byte
 	primaryStreamSourceID *uuid.UUID
 	gearID                *uuid.UUID
+	gearSetBy             string
 	privacy               string
 	startPlace            *string
+}
+
+// gearSetByOrMerge maps the zero value to the column default.
+func gearSetByOrMerge(s domain.GearSetBy) domain.GearSetBy {
+	if s == "" {
+		return domain.GearSetByMerge
+	}
+	return s
 }
 
 // apply converts the scanned extras onto a.
@@ -1360,6 +1391,7 @@ func (x *activityScanExtras) apply(a *domain.Activity) error {
 		gid := domain.GearID(*x.gearID)
 		a.GearID = &gid
 	}
+	a.GearSetBy = gearSetByOrMerge(domain.GearSetBy(x.gearSetBy))
 	return nil
 }
 

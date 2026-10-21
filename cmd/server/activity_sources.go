@@ -182,6 +182,7 @@ func activitySourcesDenylist(ctx context.Context, app *App, logger *slog.Logger,
 // activitySourcesRecomputeAfterDetach re-merges from the remaining sources (or soft-deletes if none remain).
 func activitySourcesRecomputeAfterDetach(w http.ResponseWriter, r *http.Request, app *App, logger *slog.Logger, act domain.Activity, aID domain.ActivityID) {
 	result, err := app.RecomputeActivity.Execute(r.Context(), aID)
+	refreshGearTotals(r.Context(), app, logger, act.UserID)
 	if err != nil {
 		// The detach is durable; recompute is best-effort (matches the
 		// pipeline-wide "auto-triggers log, don't fail the request" rule).

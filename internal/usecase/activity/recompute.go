@@ -28,6 +28,7 @@ type RecomputeActivityFromSources struct {
 	athlete       port.AthleteProfileRepo         // optional; nil → TSS uses engine defaults
 	overrides     port.FieldOverrideRepo          // optional; nil → no manual field pins
 	classOverride port.ClassificationOverrideRepo // optional; nil → no user classification overlay
+	gear          port.GearRepo                   // optional; nil → gear is never derived
 	tx            port.TxManager
 	now           func() time.Time
 }
@@ -41,6 +42,7 @@ func NewRecomputeActivityFromSources(
 	athlete port.AthleteProfileRepo,
 	overrides port.FieldOverrideRepo,
 	classOverride port.ClassificationOverrideRepo,
+	gear port.GearRepo,
 	tx port.TxManager,
 	now func() time.Time,
 ) *RecomputeActivityFromSources {
@@ -53,6 +55,7 @@ func NewRecomputeActivityFromSources(
 		athlete:       athlete,
 		overrides:     overrides,
 		classOverride: classOverride,
+		gear:          gear,
 		tx:            tx,
 		now:           now,
 	}
@@ -145,14 +148,14 @@ func (uc *RecomputeActivityFromSources) recomputeInTx(ctx context.Context, id do
 		return fmt.Errorf("merge: %w", err)
 	}
 
+	var prevPtr *domain.Activity
 	if prevExists {
 		preserveUserEdits(&merged, prev)
+		prevPtr = &prev
 	}
-
-	if err := uc.applyClassificationOverride(ctx, id, &merged); err != nil {
+	if err := uc.applyOverlays(ctx, id, &merged, prevPtr, sources, overrides, resolver); err != nil {
 		return err
 	}
-	uc.fillEstimatedTSS(ctx, &merged)
 
 	if err := merged.Validate(); err != nil {
 		return fmt.Errorf("merge produced invalid activity: %w", err)
@@ -167,6 +170,23 @@ func (uc *RecomputeActivityFromSources) recomputeInTx(ctx context.Context, id do
 	result.SourceIDs = collectSourceIDs(sources)
 	result.Created = !prevExists
 	return nil
+}
+
+// applyOverlays runs the post-merge steps in order: the user's classification
+// overlay (may change Type), TSS estimation, then gear (needs the final type).
+func (uc *RecomputeActivityFromSources) applyOverlays(
+	ctx context.Context,
+	id domain.ActivityID,
+	merged, prev *domain.Activity,
+	sources []domain.ActivitySource,
+	overrides map[domain.FieldGroup]domain.SourceID,
+	resolver domain.PolicyResolver,
+) error {
+	if err := uc.applyClassificationOverride(ctx, id, merged); err != nil {
+		return err
+	}
+	uc.fillEstimatedTSS(ctx, merged)
+	return uc.assignGear(ctx, merged, prev, sources, overrides, resolver)
 }
 
 // loadFieldOverrides returns the manual per-field source pins (nil when none).
@@ -289,7 +309,104 @@ func preserveUserEdits(merged *domain.Activity, prev domain.Activity) {
 	merged.Tags = prev.Tags
 	merged.Privacy = prev.Privacy
 	merged.GearID = prev.GearID
+	merged.GearSetBy = prev.GearSetBy
 	merged.CreatedAt = prev.CreatedAt
+}
+
+// assignGear decides merged.GearID (docs/gear-v0.4.0.md "Assignment"):
+//
+//   - GearSetBy == user: the user's choice (incl. "no gear") stands.
+//   - Otherwise the winning source's provider gear id decides, resolved
+//     through the account's gear refs with the policy's gear priority and
+//     an optional gear field pin.
+//   - No source resolves: a gear that an earlier merge took from a source
+//     is dropped (provenance says so); one applied as a default is kept.
+//   - First merge of a provider-less activity (manual, upload): the user's
+//     default for the type, once.
+//
+// Runs after the classification overlay so the type default and policy use
+// the final type. Without a gear repo nothing is derived.
+func (uc *RecomputeActivityFromSources) assignGear(
+	ctx context.Context,
+	merged *domain.Activity,
+	prev *domain.Activity,
+	sources []domain.ActivitySource,
+	overrides map[domain.FieldGroup]domain.SourceID,
+	resolver domain.PolicyResolver,
+) error {
+	if uc.gear == nil {
+		return nil
+	}
+	if prev != nil && prev.GearSetBy == domain.GearSetByUser {
+		merged.GearID, merged.GearSetBy = prev.GearID, domain.GearSetByUser
+		return nil
+	}
+	merged.GearSetBy = domain.GearSetByMerge
+
+	resolved, err := uc.resolveSourceGear(ctx, sources)
+	if err != nil {
+		return err
+	}
+	var pin *domain.SourceID
+	if sid, ok := overrides[domain.FieldGroupGear]; ok {
+		pin = &sid
+	}
+	if gid, src, ok := domain.ResolveGear(sources, resolved, resolver(merged.Type), pin); ok {
+		merged.GearID = &gid
+		merged.MergeProvenance.Set(domain.FieldGroupGear, src)
+		return nil
+	}
+
+	if prev != nil {
+		if _, fromSource := prev.MergeProvenance.Winner(domain.FieldGroupGear); fromSource {
+			merged.GearID = nil
+		} else {
+			merged.GearID = prev.GearID
+		}
+		return nil
+	}
+
+	for _, s := range sources {
+		if s.ExternalAccountID != nil {
+			return nil
+		}
+	}
+	gid, err := uc.gear.GetDefault(ctx, merged.UserID, merged.Type)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return nil
+	case err != nil:
+		return fmt.Errorf("gear default: %w", err)
+	}
+	merged.GearID = &gid
+	return nil
+}
+
+// resolveSourceGear maps each source carrying a provider gear id to the Gear
+// it resolves to on that account; unresolvable sources are left out.
+func (uc *RecomputeActivityFromSources) resolveSourceGear(ctx context.Context, sources []domain.ActivitySource) (map[domain.SourceID]domain.GearID, error) {
+	var keys []domain.GearRefKey
+	for _, s := range sources {
+		if k, ok := domain.GearRefKeyOf(s); ok {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	byKey, err := uc.gear.ResolveExternalRefs(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("resolve gear refs: %w", err)
+	}
+	out := make(map[domain.SourceID]domain.GearID, len(byKey))
+	for _, s := range sources {
+		if k, ok := domain.GearRefKeyOf(s); ok {
+			if gid, found := byKey[k]; found {
+				out[s.ID] = gid
+			}
+		}
+	}
+	return out, nil
 }
 
 func collectSourceIDs(sources []domain.ActivitySource) []domain.SourceID {

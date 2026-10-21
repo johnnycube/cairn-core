@@ -171,7 +171,7 @@ func mkSource(m *memRepo, provider string, start time.Time, distM float64) (doma
 var testUser = domain.UserID(uuid.New())
 
 func newRecluster(m *memRepo) *ReclusterBucket {
-	recompute := activity.NewRecomputeActivityFromSources(m, fakeSettings{}, nil, nil, nil, fakeTx{}, func() time.Time { return reTime })
+	recompute := activity.NewRecomputeActivityFromSources(m, fakeSettings{}, nil, nil, nil, nil, fakeTx{}, func() time.Time { return reTime })
 	n := 0
 	newID := func() uuid.UUID { n++; return uuid.MustParse(fmt.Sprintf("00000000-0000-0000-0000-%012d", n)) }
 	return NewReclusterBucket(m, recompute, nil, fakeTx{}, newID, dmatch.DefaultOptions(), nil)
@@ -264,7 +264,7 @@ func TestReclusterBucket_DenylistKeepsStandalone(t *testing.T) {
 
 	// Deny the strava source's identity.
 	dl := fakeDenylist{denied: map[string]bool{"strava|" + m.srcs[s2].ExternalID: true}}
-	recompute := activity.NewRecomputeActivityFromSources(m, fakeSettings{}, nil, nil, nil, fakeTx{}, func() time.Time { return reTime })
+	recompute := activity.NewRecomputeActivityFromSources(m, fakeSettings{}, nil, nil, nil, nil, fakeTx{}, func() time.Time { return reTime })
 	n := 0
 	newID := func() uuid.UUID { n++; return uuid.MustParse(fmt.Sprintf("00000000-0000-0000-0000-%012d", n)) }
 	uc := NewReclusterBucket(m, recompute, dl, fakeTx{}, newID, dmatch.DefaultOptions(), nil)

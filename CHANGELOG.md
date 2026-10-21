@@ -7,6 +7,18 @@ All notable changes to Cairn are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Gear (docs/gear-v0.4.0.md): user-managed bikes and shoes with provider
+  refs, per-type defaults and derived totals. `GearService` (list, get,
+  create, update, delete, merge, defaults, sync); `UpdateActivity` takes
+  `gear_id` / `reset_gear`; `Activity` carries `gear_set_by` and `gear_name`;
+  activities can be listed by gear (`gear_ids`, feed `?gear_id=`). Imported
+  activities get their gear from the winning source's provider gear id
+  (merge field group `gear`, pinnable); manual and uploaded activities get the
+  type default once. GEAR worker events upsert gear by provider ref;
+  `import_gear` jobs are published on connect, on `POST
+  /api/accounts/{id}/sync-gear` and with every reconcile when a live worker
+  declares the Gear data type. Admin `POST /api/admin/gear/rebuild-totals`.
+  Migration 00063.
 - Worker contract (additive): `WORKER_EVENT_TYPE_GEAR` / `ImportedGear`
   events, the `import_gear` job (`cairn.jobs.import_gear.<provider>`, in the
   standard worker permission template and the conformance harness `--gear`
