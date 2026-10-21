@@ -191,6 +191,9 @@ export interface ActivityView {
 	elapsedDurationS: number;
 	primaryStreamSourceId: string | null;
 	startPlace: string;
+	gearId: string;
+	gearName: string;
+	gearSetBy: string;
 	sources: SourceView[];
 	summary: {
 		distanceM: number | null;
@@ -288,6 +291,9 @@ function activityToView(a: Activity): ActivityView {
 		elapsedDurationS: protoDurationToSeconds(a.elapsedDuration),
 		primaryStreamSourceId: a.primaryStreamSourceId || null,
 		startPlace: a.startPlace,
+		gearId: a.gearId,
+		gearName: a.gearName,
+		gearSetBy: a.gearSetBy || 'merge',
 		sources: a.sources.map((s) => ({
 			id: s.id,
 			provider: s.provider,

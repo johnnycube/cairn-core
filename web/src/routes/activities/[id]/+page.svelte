@@ -318,6 +318,16 @@
 					· {formatDate(a.startTime)}
 					{#if a.startPlace}· {a.startPlace}{/if}
 				</p>
+				{#if a.gearId}
+					<p class="mt-1 text-sm text-zinc-400">
+						<a href="/gear" class="text-zinc-300 hover:text-accent-300"
+							>{a.gearName || m.gear_title()}</a
+						>
+						<span class="text-zinc-600">
+							· {a.gearSetBy === 'user' ? m.gear_set_by_user() : m.gear_set_by_merge()}</span
+						>
+					</p>
+				{/if}
 				{#if a.isVirtual || a.isEbike || a.isCommute || a.isRace}
 					<div class="mt-1.5 flex flex-wrap gap-1.5">
 						{#if a.isRace}<span

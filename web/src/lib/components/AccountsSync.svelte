@@ -321,6 +321,23 @@
 		}
 	}
 
+	// Ask the account's worker for its gear list; 409 = the worker does not
+	// import gear.
+	async function syncGear(id: string) {
+		busy = { ...busy, [id]: true };
+		error = null;
+		notice = null;
+		try {
+			const res = await fetch(`/api/accounts/${id}/sync-gear`, { method: 'POST' });
+			if (!res.ok) throw new Error(await errText(res));
+			notice = 'Gear sync queued — new gear shows up under Gear as the worker reports it.';
+		} catch (e) {
+			error = (e as Error).message;
+		} finally {
+			busy = { ...busy, [id]: false };
+		}
+	}
+
 	async function start(id: string, skipExisting: boolean) {
 		busy = { ...busy, [id]: true };
 		error = null;
@@ -425,6 +442,14 @@
 								class="rounded border border-zinc-700 px-2.5 py-1 text-zinc-300 hover:border-accent-500 hover:text-accent-300 max-md:py-2"
 							>
 								{importOpen[a.id] ? 'Cancel import' : 'Import activity'}
+							</button>
+							<button
+								type="button"
+								disabled={busy[a.id]}
+								onclick={() => syncGear(a.id)}
+								class="rounded border border-zinc-700 px-2.5 py-1 text-zinc-300 hover:border-accent-500 hover:text-accent-300 disabled:opacity-50 max-md:py-2"
+							>
+								Sync gear
 							</button>
 							{#if a.provider === 'garmin'}
 								<button

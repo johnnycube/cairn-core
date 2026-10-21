@@ -30,7 +30,16 @@ describe('connectClients', () => {
 	it('exposes every service client', () => {
 		const c = connectClients(fetch, 'http://h');
 		expect(Object.keys(c).sort()).toEqual(
-			['activity', 'admin', 'auth', 'externalAccount', 'metrics', 'notification', 'segment'].sort()
+			[
+				'activity',
+				'admin',
+				'auth',
+				'externalAccount',
+				'gear',
+				'metrics',
+				'notification',
+				'segment'
+			].sort()
 		);
 	});
 

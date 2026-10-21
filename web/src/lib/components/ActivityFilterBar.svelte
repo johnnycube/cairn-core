@@ -7,6 +7,10 @@
 		humanize,
 		type ActivityFacets
 	} from '#lib/activity-filter.svelte.js';
+	import { onMount } from 'svelte';
+	import { clients } from '#lib/connect.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { gearToView, type GearView } from '#lib/gear.js';
 
 	// The standard filter bar. Facet chips only render for values the user
 	// actually has (facets come from the server, respecting every filter but
@@ -21,6 +25,17 @@
 	// once it has appeared, or the bar jumps around while filtering.
 	let showSports = $state(false);
 	let showDisciplines = $state(false);
+	// Gear chips: the user's active gear (retired too when it is the current
+	// filter), loaded once; no chips when they have none.
+	let gear = $state<GearView[]>([]);
+	onMount(async () => {
+		try {
+			gear = (await clients.gear.listGear({ includeRetired: true })).gear.map(gearToView);
+		} catch {
+			/* filter bar works without gear */
+		}
+	});
+	const gearChips = $derived(gear.filter((g) => !g.retired || g.id === filter.gearId));
 	$effect(() => {
 		if (facets && facets.types.length > 1) showSports = true;
 		if (facets && facets.disciplines.length > 0) showDisciplines = true;
@@ -125,6 +140,30 @@
 				class="{field} [color-scheme:dark]"
 			/>
 		</div>
+
+		{#if gearChips.length > 0}
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="mr-1 text-xs font-medium uppercase tracking-wide text-zinc-500"
+					>{m.gear_filter_label()}</span
+				>
+				<button
+					type="button"
+					onclick={() => (filter.gearId = '')}
+					class="{chip} {filter.gearId === '' ? chipOn : chipOff}"
+				>
+					All
+				</button>
+				{#each gearChips as g (g.id)}
+					<button
+						type="button"
+						onclick={() => (filter.gearId = filter.gearId === g.id ? '' : g.id)}
+						class="{chip} {filter.gearId === g.id ? chipOn : chipOff}"
+					>
+						{g.name}
+					</button>
+				{/each}
+			</div>
+		{/if}
 
 		<!-- Classification flags — tri-state chips: any → only → exclude. -->
 		<div class="flex flex-wrap items-center gap-2">

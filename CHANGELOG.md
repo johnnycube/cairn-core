@@ -19,7 +19,10 @@ All notable changes to Cairn are documented here. The format follows
   record Cairn has not seen stays pending and raises a "gear needs a
   decision" notification until the user creates gear from it
   (`CreateGearFromRef`), maps it onto existing gear (`LinkGearRef`) or leaves
-  it (`ListPendingGearRefs`);
+  it (`ListPendingGearRefs`). Web: a Gear page (pending decisions, create,
+  edit, retire, merge, delete, defaults per sport), gear pickers on the
+  activity edit and manual-entry forms, the gear line on the activity page,
+  a gear filter on the activities list, "Sync gear" per connected account;
   `import_gear` jobs are published on connect, on `POST
   /api/accounts/{id}/sync-gear` and with every reconcile when a live worker
   declares the Gear data type. Admin `POST /api/admin/gear/rebuild-totals`.

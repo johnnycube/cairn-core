@@ -7,6 +7,7 @@ import { MetricsService } from '#lib/proto/cairn/v1/metrics_pb.js';
 import { NotificationService } from '#lib/proto/cairn/v1/notification_pb.js';
 import { AdminService } from '#lib/proto/cairn/v1/admin_pb.js';
 import { AuthService, ExternalAccountService } from '#lib/proto/cairn/v1/auth_pb.js';
+import { GearService } from '#lib/proto/cairn/v1/gear_pb.js';
 
 // Browser-side Connect-RPC clients.
 //
@@ -36,7 +37,8 @@ export function connectClients(fetchFn: typeof fetch = fetch, baseUrl?: string) 
 		notification: createClient(NotificationService, transport),
 		admin: createClient(AdminService, transport),
 		auth: createClient(AuthService, transport),
-		externalAccount: createClient(ExternalAccountService, transport)
+		externalAccount: createClient(ExternalAccountService, transport),
+		gear: createClient(GearService, transport)
 	};
 }
 
